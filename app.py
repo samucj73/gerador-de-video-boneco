@@ -1,38 +1,44 @@
 import streamlit as st
-from moviepy.editor import *
 from PIL import Image
 import numpy as np
+import cv2
 import os
 import tempfile
 
-st.set_page_config(page_title="Gerador de Vídeo do Boneco", layout="centered")
+st.set_page_config(page_title="Gerador de Vídeo com Imagem", layout="centered")
 
-st.title("Gerador de Vídeo com Imagem")
-st.write("Faça o upload de uma imagem e gere um vídeo de 10 segundos com ela!")
+st.title("Gerador de Vídeo com Imagem (OpenCV)")
+st.write("Faça upload de uma imagem e gere um vídeo de 10 segundos!")
 
-# Upload da imagem
 uploaded_file = st.file_uploader("Envie uma imagem (JPG, PNG...)", type=["png", "jpg", "jpeg"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file)
+    image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Imagem enviada", use_column_width=True)
 
     if st.button("Gerar vídeo"):
         with st.spinner("Gerando vídeo..."):
-            image_array = np.array(image)
+            np_img = np.array(image)
+            height, width, _ = np_img.shape
+            fps = 24
+            duration = 10
+            total_frames = fps * duration
 
-            # Diretório temporário para evitar problemas de permissão no Streamlit Cloud
-            temp_dir = tempfile.mkdtemp()
-            output_path = os.path.join(temp_dir, "video_output.mp4")
+            with tempfile.TemporaryDirectory() as tmpdir:
+                video_path = os.path.join(tmpdir, "output.mp4")
 
-            # Criar e salvar o vídeo
-            clip = ImageClip(image_array).set_duration(10)
-            clip.write_videofile(output_path, fps=24, logger=None)
+                # Cria o vídeo com OpenCV
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                video = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
 
-            st.success("Vídeo gerado com sucesso!")
-            st.video(output_path)
+                for _ in range(total_frames):
+                    frame = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+                    video.write(frame)
 
-            with open(output_path, "rb") as f:
-                st.download_button("Baixar vídeo", f, file_name="video_com_imagem.mp4", mime="video/mp4")
-else:
-    st.info("Por favor, envie uma imagem para continuar.")
+                video.release()
+
+                st.success("Vídeo gerado com sucesso!")
+                st.video(video_path)
+
+                with open(video_path, "rb") as f:
+                    st.download_button("Baixar vídeo", f, "video.mp4", mime="video/mp4")
