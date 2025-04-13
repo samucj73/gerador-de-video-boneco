@@ -1,46 +1,31 @@
 import streamlit as st
-from PIL import Image, ImageSequence
+from PIL import Image
 import numpy as np
+import moviepy.editor as mpy
 import tempfile
 import os
 
-st.set_page_config(page_title="Gerador de GIF com Imagem", layout="centered")
-st.title("Gerador de GIF com Imagem")
+st.set_page_config(page_title="Gerador de Vídeo com Imagem", layout="centered")
+st.title("Gerador de Vídeo com Imagem (MoviePy)")
 
 uploaded_file = st.file_uploader("Envie uma imagem (JPG, PNG...)", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGBA")
+    image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Imagem enviada", use_column_width=True)
 
-    if st.button("Gerar GIF"):
-        with st.spinner("Gerando GIF..."):
-            frames = []
+    if st.button("Gerar vídeo"):
+        with st.spinner("Gerando vídeo..."):
+            np_img = np.array(image)
+            clip = mpy.ImageClip(np_img).set_duration(10)
+            clip = clip.set_fps(24)
 
-            # Criar leve animação: zoom in/out alternando tamanho
-            for i in range(20):
-                scale = 1 + 0.01 * (i if i < 10 else 20 - i)
-                new_size = (int(image.width * scale), int(image.height * scale))
-                frame = image.resize(new_size, resample=Image.LANCZOS)
-                # Centralizar
-                background = Image.new("RGBA", image.size, (255, 255, 255, 0))
-                pos = ((image.width - frame.width) // 2, (image.height - frame.height) // 2)
-                background.paste(frame, pos, frame)
-                frames.append(background)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+                video_path = tmp.name
+                clip.write_videofile(video_path, codec="libx264", audio=False)
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".gif") as tmp:
-                frames[0].save(
-                    tmp.name,
-                    save_all=True,
-                    append_images=frames[1:],
-                    duration=100,
-                    loop=0,
-                    transparency=0,
-                    disposal=2
-                )
-                gif_path = tmp.name
+            st.success("Vídeo gerado com sucesso!")
+            st.video(video_path)
 
-            st.success("GIF gerado com sucesso!")
-            st.image(gif_path)
-            with open(gif_path, "rb") as f:
-                st.download_button("Baixar GIF", f, file_name="animacao.gif", mime="image/gif")
+            with open(video_path, "rb") as f:
+                st.download_button("Baixar vídeo", f, "video.mp4", mime="video/mp4")
