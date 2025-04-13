@@ -1,44 +1,46 @@
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageSequence
 import numpy as np
-import cv2
-import os
 import tempfile
+import os
 
-st.set_page_config(page_title="Gerador de Vídeo com Imagem", layout="centered")
+st.set_page_config(page_title="Gerador de GIF com Imagem", layout="centered")
+st.title("Gerador de GIF com Imagem")
 
-st.title("Gerador de Vídeo com Imagem (OpenCV)")
-st.write("Faça upload de uma imagem e gere um vídeo de 10 segundos!")
-
-uploaded_file = st.file_uploader("Envie uma imagem (JPG, PNG...)", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("Envie uma imagem (JPG, PNG...)", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
+    image = Image.open(uploaded_file).convert("RGBA")
     st.image(image, caption="Imagem enviada", use_column_width=True)
 
-    if st.button("Gerar vídeo"):
-        with st.spinner("Gerando vídeo..."):
-            np_img = np.array(image)
-            height, width, _ = np_img.shape
-            fps = 24
-            duration = 10
-            total_frames = fps * duration
+    if st.button("Gerar GIF"):
+        with st.spinner("Gerando GIF..."):
+            frames = []
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                video_path = os.path.join(tmpdir, "output.mp4")
+            # Criar leve animação: zoom in/out alternando tamanho
+            for i in range(20):
+                scale = 1 + 0.01 * (i if i < 10 else 20 - i)
+                new_size = (int(image.width * scale), int(image.height * scale))
+                frame = image.resize(new_size, resample=Image.LANCZOS)
+                # Centralizar
+                background = Image.new("RGBA", image.size, (255, 255, 255, 0))
+                pos = ((image.width - frame.width) // 2, (image.height - frame.height) // 2)
+                background.paste(frame, pos, frame)
+                frames.append(background)
 
-                # Cria o vídeo com OpenCV
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                video = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".gif") as tmp:
+                frames[0].save(
+                    tmp.name,
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=100,
+                    loop=0,
+                    transparency=0,
+                    disposal=2
+                )
+                gif_path = tmp.name
 
-                for _ in range(total_frames):
-                    frame = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
-                    video.write(frame)
-
-                video.release()
-
-                st.success("Vídeo gerado com sucesso!")
-                st.video(video_path)
-
-                with open(video_path, "rb") as f:
-                    st.download_button("Baixar vídeo", f, "video.mp4", mime="video/mp4")
+            st.success("GIF gerado com sucesso!")
+            st.image(gif_path)
+            with open(gif_path, "rb") as f:
+                st.download_button("Baixar GIF", f, file_name="animacao.gif", mime="image/gif")
