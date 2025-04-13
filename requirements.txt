@@ -1,4 +1,4 @@
 streamlit
-moviepy
-pillow
-imageio-ffmpeg
+opencv-python
+numpy
+Pillow
