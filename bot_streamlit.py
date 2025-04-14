@@ -92,10 +92,15 @@ if st.session_state.detected_candidates:
 else:
     seletor_detectado = ""
 
-# Define o seletor efetivo: se o usuário digitou algo, usa o manual; caso contrário, se houver detecção, usa o selecionado
+# Define o seletor efetivo:
+# Se o usuário digitou algo, usa o manual; caso contrário, se houver detecção, usa o selecionado;
+# Caso nenhum deles esteja definido, usa o seletor padrão baseado na nossa conclusão:
 seletor = seletor_manual.strip() or seletor_detectado.strip()
+if not seletor:
+    seletor = ".result-wrapper .result-number"
+    st.info("Nenhum seletor foi definido manualmente ou detectado. Utilizando seletor padrão: '.result-wrapper .result-number'")
 
-st.write("Seletor usado:", seletor if seletor else "Nenhum seletor definido ainda.")
+st.write("Seletor usado:", seletor)
 
 # Botões para iniciar e parar a captura
 col1, col2 = st.columns(2)
