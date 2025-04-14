@@ -1,4 +1,0 @@
-streamlit
-moviepy
-pillow
-imageio-ffmpeg
