@@ -1,4 +1,0 @@
-streamlit
-selenium
-streamlit-autorefresh
-pillow
