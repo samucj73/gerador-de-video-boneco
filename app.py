@@ -1,3 +1,4 @@
+import os
 import time
 import streamlit as st
 from selenium import webdriver
@@ -7,14 +8,17 @@ from selenium.webdriver.common.by import By
 
 def inicializa_driver():
     chrome_options = Options()
-    chrome_options.binary_location = "/usr/local/bin/chrome"  # Caminho corrigido
+    chrome_options.binary_location = "/usr/bin/google-chrome"
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
 
-    service = Service("/usr/local/bin/chromedriver")  # Caminho corrigido
+    service = Service("/usr/local/bin/chromedriver")
+
+    # Verifica se os arquivos existem (debug útil)
+    assert os.path.exists(chrome_options.binary_location), "Chrome não encontrado!"
+    assert os.path.exists(service.path), "Chromedriver não encontrado!"
 
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
@@ -23,14 +27,12 @@ def captura_numeros(url, seletor):
     driver = inicializa_driver()
     driver.get(url)
     time.sleep(3)
-
     elementos = driver.find_elements(By.CSS_SELECTOR, seletor)
     numeros = [e.text for e in elementos]
     driver.quit()
     return numeros
 
-# Interface Streamlit
-st.set_page_config(page_title="Bot Roleta", layout="centered")
+# Streamlit UI
 st.title("Bot de Coleta de Números da Roleta")
 
 url = st.text_input("URL da Roleta", "https://example.com")
