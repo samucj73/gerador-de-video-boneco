@@ -1,13 +1,9 @@
 services:
   - type: web
-    name: roleta-streamlit
+    name: bot-roleta
     env: python
-    buildCommand: ./setup.sh && pip install -r requirements.txt
-    startCommand: streamlit run app.py
-    envVars:
-      - key: PYTHONUNBUFFERED
-        value: "true"
-      - key: CHROME_BIN
-        value: "/usr/bin/google-chrome"
-      - key: CHROMEDRIVER_PATH
-        value: "/usr/bin/chromedriver"
+    plan: free
+    buildCommand: |
+      bash install_chrome.sh
+      pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT
