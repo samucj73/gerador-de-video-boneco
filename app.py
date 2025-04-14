@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -11,38 +12,40 @@ from collections import Counter
 
 def inicializa_driver(url):
     """
-    Inicializa o Selenium WebDriver em modo headless utilizando as configurações
-    e caminhos definidos para o Chrome e o Chromedriver.
+    Inicializa o Selenium WebDriver com configurações para ambientes headless no Render.
+    Os caminhos para o Chrome e o Chromedriver são construídos a partir do diretório atual.
     """
     if "driver" not in st.session_state:
         chrome_options = Options()
-        chrome_options.binary_location = "/opt/render/project/.render/chrome/chrome"
+        # Define os caminhos relativos ao diretório do projeto
+        project_dir = os.getcwd()
+        chrome_binary = os.path.join(project_dir, ".render", "chrome", "chrome")
+        chromedriver_binary = os.path.join(project_dir, ".render", "chromedriver", "chromedriver")
+        
+        chrome_options.binary_location = chrome_binary
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--window-size=1920,1080")
-
-        service = Service("/opt/render/project/.render/chromedriver/chromedriver")
+        
+        # Cria o objeto Service usando o caminho para o chromedriver
+        service = Service(chromedriver_binary)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.get(url)
         st.session_state.driver = driver
     return st.session_state.driver
 
 def captura_numeros(url, seletor):
-    """
-    Usa o driver para capturar os números utilizando o seletor CSS informado.
-    """
+    """Captura os números utilizando o seletor CSS informado."""
     driver = inicializa_driver(url)
-    time.sleep(3)  # Aguarda a página carregar
+    time.sleep(3)
     elementos = driver.find_elements(By.CSS_SELECTOR, seletor)
     numeros = [el.text.strip() for el in elementos if el.text.strip()]
     return numeros
 
 def auto_detect_css(url):
-    """
-    Detecta candidatos a seletor CSS baseado em elementos cujo texto seja numérico.
-    """
+    """Detecta candidatos a seletor CSS com base em elementos cujo texto seja numérico."""
     driver = inicializa_driver(url)
     time.sleep(3)
     elementos = driver.find_elements(By.XPATH, "//*")
@@ -63,6 +66,7 @@ def auto_detect_css(url):
 st.set_page_config(page_title="Bot de Captura - Roleta", layout="wide")
 st.title("Bot de Captura - Roleta Betfair")
 
+# Entrada de URL e seletor
 url = st.text_input("Informe a URL do site:", value="https://play.betfair.bet.br/launch/mobile?game=live-lr-brazil-cev")
 seletor_manual = st.text_input("Informe o seletor CSS:", value="")
 
