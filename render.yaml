@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: roleta-captura
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "streamlit run bot_streamlit.py"
+    autoDeploy: true
