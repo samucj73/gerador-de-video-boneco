@@ -1,126 +1,45 @@
-import streamlit as st
 import time
-import os
+import streamlit as st
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from streamlit_autorefresh import st_autorefresh
-from collections import Counter
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 
-# --- Funções auxiliares ---
+def inicializa_driver():
+    chrome_options = Options()
+    chrome_options.binary_location = "/usr/local/bin/chrome"  # Caminho corrigido
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
 
-def inicializa_driver(url):
-    """
-    Inicializa o Selenium WebDriver com configurações para ambientes headless no Render.
-    Os caminhos para o Chrome e o Chromedriver são construídos a partir do diretório atual.
-    """
-    if "driver" not in st.session_state:
-        chrome_options = Options()
-        # Define os caminhos relativos ao diretório do projeto
-        project_dir = os.getcwd()
-        chrome_binary = os.path.join(project_dir, ".render", "chrome", "chrome")
-        chromedriver_binary = os.path.join(project_dir, ".render", "chromedriver", "chromedriver")
-        
-        chrome_options.binary_location = chrome_binary
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=1920,1080")
-        
-        # Cria o objeto Service usando o caminho para o chromedriver
-        service = Service(chromedriver_binary)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.get(url)
-        st.session_state.driver = driver
-    return st.session_state.driver
+    service = Service("/usr/local/bin/chromedriver")  # Caminho corrigido
+
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
 
 def captura_numeros(url, seletor):
-    """Captura os números utilizando o seletor CSS informado."""
-    driver = inicializa_driver(url)
+    driver = inicializa_driver()
+    driver.get(url)
     time.sleep(3)
+
     elementos = driver.find_elements(By.CSS_SELECTOR, seletor)
-    numeros = [el.text.strip() for el in elementos if el.text.strip()]
+    numeros = [e.text for e in elementos]
+    driver.quit()
     return numeros
 
-def auto_detect_css(url):
-    """Detecta candidatos a seletor CSS com base em elementos cujo texto seja numérico."""
-    driver = inicializa_driver(url)
-    time.sleep(3)
-    elementos = driver.find_elements(By.XPATH, "//*")
-    contagem_classes = Counter()
-    for el in elementos:
-        texto = el.text.strip()
-        if texto.isdigit():
-            classes = el.get_attribute("class")
-            if classes:
-                for cls in classes.split():
-                    contagem_classes[cls] += 1
-    candidatos = [f".{cls}" for cls, freq in contagem_classes.items() if freq > 1]
-    candidatos = sorted(candidatos, key=lambda x: contagem_classes[x[1:]], reverse=True)
-    return candidatos
+# Interface Streamlit
+st.set_page_config(page_title="Bot Roleta", layout="centered")
+st.title("Bot de Coleta de Números da Roleta")
 
-# --- Interface Streamlit ---
+url = st.text_input("URL da Roleta", "https://example.com")
+seletor = st.text_input("Seletor CSS dos Números", ".roulette-history .number")
 
-st.set_page_config(page_title="Bot de Captura - Roleta", layout="wide")
-st.title("Bot de Captura - Roleta Betfair")
-
-# Entrada de URL e seletor
-url = st.text_input("Informe a URL do site:", value="https://play.betfair.bet.br/launch/mobile?game=live-lr-brazil-cev")
-seletor_manual = st.text_input("Informe o seletor CSS:", value="")
-
-if "capturando" not in st.session_state:
-    st.session_state.capturando = False
-if "captured_data" not in st.session_state:
-    st.session_state.captured_data = []
-if "detected_candidates" not in st.session_state:
-    st.session_state.detected_candidates = []
-
-if st.button("Auto Detect CSS"):
-    st.info("Detectando seletores CSS automaticamente...")
-    candidatos = auto_detect_css(url)
-    if candidatos:
-        st.session_state.detected_candidates = candidatos
-        st.success(f"{len(candidatos)} candidatos encontrados.")
-    else:
-        st.warning("Nenhum candidato detectado.")
-
-if st.session_state.detected_candidates:
-    seletor_detectado = st.selectbox("Selecione um seletor:", st.session_state.detected_candidates)
-else:
-    seletor_detectado = ""
-
-seletor = seletor_manual.strip() or seletor_detectado.strip()
-if not seletor:
-    seletor = ".result-wrapper .result-number"
-    st.info(f"Usando seletor padrão: `{seletor}`")
-
-st.write("Seletor CSS usado:", seletor)
-
-col1, col2 = st.columns(2)
-if col1.button("Iniciar Captura"):
-    st.session_state.capturando = True
-if col2.button("Parar Captura"):
-    st.session_state.capturando = False
-    if "driver" in st.session_state:
-        st.session_state.driver.quit()
-        del st.session_state.driver
-
-if st.session_state.capturando and seletor:
-    st.info("Capturando a cada 5 segundos...")
-    numeros = captura_numeros(url, seletor)
-    if numeros and (not st.session_state.captured_data or numeros != st.session_state.captured_data[-1]["numeros"]):
-        st.session_state.captured_data.append({
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "numeros": numeros
-        })
-    st.write("Última captura:")
-    st.write(numeros)
-    st_autorefresh(interval=5000, key="roleta_autorefresh")
-elif st.session_state.capturando and not seletor:
-    st.error("Defina um seletor válido para iniciar a captura.")
-
-st.subheader("Histórico")
-for registro in st.session_state.captured_data:
-    st.write(f"[{registro['timestamp']}] → {registro['numeros']}")
+if st.button("Coletar Números"):
+    try:
+        numeros = captura_numeros(url, seletor)
+        st.success("Números coletados com sucesso!")
+        st.write(numeros)
+    except Exception as e:
+        st.error(f"Erro ao capturar os números: {e}")
