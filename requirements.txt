@@ -1,6 +1,7 @@
 streamlit
-xgboost
 scikit-learn
 numpy
 requests
 streamlit-autorefresh
+joblib
+matplotlib
