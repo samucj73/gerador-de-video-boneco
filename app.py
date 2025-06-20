@@ -52,25 +52,19 @@ def salvar_resultado_em_arquivo(historico):
     with open(HISTORICO_PATH, "w") as f:
         json.dump(historico, f, indent=2)
 
-def grupo_mais_frequente(numeros, func, n=30):
-    grupos = [func(x) for x in numeros[-n:] if x >= 0]
-    return Counter(grupos).most_common(1)[0][0] if grupos else None
-
-# --- Classe para IA ---
 class ModeloIA:
     def __init__(self, tipo, janela=20):
-        self.tipo = tipo   # "coluna", "duzia" ou "numero"
+        self.tipo = tipo
         self.janela = janela
         self.modelo = None
         self.encoder = LabelEncoder()
         self.treinado = False
         self.path = os.path.join(MODELO_DIR, f"modelo_{tipo}.joblib")
-    
+
     def construir_features(self, numeros):
         ultimos = numeros[-self.janela:]
         atual = ultimos[-1]
         anteriores = ultimos[:-1]
-        
         features = [
             atual % 2,
             int(str(atual)[-1]),
@@ -94,11 +88,9 @@ class ModeloIA:
             freq = Counter(get_duzia(n) for n in numeros[-20:])
             features.append(grupo)
             features.append(freq.get(grupo, 0))
-        # Para "numero" não adicionamos features de agrupamento
         return features
 
     def treinar(self, historico):
-        # Filtra apenas números válidos
         numeros = [h["number"] for h in historico if isinstance(h.get("number"), int) and 0 <= h["number"] <= 36]
         X, y = [], []
         for i in range(self.janela, len(numeros)-1):
@@ -141,11 +133,9 @@ class ModeloIA:
         indices = np.argsort(proba)[::-1][:top_n]
         return list(self.encoder.inverse_transform(indices))
 
-# --- App Streamlit ---
 st.set_page_config(page_title="IA Roleta XXXtreme", layout="centered")
 st.title("🎯 IA Roleta — Coluna, Dúzia e Top 3 Números")
 
-# Inicialização do histórico
 if "historico" not in st.session_state:
     if os.path.exists(HISTORICO_PATH):
         with open(HISTORICO_PATH, "r") as f:
@@ -153,7 +143,6 @@ if "historico" not in st.session_state:
     else:
         st.session_state.historico = []
 
-# Inicialização dos modelos
 if "modelo_coluna" not in st.session_state:
     st.session_state.modelo_coluna = ModeloIA("coluna")
     st.session_state.modelo_coluna.carregar()
@@ -164,13 +153,11 @@ if "modelo_numero" not in st.session_state:
     st.session_state.modelo_numero = ModeloIA("numero")
     st.session_state.modelo_numero.carregar()
 
-# Inicialização dos acertos
 if "acertos" not in st.session_state:
     st.session_state.acertos = {"coluna": 0, "duzia": 0, "numero": 0}
 if "historico_taxas" not in st.session_state:
     st.session_state.historico_taxas = []
 
-# Entrada manual
 st.subheader("✍️ Inserir Números Manualmente")
 entrada = st.text_area("Digite números (0-36) separados por espaço:", key="entrada")
 if st.button("Adicionar Números"):
@@ -183,17 +170,14 @@ if st.button("Adicionar Números"):
     except Exception as e:
         st.error("Erro ao adicionar números.")
 
-# Atualização automática
 st_autorefresh(interval=10000, key="refresh")
 
-# Captura automática do último resultado
 res = fetch_latest_result()
 ultimo_ts = st.session_state.historico[-1]["timestamp"] if st.session_state.historico else None
 if res and res["timestamp"] != ultimo_ts:
     st.session_state.historico.append(res)
     salvar_resultado_em_arquivo(st.session_state.historico)
     st.toast(f"🎲 Novo número: {res['number']}")
-    # Verificação de acertos
     previsao_coluna = st.session_state.modelo_coluna.prever(st.session_state.historico)
     previsao_duzia = st.session_state.modelo_duzia.prever(st.session_state.historico)
     previsao_numero = st.session_state.modelo_numero.prever(st.session_state.historico, top_n=3)
@@ -207,24 +191,53 @@ if res and res["timestamp"] != ultimo_ts:
         st.session_state.acertos["numero"] += 1
         st.toast("🎯 Acertou o número!")
 
-# Treinamento dos modelos
 st.session_state.modelo_coluna.treinar(st.session_state.historico)
 st.session_state.modelo_duzia.treinar(st.session_state.historico)
 st.session_state.modelo_numero.treinar(st.session_state.historico)
 
-# Obtenção das previsões
 coluna = st.session_state.modelo_coluna.prever(st.session_state.historico)
 duzia = st.session_state.modelo_duzia.prever(st.session_state.historico)
 numeros = st.session_state.modelo_numero.prever(st.session_state.historico, top_n=3)
 
-# Exibição dos últimos 10 números
 st.subheader("🔁 Últimos 10 Números")
 ultimos = st.session_state.historico[-10:]
 st.write(" ".join(str(item["number"]) for item in ultimos))
 
-# Bloco seguro de previsões
 st.subheader("🔮 Previsões")
 if coluna and isinstance(coluna, list) and len(coluna) > 0:
     st.info(f"🧱 Coluna provável: {coluna[0]}")
 else:
-    st.warning("📉 Col
+    st.warning("📉 Coluna ainda não prevista.")
+
+if duzia and isinstance(duzia, list) and len(duzia) > 0:
+    if duzia[0] == 0:
+        st.info("🟢 Zero pode vir!")
+    else:
+        st.info(f"🎯 Dúzia provável: {duzia[0]}")
+else:
+    st.warning("📉 Dúzia ainda não prevista.")
+
+if numeros and isinstance(numeros, list) and len(numeros) > 0:
+    st.success(f"🔥 Top 3 Números Prováveis: {', '.join(map(str, numeros))}")
+else:
+    st.warning("📉 Números ainda não previstos.")
+
+st.subheader("📊 Desempenho")
+total = len(st.session_state.historico) - st.session_state.modelo_coluna.janela
+if total > 0:
+    taxas = {k: v/total*100 for k, v in st.session_state.acertos.items()}
+    st.metric("Acertos Coluna", f"{st.session_state.acertos['coluna']} ({taxas['coluna']:.1f}%)")
+    st.metric("Acertos Dúzia", f"{st.session_state.acertos['duzia']} ({taxas['duzia']:.1f}%)")
+    st.metric("Acertos Número (Top 3)", f"{st.session_state.acertos['numero']} ({taxas['numero']:.1f}%)")
+    st.session_state.historico_taxas.append(taxas)
+    if len(st.session_state.historico_taxas) > 3:
+        col_taxas, duz_taxas, num_taxas = zip(*[(t["coluna"], t["duzia"], t["numero"]) for t in st.session_state.historico_taxas])
+        fig, ax = plt.subplots()
+        ax.plot(col_taxas, label="Coluna", color="green")
+        ax.plot(duz_taxas, label="Dúzia", color="blue")
+        ax.plot(num_taxas, label="Número", color="red")
+        ax.set_title("Evolução da Performance")
+        ax.legend()
+        st.pyplot(fig)
+else:
+    st.info("Aguardando dados para calcular desempenho.")
