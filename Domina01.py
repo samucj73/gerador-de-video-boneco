@@ -272,7 +272,7 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
     if entrada_info:
         dominantes = entrada_info["dominantes"]
 
-        if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
+    if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
     st.session_state.terminais_previstos = dominantes
     st.session_state.criterio = entrada_info.get("criterio")
     st.session_state.previsao_base_timestamp = ts_atual  # aposta vale para o próximo giro
