@@ -104,6 +104,7 @@ class EstrategiaRoleta:
                 conjunto.add(vizinho)
         return conjunto
 
+
     def verificar_entrada(self):
         if len(self.historico) < self.janela + 1:
             return None
@@ -114,11 +115,14 @@ class EstrategiaRoleta:
         dominantes = self.calcular_dominantes()
         terminal_13 = self.extrair_terminal(numero_13)
 
-        # Critério A
+        # Critério A → número repetido
         condicao_a = numero_13 in ultimos_12
 
-        # Critério B (atualizado)
+        # Critério B → terminal repetido
         condicao_b = terminal_13 in [self.extrair_terminal(n) for n in ultimos_12]
+
+        # Critério C → não repetiu nem número nem terminal
+        condicao_c = not condicao_a and not condicao_b
 
         if condicao_a or condicao_b:
             jogar_nos_terminais = {}
@@ -133,12 +137,23 @@ class EstrategiaRoleta:
                 "dominantes": dominantes,
                 "jogar_nos_terminais": jogar_nos_terminais
             }
+
+        elif condicao_c:
+            return {
+                "entrada": False,
+                "criterio": "C",
+                "numero_13": numero_13,
+                "dominantes": dominantes
+            }
+
         else:
             return {
                 "entrada": False,
                 "numero_13": numero_13,
                 "dominantes": dominantes
             }
+
+    
 
 # =============================
 # App Streamlit
@@ -256,6 +271,7 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
     entrada_info = st.session_state.estrategia.verificar_entrada()
     if entrada_info:
         dominantes = entrada_info["dominantes"]
+
         if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
             st.session_state.terminais_previstos = dominantes
             st.session_state.criterio = entrada_info.get("criterio")
@@ -263,6 +279,12 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
             st.session_state.resultado_enviado = False
             st.session_state.previsao_enviada = True
             enviar_previsao(f"🎯 Previsão: terminais {dominantes} (Critério {st.session_state.criterio})")
+
+        elif entrada_info.get("criterio") == "C":
+            st.session_state.criterio = "C"
+            st.session_state.terminais_previstos = None
+            enviar_previsao("⏳ Critério C: Nenhuma entrada. Aguardar próxima rodada.")
+    
 
 # --- Interface ---
 st.subheader("🔁 Últimos 13 Números")
