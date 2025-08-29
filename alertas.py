@@ -7,7 +7,7 @@ from typing import Optional
 # Configurações do Telegram
 # =============================
 TELEGRAM_TOKEN = "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY"
-TELEGRAM_CHAT_ID = "5121457416"
+TELEGRAM_CHAT_ID = "-1002940111195"
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 # =============================
