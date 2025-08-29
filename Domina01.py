@@ -59,18 +59,22 @@ def fetch_latest_result():
         return {"number": number, "timestamp": timestamp}
     except Exception as e:
         logging.error(f"Erro ao buscar resultado: {e}")
-        return None
-
+        return  =============================
 # # =============================
-# Estratégia baseada em terminais dominantes
+# Estratégia baseada em terminais dominantes + vizinhos físicos Race
 # =============================
-from collections import deque, Counter
-
 class EstrategiaRoleta:
     def __init__(self, janela=12):
         self.janela = janela
-        # mantém até 13 números (12 + o 13º para validação A/B)
         self.historico = deque(maxlen=janela+1)
+
+        # ordem física da roleta Race (europeia, 37 casas)
+        self.roleta = [
+            0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27,
+            13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33,
+            1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12,
+            35, 3, 26
+        ]
 
     def extrair_terminal(self, numero):
         return numero % 10
@@ -79,7 +83,6 @@ class EstrategiaRoleta:
         self.historico.append(numero)
 
     def calcular_dominantes(self):
-        # usa os 12 anteriores ao 13º
         if len(self.historico) < self.janela:
             return []
         ultimos_13 = list(self.historico)
@@ -88,8 +91,19 @@ class EstrategiaRoleta:
         contagem = Counter(terminais)
         return [t for t, _ in contagem.most_common(2)]
 
+    def adicionar_vizinhos_fisicos(self, numeros):
+        """Expande cada número com 2 vizinhos físicos antes e 2 depois (ordem Race)."""
+        conjunto = set()
+        for n in numeros:
+            if n not in self.roleta:
+                continue
+            idx = self.roleta.index(n)
+            for offset in range(-2, 3):  # 2 antes até 2 depois
+                vizinho = self.roleta[(idx + offset) % len(self.roleta)]
+                conjunto.add(vizinho)
+        return conjunto
+
     def verificar_entrada(self):
-        # precisa de 13 números (12 base + 13º gatilho)
         if len(self.historico) < self.janela + 1:
             return None
 
@@ -99,22 +113,24 @@ class EstrategiaRoleta:
         dominantes = self.calcular_dominantes()
         terminal_13 = self.extrair_terminal(numero_13)
 
-        # Critério A: número inteiro do 13º já saiu nos 12 anteriores
+        # Critério A
         condicao_a = numero_13 in ultimos_12
 
-        # Critério B (atualizado): terminal do 13º está entre os terminais dos últimos 12
+        # Critério B (já corrigido): terminal do 13º está entre os últimos 12
         condicao_b = terminal_13 in [self.extrair_terminal(n) for n in ultimos_12]
 
         if condicao_a or condicao_b:
+            jogar_nos_terminais = {}
+            for t in dominantes:
+                base = [n for n in range(37) if self.extrair_terminal(n) == t]
+                jogar_nos_terminais[t] = sorted(self.adicionar_vizinhos_fisicos(base))
+
             return {
                 "entrada": True,
                 "criterio": "A" if condicao_a else "B",
                 "numero_13": numero_13,
                 "dominantes": dominantes,
-                "jogar_nos_terminais": {
-                    t: [n for n in range(37) if self.extrair_terminal(n) == t]
-                    for t in dominantes
-                }
+                "jogar_nos_terminais": jogar_nos_terminais  # usado só nos cálculos
             }
         else:
             return {
@@ -122,7 +138,6 @@ class EstrategiaRoleta:
                 "numero_13": numero_13,
                 "dominantes": dominantes
             }
-
 # =============================
 # App Streamlit
 # =============================
