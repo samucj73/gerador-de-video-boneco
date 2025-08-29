@@ -273,12 +273,26 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
         dominantes = entrada_info["dominantes"]
 
         if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
-            st.session_state.terminais_previstos = dominantes
-            st.session_state.criterio = entrada_info.get("criterio")
-            st.session_state.previsao_base_timestamp = ts_atual  # aposta vale para o próximo giro
-            st.session_state.resultado_enviado = False
-            st.session_state.previsao_enviada = True
-            enviar_previsao(f"🎯 Previsão: terminais {dominantes} (Critério {st.session_state.criterio})")
+    st.session_state.terminais_previstos = dominantes
+    st.session_state.criterio = entrada_info.get("criterio")
+    st.session_state.previsao_base_timestamp = ts_atual  # aposta vale para o próximo giro
+    st.session_state.resultado_enviado = False
+    st.session_state.previsao_enviada = True
+
+    # Monta as linhas de números por terminal
+    linhas = []
+    for t in dominantes:
+        numeros = [n for n in range(37) if n % 10 == t]
+        linhas.append(f"T{t}: " + " ".join(str(n) for n in numeros))
+    
+    # Inclui critério B se for o caso
+    crit = f"(Critério {st.session_state.criterio})" if st.session_state.criterio else ""
+    
+    # Mensagem final em duas linhas
+    msg_alerta = "\n".join(linhas) + f"\n{crit}"
+    enviar_previsao(msg_alerta)
+
+        
 
         elif entrada_info.get("criterio") == "C":
             st.session_state.criterio = "C"
