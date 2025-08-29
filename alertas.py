@@ -4,8 +4,8 @@ import logging
 # =============================
 # Configurações do Telegram
 # =============================
-TELEGRAM_TOKEN = "SEU_TOKEN_AQUI"
-CHAT_ID = "SEU_CHAT_ID_AQUI"
+TELEGRAM_TOKEN = "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY"
+TELEGRAM_CHAT_ID = "-1002796136111"
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 # =============================
