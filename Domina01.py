@@ -59,7 +59,7 @@ def fetch_latest_result():
         return {"number": number, "timestamp": timestamp}
     except Exception as e:
         logging.error(f"Erro ao buscar resultado: {e}")
-        return None
+        return  
 
 # =============================
 # Estratégia baseada em terminais dominantes + vizinhos físicos Race
@@ -117,7 +117,7 @@ class EstrategiaRoleta:
         # Critério A
         condicao_a = numero_13 in ultimos_12
 
-        # Critério B (terminal do 13º está nos terminais dos últimos 12)
+        # Critério B (atualizado)
         condicao_b = terminal_13 in [self.extrair_terminal(n) for n in ultimos_12]
 
         if condicao_a or condicao_b:
@@ -131,7 +131,7 @@ class EstrategiaRoleta:
                 "criterio": "A" if condicao_a else "B",
                 "numero_13": numero_13,
                 "dominantes": dominantes,
-                "jogar_nos_terminais": jogar_nos_terminais  # só para cálculo interno
+                "jogar_nos_terminais": jogar_nos_terminais
             }
         else:
             return {
@@ -189,7 +189,7 @@ if st.button("Adicionar Sorteios"):
                 st.session_state.historico.append(item)
                 st.session_state.estrategia.adicionar_numero(n)
 
-                # GREEN/RED usando vizinhos físicos
+                # GREEN/RED atualizado com vizinhos
                 if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
                     terminais = st.session_state.terminais_previstos or []
                     numeros_validos = set()
@@ -216,7 +216,7 @@ if st.button("Adicionar Sorteios"):
 # --- Atualização automática ---
 st_autorefresh(interval=3000, key="refresh_dominantes")
 
-# Busca resultado mais recente da API
+# Busca resultado mais recente da API correta
 resultado = fetch_latest_result()
 ultimo_ts = st.session_state.historico[-1]["timestamp"] if st.session_state.historico else None
 
@@ -232,7 +232,7 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
         pass
     salvar_resultado_em_arquivo(st.session_state.historico)
 
-    # GREEN/RED usando vizinhos físicos
+    # GREEN/RED atualizado com vizinhos
     if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
         terminais = st.session_state.terminais_previstos or []
         numeros_validos = set()
@@ -242,4 +242,54 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
         green = int(numero_atual) in numeros_validos
 
         msg = f"Resultado: {numero_atual} | Terminais: {terminais} | {'🟢 GREEN' if green else '🔴 RED'}"
-        enviar_resultado
+        enviar_resultado(msg)
+        st.session_state.resultado_enviado = True
+        st.session_state.previsao_enviada = False
+        if green:
+            st.session_state.acertos += 1
+            tocar_som_moeda()
+        else:
+            st.session_state.erros += 1
+
+    # Verifica nova entrada
+    # Verifica nova entrada
+    entrada_info = st.session_state.estrategia.verificar_entrada()
+    if entrada_info:
+        dominantes = entrada_info["dominantes"]
+        if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
+            st.session_state.terminais_previstos = dominantes
+            st.session_state.criterio = entrada_info.get("criterio")
+            st.session_state.previsao_base_timestamp = ts_atual  # aposta vale para o próximo giro
+            st.session_state.resultado_enviado = False
+            st.session_state.previsao_enviada = True
+            enviar_previsao(f"🎯 Previsão: terminais {dominantes} (Critério {st.session_state.criterio})")
+
+# --- Interface ---
+st.subheader("🔁 Últimos 13 Números")
+st.write(" ".join(str(h["number"]) for h in st.session_state.historico[-13:]))
+
+st.subheader("🔮 Previsão de Entrada")
+if st.session_state.terminais_previstos:
+    if st.session_state.criterio:
+        st.write(f"🎯 Terminais dominantes: {st.session_state.terminais_previstos} (Critério {st.session_state.criterio})")
+    else:
+        st.write(f"🎯 Terminais dominantes: {st.session_state.terminais_previstos}")
+else:
+    st.info("🔎 Aguardando próximo número para calcular dominantes.")
+
+st.subheader("📊 Desempenho")
+total = st.session_state.acertos + st.session_state.erros
+taxa = (st.session_state.acertos / total * 100) if total > 0 else 0.0
+col1, col2, col3 = st.columns(3)
+col1.metric("🟢 GREEN", st.session_state.acertos)
+col2.metric("🔴 RED", st.session_state.erros)
+col3.metric("✅ Taxa de acerto", f"{taxa:.1f}%")
+
+# --- Download histórico ---
+if os.path.exists(HISTORICO_PATH):
+    with open(HISTORICO_PATH, "r") as f:
+        conteudo = f.read()
+    st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_coluna_duzia.json")
+
+
+    
