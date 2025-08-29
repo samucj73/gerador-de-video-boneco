@@ -292,12 +292,10 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
     msg_alerta = "\n".join(linhas) + f"\n{crit}"
     enviar_previsao(msg_alerta)
 
-        
-
-        elif entrada_info.get("criterio") == "C":
-            st.session_state.criterio = "C"
-            st.session_state.terminais_previstos = None
-            enviar_previsao("⏳ Critério C: Nenhuma entrada. Aguardar próxima rodada.")
+elif entrada_info.get("criterio") == "C":
+    st.session_state.criterio = "C"
+    st.session_state.terminais_previstos = None
+    enviar_previsao("⏳ Critério C: Nenhuma entrada. Aguardar próxima rodada.")
     
 
 # --- Interface ---
