@@ -14,7 +14,7 @@ BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 def enviar_previsao(mensagem: str):
     try:
         payload = {
-            "chat_id": CHAT_ID,
+            "chat_id": TELEGRAM_CHAT_ID,
             "text": mensagem,
             "parse_mode": "HTML"
         }
@@ -29,7 +29,7 @@ def enviar_previsao(mensagem: str):
 def enviar_resultado(mensagem: str):
     try:
         payload = {
-            "chat_id": CHAT_ID,
+            "chat_id": TELEGRAM_CHAT_ID,
             "text": mensagem,
             "parse_mode": "HTML"
         }
