@@ -61,9 +61,11 @@ def fetch_latest_result():
         logging.error(f"Erro ao buscar resultado: {e}")
         return None
 
-# =============================
+# # =============================
 # Estratégia baseada em terminais dominantes
 # =============================
+from collections import deque, Counter
+
 class EstrategiaRoleta:
     def __init__(self, janela=12):
         self.janela = janela
@@ -100,8 +102,8 @@ class EstrategiaRoleta:
         # Critério A: número inteiro do 13º já saiu nos 12 anteriores
         condicao_a = numero_13 in ultimos_12
 
-        # Critério B: terminal do 13º está entre os dois dominantes
-        condicao_b = terminal_13 in dominantes
+        # Critério B (atualizado): terminal do 13º está entre os terminais dos últimos 12
+        condicao_b = terminal_13 in [self.extrair_terminal(n) for n in ultimos_12]
 
         if condicao_a or condicao_b:
             return {
