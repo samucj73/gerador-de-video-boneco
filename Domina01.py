@@ -59,7 +59,7 @@ def fetch_latest_result():
         return {"number": number, "timestamp": timestamp}
     except Exception as e:
         logging.error(f"Erro ao buscar resultado: {e}")
-        return  =============================
+        return  
 # # =============================
 # Estratégia baseada em terminais dominantes + vizinhos físicos Race
 # =============================
