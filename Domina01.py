@@ -162,6 +162,9 @@ st.set_page_config(page_title="IA Roleta — Terminais Dominantes (A/B)", layout
 st.title("🎯 IA Roleta XXXtreme — Estratégia dos Terminais Dominantes (Critérios A e B)")
 
 # --- Estado ---
+if "rodadas_bloqueadas" not in st.session_state:
+    st.session_state.rodadas_bloqueadas = 0
+    
 if "historico" not in st.session_state:
     st.session_state.historico = json.load(open(HISTORICO_PATH)) if os.path.exists(HISTORICO_PATH) else []
 
@@ -267,9 +270,8 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
             st.session_state.erros += 1
 
     # Verifica nova entrada
-
 # =============================
-# Verifica nova entrada
+# Verifica nova entrada e envia alerta
 # =============================
 entrada_info = None
 if "estrategia" in st.session_state:
@@ -278,11 +280,17 @@ if "estrategia" in st.session_state:
 if entrada_info:
     dominantes = entrada_info.get("dominantes", [])
 
-    # --- Critérios A/B: entrar na aposta ---
-    if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
+    # --- Se houver bloqueio de rodadas (RED ou critério C anterior) ---
+    if st.session_state.rodadas_bloqueadas > 0:
+        st.session_state.rodadas_bloqueadas -= 1
+        msg_alerta = f"⏸️ Pausado por {st.session_state.rodadas_bloqueadas} rodada(s) devido RED ou critério C."
+        enviar_previsao(msg_alerta)
+
+    # --- Critérios A/B: entrar na aposta (apenas se não bloqueado) ---
+    elif entrada_info.get("entrada") and st.session_state.rodadas_bloqueadas == 0:
         st.session_state.terminais_previstos = dominantes
         st.session_state.criterio = entrada_info.get("criterio")
-        st.session_state.previsao_base_timestamp = ts_atual  # aposta vale para o próximo giro
+        st.session_state.previsao_base_timestamp = ts_atual
         st.session_state.resultado_enviado = False
         st.session_state.previsao_enviada = True
 
@@ -290,21 +298,26 @@ if entrada_info:
         linhas_numeros = []
         for t in dominantes:
             numeros_terminal = [n for n in range(37) if n % 10 == t]
-            linhas_numeros.append(" ".join(str(n) for n in numeros_terminal))  # só números
+            linhas_numeros.append(" ".join(str(n) for n in numeros_terminal))
 
         msg_alerta = "\n".join(linhas_numeros)
         enviar_previsao(msg_alerta)
 
     # --- Critério C: 13º número não bate com os 12 anteriores ---
+    elif entrada_info.get("criterio") == "C":
+        st.session_state.previsao_enviada = False
+        st.session_state.terminais_previstos = None
+        st.session_state.criterio = None
+        st.session_state.rodadas_bloqueadas = 2  # bloqueia 2 rodadas
+        msg_alerta = "⏳ Nenhum terminal bateu com os últimos 12 números. Pausando 2 rodadas..."
+        enviar_previsao(msg_alerta)
 
-# --- Critério C: 13º número não bate com os 12 anteriores ---
-if entrada_info.get("criterio") == "C":
-    st.session_state.previsao_enviada = False
-    st.session_state.terminais_previstos = None
-    st.session_state.criterio = None
-    msg_alerta = "⏳ Nenhum terminal.\nAguardando próximo giro..."
-    enviar_previsao(msg_alerta)
-    
+# --- Ajuste de bloqueio em caso de RED no resultado ---
+if st.session_state.previsao_enviada and st.session_state.resultado_enviado:
+    # green foi calculado no bloco de resultados
+    if not green:
+        st.session_state.rodadas_bloqueadas = 2  # pausa 2 rodadas se deu RED
+
 
 
     
