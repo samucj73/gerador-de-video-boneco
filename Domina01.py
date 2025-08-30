@@ -270,6 +270,8 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
             st.session_state.erros += 1
 
     # Verifica nova entrada
+import time
+
 # =============================
 # Verifica nova entrada e envia alerta
 # =============================
@@ -277,16 +279,17 @@ entrada_info = None
 if "estrategia" in st.session_state:
     entrada_info = st.session_state.estrategia.verificar_entrada()
 
+# gera timestamp atual
+ts_atual = time.time()
+
 if entrada_info:
     dominantes = entrada_info.get("dominantes", [])
 
-    # --- Se houver bloqueio de rodadas (RED ou critério C anterior) ---
     if st.session_state.rodadas_bloqueadas > 0:
         st.session_state.rodadas_bloqueadas -= 1
         msg_alerta = f"⏸️ Pausado por {st.session_state.rodadas_bloqueadas} rodada(s) devido RED ou critério C."
         enviar_previsao(msg_alerta)
 
-    # --- Critérios A/B: entrar na aposta (apenas se não bloqueado) ---
     elif entrada_info.get("entrada") and st.session_state.rodadas_bloqueadas == 0:
         st.session_state.terminais_previstos = dominantes
         st.session_state.criterio = entrada_info.get("criterio")
@@ -294,7 +297,6 @@ if entrada_info:
         st.session_state.resultado_enviado = False
         st.session_state.previsao_enviada = True
 
-        # Monta números que compõem cada terminal dominante (duas linhas)
         linhas_numeros = []
         for t in dominantes:
             numeros_terminal = [n for n in range(37) if n % 10 == t]
@@ -303,21 +305,13 @@ if entrada_info:
         msg_alerta = "\n".join(linhas_numeros)
         enviar_previsao(msg_alerta)
 
-    # --- Critério C: 13º número não bate com os 12 anteriores ---
     elif entrada_info.get("criterio") == "C":
         st.session_state.previsao_enviada = False
         st.session_state.terminais_previstos = None
         st.session_state.criterio = None
-        st.session_state.rodadas_bloqueadas = 2  # bloqueia 2 rodadas
+        st.session_state.rodadas_bloqueadas = 2
         msg_alerta = "⏳ Nenhum terminal bateu com os últimos 12 números. Pausando 2 rodadas..."
         enviar_previsao(msg_alerta)
-
-# --- Ajuste de bloqueio em caso de RED no resultado ---
-if st.session_state.previsao_enviada and st.session_state.resultado_enviado:
-    # green foi calculado no bloco de resultados
-    if not green:
-        st.session_state.rodadas_bloqueadas = 2  # pausa 2 rodadas se deu RED
-
 
 
     
