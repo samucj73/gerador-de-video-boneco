@@ -267,10 +267,12 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
             st.session_state.erros += 1
 
     # Verifica nova entrada
-    # Verifica nova entrada
+
+# Verifica nova entrada
 entrada_info = None
 if "estrategia" in st.session_state:
     entrada_info = st.session_state.estrategia.verificar_entrada()
+
 if entrada_info:
     # Critérios A/B: entrar na aposta
     if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
@@ -282,21 +284,23 @@ if entrada_info:
         st.session_state.previsao_enviada = True
 
         # Monta números que compõem cada terminal dominante
-    linhas_numeros = []
-for t in dominantes:
-    # pega todos os números que têm esse terminal
-    numeros_terminal = [n for n in range(37) if n % 10 == t]
-    linhas_numeros.append(f"T{t}: " + " ".join(str(n) for n in numeros_terminal))
+        linhas_numeros = []
+        for t in dominantes:
+            # pega todos os números que têm esse terminal
+            numeros_terminal = [n for n in range(37) if n % 10 == t]
+            linhas_numeros.append(f"T{t}: " + " ".join(str(n) for n in numeros_terminal))
 
-msg_alerta = "\n".join(linhas_numeros)
-enviar_previsao(msg_alerta)
-     # Critério C: 13º número não bate com os 12 anteriores -> zerar entrada e aguardar próximo giro
-elif entrada_info.get("criterio") == "C" and st.session_state.previsao_enviada:
+        msg_alerta = "\n".join(linhas_numeros)
+        enviar_previsao(msg_alerta)
+
+    # Critério C: 13º número não bate com os 12 anteriores -> zerar entrada e aguardar próximo giro
+    elif entrada_info.get("criterio") == "C" and st.session_state.previsao_enviada:
         st.session_state.previsao_enviada = False
         st.session_state.terminais_previstos = None
         st.session_state.criterio = None
         msg_alerta = "⏳ Critério C: nenhum terminal bateu com os últimos 12 números.\nAguardando próximo giro..."
         enviar_previsao(msg_alerta)
+    
     
     
 
