@@ -290,10 +290,8 @@ for t in dominantes:
 
 msg_alerta = "\n".join(linhas_numeros)
 enviar_previsao(msg_alerta)
-        
-
-    # Critério C: 13º número não bate com os 12 anteriores -> zerar entrada e aguardar próximo giro
-    elif entrada_info.get("criterio") == "C" and st.session_state.previsao_enviada:
+     # Critério C: 13º número não bate com os 12 anteriores -> zerar entrada e aguardar próximo giro
+elif entrada_info.get("criterio") == "C" and st.session_state.previsao_enviada:
         st.session_state.previsao_enviada = False
         st.session_state.terminais_previstos = None
         st.session_state.criterio = None
