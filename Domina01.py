@@ -287,7 +287,7 @@ if entrada_info:
             numeros_terminal = sorted([n for n in range(37) if n % 10 == t])
             linhas_numeros.append(f"T{t}: {' '.join(map(str, numeros_terminal))}")
 
-        msg_alerta =" + "\n".join(linhas_numeros)
+        msg_alerta = .join(linhas_numeros)
         enviar_previsao(msg_alerta)
 
     # Critério C: 13º número não bate com os 12 anteriores -> zerar entrada e aguardar próximo giro
