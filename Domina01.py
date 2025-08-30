@@ -268,6 +268,9 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
 
     # Verifica nova entrada
     # Verifica nova entrada
+entrada_info = None
+if "estrategia" in st.session_state:
+    entrada_info = st.session_state.estrategia.verificar_entrada()
 if entrada_info:
     # Critérios A/B: entrar na aposta
     if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
