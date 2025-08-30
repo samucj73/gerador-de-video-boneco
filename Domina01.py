@@ -296,12 +296,15 @@ if entrada_info:
         enviar_previsao(msg_alerta)
 
     # --- Critério C: 13º número não bate com os 12 anteriores ---
-    elif entrada_info.get("criterio") == "C" and st.session_state.previsao_enviada:
-        st.session_state.previsao_enviada = False
-        st.session_state.terminais_previstos = None
-        st.session_state.criterio = None
-        msg_alerta = "⏳ Nenhum terminal bateu com os últimos 12 números.\nAguardando próximo giro..."
-        enviar_previsao(msg_alerta)
+
+# --- Critério C: 13º número não bate com os 12 anteriores ---
+if entrada_info.get("criterio") == "C":
+    st.session_state.previsao_enviada = False
+    st.session_state.terminais_previstos = None
+    st.session_state.criterio = None
+    msg_alerta = "⏳ Nenhum terminal bateu com os últimos 12 números.\nAguardando próximo giro..."
+    enviar_previsao(msg_alerta)
+    
 
 
     
