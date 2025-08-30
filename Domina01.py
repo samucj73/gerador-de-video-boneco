@@ -1,4 +1,4 @@
-# Domina01.py
+tu# Domina01.py
 import streamlit as st
 import json
 import os
@@ -282,13 +282,15 @@ if entrada_info:
         st.session_state.previsao_enviada = True
 
         # Monta números que compõem cada terminal dominante
-        linhas_numeros = []
-        for t in dominantes:
-            numeros_terminal = sorted([n for n in range(37) if n % 10 == t])
-            linhas_numeros.append(f"T{t}: {' '.join(map(str, numeros_terminal))}")
+    linhas_numeros = []
+for t in dominantes:
+    # pega todos os números que têm esse terminal
+    numeros_terminal = [n for n in range(37) if n % 10 == t]
+    linhas_numeros.append(f"T{t}: " + " ".join(str(n) for n in numeros_terminal))
 
-        msg_alerta = .join(linhas_numeros)
-        enviar_previsao(msg_alerta)
+msg_alerta = "\n".join(linhas_numeros)
+enviar_previsao(msg_alerta)
+        
 
     # Critério C: 13º número não bate com os 12 anteriores -> zerar entrada e aguardar próximo giro
     elif entrada_info.get("criterio") == "C" and st.session_state.previsao_enviada:
