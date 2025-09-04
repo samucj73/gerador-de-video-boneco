@@ -299,7 +299,7 @@ if entrada_info:
 
     # --- Critério C: 13º número não bate com os 12 anteriores ---
     
-if entrada_info.get("criterio") == "C":
+if (entrada_info or {}).get("criterio") == "C":
     st.session_state.previsao_enviada = False
     st.session_state.terminais_previstos = None
     st.session_state.criterio = None
