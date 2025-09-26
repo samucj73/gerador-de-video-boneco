@@ -261,7 +261,9 @@ if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
         numeros_diretos.update(base)  # números exatos do terminal
         numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
 
-    numero_sorteado = int(n)
+    # 👇 aqui muda: usa 'n' no manual e 'numero_atual' no API
+    numero_sorteado = int(n)  # para entrada manual
+    # numero_sorteado = int(numero_atual)  # para API
 
     if numero_sorteado in numeros_diretos:
         status = "🎯 Acerto Direto"
@@ -279,6 +281,7 @@ if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
 
     st.session_state.resultado_enviado = True
     st.session_state.previsao_enviada = False
+
     
 
     # Verifica nova entrada
