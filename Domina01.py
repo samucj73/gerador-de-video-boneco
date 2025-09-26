@@ -251,38 +251,25 @@ if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo
     salvar_resultado_em_arquivo(st.session_state.historico)
 
     # GREEN/RED atualizado com vizinhos
-# GREEN/RED atualizado com vizinhos + classificação
 if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
-    terminais = st.session_state.terminais_previstos or []
-    numeros_validos = set()
-    numeros_diretos = set()
-    for t in terminais:
-        base = [num for num in range(37) if num % 10 == t]
-        numeros_diretos.update(base)  # números exatos do terminal
-        numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
+        terminais = st.session_state.terminais_previstos or []
+        numeros_validos = set()
+        for t in terminais:
+            base = [num for num in range(37) if num % 10 == t]
+            numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
+        green = int(numero_atual) in numeros_validos
 
-    # 👇 aqui muda: usa 'n' no manual e 'numero_atual' no API
-    numero_sorteado = int(n)  # para entrada manual
-    # numero_sorteado = int(numero_atual)  # para API
+        msg = f"Resultado: {numero_atual} | Terminais: {terminais} | {'🟢 GREEN' if green else '🔴 RED'}"
+        enviar_resultado(msg)
+        st.session_state.resultado_enviado = True
+        st.session_state.previsao_enviada = False
+        if green:
+            st.session_state.acertos += 1
+            tocar_som_moeda()
+        else:
+            st.session_state.erros += 1
 
-    if numero_sorteado in numeros_diretos:
-        status = "🎯 Acerto Direto"
-        st.session_state.acertos += 1
-        tocar_som_moeda()
-    elif numero_sorteado in numeros_validos:
-        status = "🤏 Caiu no Vizinho"
-        st.session_state.acertos += 1  # conta como acerto também
-    else:
-        status = "🔴 Erro"
-        st.session_state.erros += 1
 
-    msg = f"Resultado: {numero_sorteado} | Terminais: {terminais} | {status}"
-    enviar_resultado(msg)
-
-    st.session_state.resultado_enviado = True
-    st.session_state.previsao_enviada = False
-
-    
 
     # Verifica nova entrada
 # =============================
