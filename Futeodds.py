@@ -49,6 +49,8 @@ ALL_LIGAS = {
     "soccer_mexico_ligamx": "Mexico - Liga MX",
     "soccer_turkey_super_league": "Turkey - Super Lig",
     "soccer_argentina_primera_division": "Argentina - Primera División",
+    "soccer_brazil_serie_b": "Brazil - Série B (Brasileirão)",
+    "soccer_brazil_cup": "Brazil - Copa do Brasil",
     # American leagues (US/CONCACAF)
     "soccer_usa_mls": "USA - Major League Soccer (MLS)",
     "soccer_usa_usl_championship": "USA - USL Championship",
@@ -57,6 +59,13 @@ ALL_LIGAS = {
     "soccer_japan_j_league": "Japan - J League",
     "soccer_korea_kleague1": "Korea - K League 1",
     "soccer_belgium_first_div": "Belgium - First Division A",
+     # ⚽ Ligas Femininas Importantes
+    "soccer_usa_nwsl": "USA - National Women's Soccer League (NWSL)",
+    "soccer_england_wsl": "England - Women's Super League",
+    "soccer_spain_primera_division_femenina": "Spain - Liga F (Feminina)",
+    "soccer_germany_frauen_bundesliga": "Germany - Frauen Bundesliga",
+    "soccer_brazil_feminino_a1": "Brazil - Série A1 (Feminino)",
+    "soccer_uefa_womens_champs_league": "UEFA Women's Champions League",
 }
 
 # Default principais
