@@ -674,9 +674,9 @@ with aba[0]:
                     }
 
     with col2:
-        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True"):
-        if "last_top3" not in st.session_state:
-            st.warning("⚠️ Primeiro busque os jogos para gerar o Top3")
+        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True):
+            if "last_top3" not in st.session_state:
+                st.warning("⚠️ Primeiro busque os jogos para gerar o Top3")
             else:
                 top_15 = st.session_state.last_top3["top_15"]
                 top_25 = st.session_state.last_top3["top_25"]
