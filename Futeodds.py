@@ -673,7 +673,7 @@ with aba[0]:
                         "data": hoje_str
                     }
                     
- with col2:
+      with col2:
         if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True):
             if "last_top3" not in st.session_state:
                 st.warning("⚠️ Primeiro busque os jogos para gerar o Top3")
