@@ -579,15 +579,38 @@ def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
 # =============================
 # Funções para formatação de mensagens
 # =============================
+def calcular_multipla(jogos, faixa):
+    """Calcula a odd múltipla (acumulada) dos 3 jogos"""
+    if not jogos:
+        return None
+    
+    odds_key = f"odds_{faixa.replace('.', '_')}"
+    multipla = 1.0
+    
+    for jogo in jogos:
+        odds = jogo.get(odds_key)
+        if odds and odds.get('over'):
+            multipla *= odds['over']
+        else:
+            return None  # Se alguma odd estiver faltando, não calcula
+    
+    return round(multipla, 2)
+
 def formatar_mensagem_top3(top_jogos, faixa, data_str):
     """Formata mensagem do Top3 de forma organizada em tripla coluna"""
     
     if not top_jogos:
         return f"🔔 *TOP 3 +{faixa} GOLS — {data_str}*\n\n*Nenhum jogo selecionado para esta faixa*"
     
+    # Calcula a múltipla
+    multipla = calcular_multipla(top_jogos, faixa)
+    
     # Cabeçalho
     mensagem = f"🎯 *TOP 3 +{faixa} GOLS* 🎯\n"
-    mensagem += f"📅 *Data:* {data_str}\n\n"
+    mensagem += f"📅 *Data:* {data_str}\n"
+    if multipla:
+        mensagem += f"💰 *MÚLTIPLA (3 jogos):* ×{multipla}\n"
+    mensagem += "\n"
     
     # Jogos em formato de tripla coluna
     for idx, jogo in enumerate(top_jogos, 1):
@@ -721,6 +744,9 @@ with aba[0]:
                     with col1a:
                         st.write("### 🥇 Top 3 +1.5")
                         if top_15:
+                            multipla_15 = calcular_multipla(top_15, "1.5")
+                            if multipla_15:
+                                st.write(f"**💰 Múltipla: ×{multipla_15}**")
                             for t in top_15:
                                 odds_info = ""
                                 if t.get('odds_1_5') and t['odds_1_5'].get('over'):
@@ -734,6 +760,9 @@ with aba[0]:
                     with col2a:
                         st.write("### 🥈 Top 3 +2.5")
                         if top_25:
+                            multipla_25 = calcular_multipla(top_25, "2.5")
+                            if multipla_25:
+                                st.write(f"**💰 Múltipla: ×{multipla_25}**")
                             for t in top_25:
                                 odds_info = ""
                                 if t.get('odds_2_5') and t['odds_2_5'].get('over'):
@@ -747,6 +776,9 @@ with aba[0]:
                     with col3a:
                         st.write("### 🥉 Top 3 +3.5")
                         if top_35:
+                            multipla_35 = calcular_multipla(top_35, "3.5")
+                            if multipla_35:
+                                st.write(f"**💰 Múltipla: ×{multipla_35}**")
                             for t in top_35:
                                 odds_info = ""
                                 if t.get('odds_3_5') and t['odds_3_5'].get('over'):
