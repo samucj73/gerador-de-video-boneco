@@ -672,9 +672,9 @@ with aba[0]:
                         "top_35": top_35,
                         "data": hoje_str
                     }
-
-    with col2:
-        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True"):
+                    
+ with col2:
+        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True):
             if "last_top3" not in st.session_state:
                 st.warning("⚠️ Primeiro busque os jogos para gerar o Top3")
             else:
@@ -685,6 +685,8 @@ with aba[0]:
 
                 with st.spinner("Enviando mensagens para Telegram..."):
                     success_count = 0
+
+    
 
                     # Mensagem +1.5
                     if top_15:
