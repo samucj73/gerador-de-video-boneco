@@ -293,6 +293,26 @@ def extrair_markets_totals(event):
         consolidated[k] = {"over": avg_over, "under": avg_under}
     return consolidated
 
+def extrair_odds_especificas(event, pontos=[1.5, 2.5, 3.5]):
+    """
+    Extrai odds específicas para os pontos desejados
+    Retorna dict com {ponto: {'over': odds, 'under': odds}}
+    """
+    totals = extrair_markets_totals(event)
+    odds_especificas = {}
+    
+    for ponto in pontos:
+        ponto_str = str(ponto)
+        if ponto_str in totals:
+            odds_especificas[ponto_str] = {
+                'over': round(totals[ponto_str]['over'], 2),
+                'under': round(totals[ponto_str]['under'], 2)
+            }
+        else:
+            odds_especificas[ponto_str] = {'over': None, 'under': None}
+    
+    return odds_especificas
+
 def implied_prob_from_over_under(over_odds, under_odds):
     """
     Calcula probabilidade implícita de Over usando over_odds e under_odds (decimal).
@@ -354,6 +374,7 @@ def calcular_estimativas_e_probs_por_jogo_from_odds(event):
         estimativa = 2.5
         probs = {"1.5": None, "2.5": None, "3.5": None}
         confs = {"1.5": 30, "2.5": 30, "3.5": 30}
+        odds = {"1.5": None, "2.5": None, "3.5": None}
 
         if "2.5" in totals:
             estimativa = 2.5
@@ -365,6 +386,10 @@ def calcular_estimativas_e_probs_por_jogo_from_odds(event):
                 prob = implied_prob_from_over_under(over_odds, under_odds)
                 probs[point] = prob
                 confs[point] = confidence_from_prob(prob)
+                odds[point] = {
+                    'over': round(over_odds, 2),
+                    'under': round(under_odds, 2)
+                }
 
         # Estimativas para pontos faltantes
         if probs["1.5"] is None and probs["2.5"] is not None:
@@ -392,6 +417,9 @@ def calcular_estimativas_e_probs_por_jogo_from_odds(event):
             "conf_1_5": confs["1.5"],
             "conf_2_5": confs["2.5"],
             "conf_3_5": confs["3.5"],
+            "odds_1_5": odds["1.5"],
+            "odds_2_5": odds["2.5"],
+            "odds_3_5": odds["3.5"],
         }
     except Exception as e:
         logger.error(f"Erro no cálculo de probabilidades: {e}")
@@ -404,6 +432,9 @@ def calcular_estimativas_e_probs_por_jogo_from_odds(event):
             "conf_1_5": 50,
             "conf_2_5": 50,
             "conf_3_5": 50,
+            "odds_1_5": None,
+            "odds_2_5": None,
+            "odds_3_5": None,
         }
 
 # =============================
@@ -532,6 +563,9 @@ def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
                 "conf_1_5": calc.get("conf_1_5"),
                 "conf_2_5": calc.get("conf_2_5"),
                 "conf_3_5": calc.get("conf_3_5"),
+                "odds_1_5": calc.get("odds_1_5"),
+                "odds_2_5": calc.get("odds_2_5"),
+                "odds_3_5": calc.get("odds_3_5"),
                 "liga_key": liga,
                 "raw_event": ev
             })
@@ -541,6 +575,55 @@ def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
     
     logger.info(f"Coletados {len(partidas)} jogos para {data_obj}")
     return partidas
+
+# =============================
+# Funções para formatação de mensagens
+# =============================
+def formatar_mensagem_top3(top_jogos, faixa, data_str):
+    """Formata mensagem do Top3 de forma organizada em tripla coluna"""
+    
+    if not top_jogos:
+        return f"🔔 *TOP 3 +{faixa} GOLS — {data_str}*\n\n*Nenhum jogo selecionado para esta faixa*"
+    
+    # Cabeçalho
+    mensagem = f"🎯 *TOP 3 +{faixa} GOLS* 🎯\n"
+    mensagem += f"📅 *Data:* {data_str}\n\n"
+    
+    # Jogos em formato de tripla coluna
+    for idx, jogo in enumerate(top_jogos, 1):
+        # Odds específicas para a faixa
+        odds_key = f"odds_{faixa.replace('.', '_')}"
+        odds = jogo.get(odds_key)
+        
+        # Informações do jogo
+        hora = jogo['hora']
+        home = jogo['home'][:15]  # Limita tamanho do nome
+        away = jogo['away'][:15]
+        competicao = jogo['competicao']
+        prob_key = f"prob_{faixa.replace('.', '_')}"
+        probabilidade = jogo.get(prob_key, 0)
+        conf_key = f"conf_{faixa.replace('.', '_')}"
+        confianca = jogo.get(conf_key, 0)
+        
+        # Formata odds
+        odds_text = ""
+        if odds and odds.get('over'):
+            odds_text = f"🎲 *{odds['over']}*"
+        
+        mensagem += f"*{idx}️⃣ {home} x {away}*\n"
+        mensagem += f"⏰ {hora} BRT | {competicao}\n"
+        mensagem += f"📊 Prob: *{probabilidade:.1f}%* | Conf: *{confianca:.0f}%*\n"
+        if odds_text:
+            mensagem += f"{odds_text}\n"
+        mensagem += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    # Ordem total dos jogos por horário
+    mensagem += "⏰ *ORDEM POR HORÁRIO:*\n"
+    jogos_ordenados = sorted(top_jogos, key=lambda x: x['hora'])
+    for idx, jogo in enumerate(jogos_ordenados, 1):
+        mensagem += f"{idx}️⃣ {jogo['hora']} - {jogo['home']} x {jogo['away']}\n"
+    
+    return mensagem
 
 # =============================
 # UI Streamlit
@@ -639,8 +722,11 @@ with aba[0]:
                         st.write("### 🥇 Top 3 +1.5")
                         if top_15:
                             for t in top_15:
+                                odds_info = ""
+                                if t.get('odds_1_5') and t['odds_1_5'].get('over'):
+                                    odds_info = f" | 🎲 {t['odds_1_5']['over']}"
                                 st.write(f"**{t['home']} x {t['away']}**")
-                                st.write(f"P(+1.5): {t['prob_1_5']}% | Conf: {t['conf_1_5']}%")
+                                st.write(f"⏰ {t['hora']} | P(+1.5): {t['prob_1_5']}%{odds_info}")
                                 st.write("---")
                         else:
                             st.info("Nenhum jogo selecionado")
@@ -649,8 +735,11 @@ with aba[0]:
                         st.write("### 🥈 Top 3 +2.5")
                         if top_25:
                             for t in top_25:
+                                odds_info = ""
+                                if t.get('odds_2_5') and t['odds_2_5'].get('over'):
+                                    odds_info = f" | 🎲 {t['odds_2_5']['over']}"
                                 st.write(f"**{t['home']} x {t['away']}**")
-                                st.write(f"P(+2.5): {t['prob_2_5']}% | Conf: {t['conf_2_5']}%")
+                                st.write(f"⏰ {t['hora']} | P(+2.5): {t['prob_2_5']}%{odds_info}")
                                 st.write("---")
                         else:
                             st.info("Nenhum jogo selecionado")
@@ -659,8 +748,11 @@ with aba[0]:
                         st.write("### 🥉 Top 3 +3.5")
                         if top_35:
                             for t in top_35:
+                                odds_info = ""
+                                if t.get('odds_3_5') and t['odds_3_5'].get('over'):
+                                    odds_info = f" | 🎲 {t['odds_3_5']['over']}"
                                 st.write(f"**{t['home']} x {t['away']}**")
-                                st.write(f"P(+3.5): {t['prob_3_5']}% | Conf: {t['conf_3_5']}%")
+                                st.write(f"⏰ {t['hora']} | P(+3.5): {t['prob_3_5']}%{odds_info}")
                                 st.write("---")
                         else:
                             st.info("Nenhum jogo selecionado")
@@ -688,30 +780,24 @@ with aba[0]:
 
                     # Mensagem +1.5
                     if top_15:
-                        msg = f"🔔 *TOP 3 +1.5 GOLS — {hoje_str}*\n\n"
-                        for idx, j in enumerate(top_15, start=1):
-                            msg += (f"{idx}️⃣ *{j['home']} x {j['away']}* — {j['competicao']} — {j['hora']} BRT\n"
-                                    f"   • Est: {j['estimativa']:.2f} gols | P(+1.5): *{j['prob_1_5']:.1f}%* | Conf: *{j['conf_1_5']:.0f}%*\n")
+                        msg = formatar_mensagem_top3(top_15, "1.5", hoje_str)
                         if enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2):
                             success_count += 1
+                            st.success("✅ +1.5 enviado")
 
                     # Mensagem +2.5
                     if top_25:
-                        msg = f"🔔 *TOP 3 +2.5 GOLS — {hoje_str}*\n\n"
-                        for idx, j in enumerate(top_25, start=1):
-                            msg += (f"{idx}️⃣ *{j['home']} x {j['away']}* — {j['competicao']} — {j['hora']} BRT\n"
-                                    f"   • Est: {j['estimativa']:.2f} gols | P(+2.5): *{j['prob_2_5']:.1f}%* | Conf: *{j['conf_2_5']:.0f}%*\n")
+                        msg = formatar_mensagem_top3(top_25, "2.5", hoje_str)
                         if enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2):
                             success_count += 1
+                            st.success("✅ +2.5 enviado")
 
                     # Mensagem +3.5
                     if top_35:
-                        msg = f"🔔 *TOP 3 +3.5 GOLS — {hoje_str}*\n\n"
-                        for idx, j in enumerate(top_35, start=1):
-                            msg += (f"{idx}️⃣ *{j['home']} x {j['away']}* — {j['competicao']} — {j['hora']} BRT\n"
-                                    f"   • Est: {j['estimativa']:.2f} gols | P(+3.5): *{j['prob_3_5']:.1f}%* | Conf: *{j['conf_3_5']:.0f}%*\n")
+                        msg = formatar_mensagem_top3(top_35, "3.5", hoje_str)
                         if enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2):
                             success_count += 1
+                            st.success("✅ +3.5 enviado")
 
                     # salva o lote Top3 (persistente)
                     if success_count > 0:
@@ -765,11 +851,14 @@ with aba[1]:
                     with st.expander(f"🏟️ {p['home']} x {p['away']} — {p['competicao']} — {p['hora']} BRT"):
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.metric("P(+1.5)", f"{p['prob_1_5']}%", f"Conf: {p['conf_1_5']}%")
+                            odds_info = f"🎲 {p['odds_1_5']['over']}" if p.get('odds_1_5') and p['odds_1_5'].get('over') else "🎲 N/A"
+                            st.metric("P(+1.5)", f"{p['prob_1_5']}%", f"Conf: {p['conf_1_5']}% | {odds_info}")
                         with col2:
-                            st.metric("P(+2.5)", f"{p['prob_2_5']}%", f"Conf: {p['conf_2_5']}%")
+                            odds_info = f"🎲 {p['odds_2_5']['over']}" if p.get('odds_2_5') and p['odds_2_5'].get('over') else "🎲 N/A"
+                            st.metric("P(+2.5)", f"{p['prob_2_5']}%", f"Conf: {p['conf_2_5']}% | {odds_info}")
                         with col3:
-                            st.metric("P(+3.5)", f"{p['prob_3_5']}%", f"Conf: {p['conf_3_5']}%")
+                            odds_info = f"🎲 {p['odds_3_5']['over']}" if p.get('odds_3_5') and p['odds_3_5'].get('over') else "🎲 N/A"
+                            st.metric("P(+3.5)", f"{p['prob_3_5']}%", f"Conf: {p['conf_3_5']}% | {odds_info}")
                         st.write(f"**Estimativa:** {p['estimativa']} gols")
 
 # ---------- ABA 3: Conferência Top 3 ----------
@@ -862,11 +951,14 @@ with aba[2]:
                         st.success(f"✅ {found.get('home_team')} x {found.get('away_team')}")
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.write(f"P(+1.5): {calc.get('prob_1_5')}%")
+                            odds_info = f"🎲 {calc.get('odds_1_5', {}).get('over', 'N/A')}" if calc.get('odds_1_5') else "🎲 N/A"
+                            st.write(f"P(+1.5): {calc.get('prob_1_5')}% | {odds_info}")
                         with col2:
-                            st.write(f"P(+2.5): {calc.get('prob_2_5')}%")
+                            odds_info = f"🎲 {calc.get('odds_2_5', {}).get('over', 'N/A')}" if calc.get('odds_2_5') else "🎲 N/A"
+                            st.write(f"P(+2.5): {calc.get('prob_2_5')}% | {odds_info}")
                         with col3:
-                            st.write(f"P(+3.5): {calc.get('prob_3_5')}%")
+                            odds_info = f"🎲 {calc.get('odds_3_5', {}).get('over', 'N/A')}" if calc.get('odds_3_5') else "🎲 N/A"
+                            st.write(f"P(+3.5): {calc.get('prob_3_5')}% | {odds_info}")
 
         if st.button("📥 Exportar lote selecionado (.json)"):
             nome_arquivo = f"relatorio_top3_{lote['data_envio']}_{lote['hora_envio'].replace(':','-').replace(' ','_')}.json"
