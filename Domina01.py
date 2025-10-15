@@ -59,7 +59,7 @@ def fetch_latest_result():
         return {"number": number, "timestamp": timestamp}
     except Exception as e:
         logging.error(f"Erro ao buscar resultado: {e}")
-        return  
+        return None
 
 # =============================
 # Estratégia baseada em terminais dominantes + vizinhos físicos Race
@@ -103,7 +103,6 @@ class EstrategiaRoleta:
                 vizinho = self.roleta[(idx + offset) % len(self.roleta)]
                 conjunto.add(vizinho)
         return conjunto
-
 
     def verificar_entrada(self):
         if len(self.historico) < self.janela + 1:
@@ -152,8 +151,6 @@ class EstrategiaRoleta:
                 "numero_13": numero_13,
                 "dominantes": dominantes
             }
-
-    
 
 # =============================
 # App Streamlit
@@ -238,40 +235,48 @@ st_autorefresh(interval=3000, key="refresh_dominantes")
 resultado = fetch_latest_result()
 ultimo_ts = st.session_state.historico[-1]["timestamp"] if st.session_state.historico else None
 
+# FIX: Add proper validation for numero_atual
+numero_atual = None
+ts_atual = None
+
 if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo_ts:
-    numero_atual = resultado["number"]
-    ts_atual = resultado["timestamp"]
+    numero_atual = resultado.get("number")
+    ts_atual = resultado.get("timestamp")
 
-    # Atualiza histórico e estratégia
-    st.session_state.historico.append(resultado)
-    try:
-        st.session_state.estrategia.adicionar_numero(int(numero_atual))
-    except Exception:
-        pass
-    salvar_resultado_em_arquivo(st.session_state.historico)
+    # Validate that we have a valid number before proceeding
+    if numero_atual is not None:
+        # Atualiza histórico e estratégia
+        st.session_state.historico.append(resultado)
+        try:
+            st.session_state.estrategia.adicionar_numero(int(numero_atual))
+        except Exception:
+            pass
+        salvar_resultado_em_arquivo(st.session_state.historico)
 
-    # GREEN/RED atualizado com vizinhos
-if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
-        terminais = st.session_state.terminais_previstos or []
-        numeros_validos = set()
-        for t in terminais:
-            base = [num for num in range(37) if num % 10 == t]
-            numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
-        green = int(numero_atual) in numeros_validos
+        # GREEN/RED atualizado com vizinhos - FIX: Add proper validation
+        if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
+            terminais = st.session_state.terminais_previstos or []
+            numeros_validos = set()
+            for t in terminais:
+                base = [num for num in range(37) if num % 10 == t]
+                numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
+            
+            # FIX: Safe conversion with error handling
+            try:
+                green = int(numero_atual) in numeros_validos
+            except (ValueError, TypeError):
+                green = False
 
-        msg = f"Resultado: {numero_atual} | Terminais: {terminais} | {'🟢 GREEN' if green else '🔴 RED'}"
-        enviar_resultado(msg)
-        st.session_state.resultado_enviado = True
-        st.session_state.previsao_enviada = False
-        if green:
-            st.session_state.acertos += 1
-            tocar_som_moeda()
-        else:
-            st.session_state.erros += 1
+            msg = f"Resultado: {numero_atual} | Terminais: {terminais} | {'🟢 GREEN' if green else '🔴 RED'}"
+            enviar_resultado(msg)
+            st.session_state.resultado_enviado = True
+            st.session_state.previsao_enviada = False
+            if green:
+                st.session_state.acertos += 1
+                tocar_som_moeda()
+            else:
+                st.session_state.erros += 1
 
-
-
-    # Verifica nova entrada
 # =============================
 # Verifica nova entrada
 # =============================
@@ -300,17 +305,12 @@ if entrada_info:
         enviar_previsao(msg_alerta)
 
     # --- Critério C: 13º número não bate com os 12 anteriores ---
-    
-if (entrada_info or {}).get("criterio") == "C":
-    st.session_state.previsao_enviada = False
-    st.session_state.terminais_previstos = None
-    st.session_state.criterio = None
-    msg_alerta = "⏳ Nenhum terminal\nAguardando próximo giro..."
-    enviar_previsao(msg_alerta)
-
-
-    
-    
+    elif (entrada_info or {}).get("criterio") == "C":
+        st.session_state.previsao_enviada = False
+        st.session_state.terminais_previstos = None
+        st.session_state.criterio = None
+        msg_alerta = "⏳ Nenhum terminal\nAguardando próximo giro..."
+        enviar_previsao(msg_alerta)
 
 # --- Interface ---
 st.subheader("🔁 Últimos 13 Números")
@@ -338,6 +338,3 @@ if os.path.exists(HISTORICO_PATH):
     with open(HISTORICO_PATH, "r") as f:
         conteudo = f.read()
     st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_coluna_duzia.json")
-
-
-    
