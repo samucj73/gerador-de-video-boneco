@@ -37,38 +37,27 @@ ALL_LIGAS = {
     # Europe + Global (principais)
     "soccer_epl": "England - Premier League (EPL)",
     "soccer_spain_la_liga": "Spain - La Liga",
-    "soccer_spain_segunda_division": "Spain - La Liga 2",
     "soccer_italy_serie_a": "Italy - Serie A",
     "soccer_germany_bundesliga": "Germany - Bundesliga",
-    "soccer_germany_bundesliga2": "Germany - Bundesliga 2",
     "soccer_france_ligue_one": "France - Ligue 1",
     "soccer_brazil_campeonato": "Brazil - Série A (Brasileirão)",
-    "soccer_brazil_campeonato_b": "Brazil - Série B (Brasileirão B)",
     "soccer_uefa_champs_league": "UEFA Champions League",
-    "soccer_uefa_champs_league_women": "UEFA Champions League Feminina",
     "soccer_uefa_europa_league": "UEFA Europa League",
     "soccer_uefa_europa_conference_league": "UEFA Europa Conference League",
-    "soccer_copa_libertadores": "Copa Libertadores da América",
     "soccer_portugal_primeira_liga": "Portugal - Primeira Liga",
     "soccer_netherlands_eredivisie": "Netherlands - Eredivisie",
     "soccer_mexico_ligamx": "Mexico - Liga MX",
     "soccer_turkey_super_league": "Turkey - Super Lig",
     "soccer_argentina_primera_division": "Argentina - Primera División",
-
     # American leagues (US/CONCACAF)
     "soccer_usa_mls": "USA - Major League Soccer (MLS)",
     "soccer_usa_usl_championship": "USA - USL Championship",
-
     # Outras
     "soccer_china_superleague": "China - Super League",
     "soccer_japan_j_league": "Japan - J League",
     "soccer_korea_kleague1": "Korea - K League 1",
     "soccer_belgium_first_div": "Belgium - First Division A",
 }
-
-
-
-
 
 # Default principais
 DEFAULT_PRINCIPAIS = [
