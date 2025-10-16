@@ -68,6 +68,7 @@ ALL_LIGAS = {
 
 
 
+
 # Default principais
 DEFAULT_PRINCIPAIS = [
     "soccer_epl",
@@ -265,6 +266,83 @@ def parse_iso_to_datetime(s):
         except Exception:
             return None
 
+def extrair_melhor_odd_por_bookmaker(event, ponto_alvo="2.5"):
+    """
+    Extrai a melhor odd Over para um ponto específico de cada bookmaker.
+    Retorna dict com {bookmaker: odd}
+    """
+    bookmakers_odds = {}
+    
+    for bookmaker in event.get("bookmakers", []):
+        bookmaker_nome = bookmaker.get("title", "Unknown")
+        for market in bookmaker.get("markets", []):
+            if market.get("key") != "totals":
+                continue
+            for outcome in market.get("outcomes", []):
+                try:
+                    point = str(float(outcome.get("point"))) if outcome.get("point") is not None else None
+                except Exception:
+                    continue
+                
+                if point == ponto_alvo and outcome.get("name", "").strip().lower() == "over":
+                    price = outcome.get("price")
+                    if price is not None:
+                        bookmakers_odds[bookmaker_nome] = float(price)
+    
+    return bookmakers_odds
+
+def encontrar_bookmaker_comum_e_calcular_multipla(jogos, faixa):
+    """
+    Encontra um bookmaker que tenha odds para todos os jogos e calcula a múltipla.
+    Retorna (bookmaker_nome, multipla) ou (None, None) se não encontrar.
+    """
+    if not jogos:
+        return None, None
+    
+    ponto_alvo = str(faixa)
+    
+    # Coleta todos os bookmakers disponíveis para cada jogo
+    bookmakers_por_jogo = []
+    for jogo in jogos:
+        raw_event = jogo.get('raw_event')
+        if not raw_event:
+            return None, None
+        bookmakers_odds = extrair_melhor_odd_por_bookmaker(raw_event, ponto_alvo)
+        bookmakers_por_jogo.append(bookmakers_odds)
+    
+    # Encontra bookmakers comuns a todos os jogos
+    bookmakers_comuns = set(bookmakers_por_jogo[0].keys())
+    for bookmakers in bookmakers_por_jogo[1:]:
+        bookmakers_comuns = bookmakers_comuns.intersection(set(bookmakers.keys()))
+    
+    if not bookmakers_comuns:
+        return None, None
+    
+    # Escolhe o bookmaker com a melhor múltipla (maior valor)
+    melhor_bookmaker = None
+    melhor_multipla = 0
+    
+    for bookmaker in bookmakers_comuns:
+        multipla = 1.0
+        odds_validas = True
+        
+        for bookmakers_odds in bookmakers_por_jogo:
+            odd = bookmakers_odds.get(bookmaker)
+            if odd:
+                multipla *= odd
+            else:
+                odds_validas = False
+                break
+        
+        if odds_validas and multipla > melhor_multipla:
+            melhor_multipla = multipla
+            melhor_bookmaker = bookmaker
+    
+    if melhor_bookmaker:
+        return melhor_bookmaker, round(melhor_multipla, 2)
+    
+    return None, None
+
 def extrair_markets_totals(event):
     """
     Retorna um dicionário com os mercados totals encontrados no evento,
@@ -301,26 +379,6 @@ def extrair_markets_totals(event):
         avg_under = sum(v["unders"]) / len(v["unders"])
         consolidated[k] = {"over": avg_over, "under": avg_under}
     return consolidated
-
-def extrair_odds_especificas(event, pontos=[1.5, 2.5, 3.5]):
-    """
-    Extrai odds específicas para os pontos desejados
-    Retorna dict com {ponto: {'over': odds, 'under': odds}}
-    """
-    totals = extrair_markets_totals(event)
-    odds_especificas = {}
-    
-    for ponto in pontos:
-        ponto_str = str(ponto)
-        if ponto_str in totals:
-            odds_especificas[ponto_str] = {
-                'over': round(totals[ponto_str]['over'], 2),
-                'under': round(totals[ponto_str]['under'], 2)
-            }
-        else:
-            odds_especificas[ponto_str] = {'over': None, 'under': None}
-    
-    return odds_especificas
 
 def implied_prob_from_over_under(over_odds, under_odds):
     """
@@ -588,22 +646,12 @@ def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
 # =============================
 # Funções para formatação de mensagens
 # =============================
-def calcular_multipla(jogos, faixa):
-    """Calcula a odd múltipla (acumulada) dos 3 jogos"""
-    if not jogos:
-        return None
-    
-    odds_key = f"odds_{faixa.replace('.', '_')}"
-    multipla = 1.0
-    
-    for jogo in jogos:
-        odds = jogo.get(odds_key)
-        if odds and odds.get('over'):
-            multipla *= odds['over']
-        else:
-            return None  # Se alguma odd estiver faltando, não calcula
-    
-    return round(multipla, 2)
+def calcular_multipla_real(jogos, faixa):
+    """
+    Calcula a múltipla real baseada em um bookmaker comum a todos os jogos.
+    Retorna (bookmaker_nome, multipla) ou (None, None)
+    """
+    return encontrar_bookmaker_comum_e_calcular_multipla(jogos, faixa)
 
 def formatar_mensagem_top3(top_jogos, faixa, data_str):
     """Formata mensagem do Top3 de forma organizada em tripla coluna"""
@@ -611,14 +659,16 @@ def formatar_mensagem_top3(top_jogos, faixa, data_str):
     if not top_jogos:
         return f"🔔 *TOP 3 +{faixa} GOLS — {data_str}*\n\n*Nenhum jogo selecionado para esta faixa*"
     
-    # Calcula a múltipla
-    multipla = calcular_multipla(top_jogos, faixa)
+    # Calcula a múltipla real
+    bookmaker, multipla = calcular_multipla_real(top_jogos, faixa)
     
     # Cabeçalho
     mensagem = f"🎯 *TOP 3 +{faixa} GOLS* 🎯\n"
     mensagem += f"📅 *Data:* {data_str}\n"
-    if multipla:
-        mensagem += f"💰 *MÚLTIPLA (3 jogos):* ×{multipla}\n"
+    if bookmaker and multipla:
+        mensagem += f"💰 *MÚLTIPLA ({bookmaker}):* ×{multipla}\n"
+    elif multipla:
+        mensagem += f"💰 *MÚLTIPLA:* ×{multipla}\n"
     mensagem += "\n"
     
     # Jogos em formato de tripla coluna
@@ -668,6 +718,41 @@ st.set_page_config(
 
 st.title("⚽ Oddstop — Alertas Top3 por Faixa (+1.5 / +2.5 / +3.5) — Odds API")
 
+# =============================
+# Inicialização do Session State
+# =============================
+def inicializar_session_state():
+    """Inicializa todas as variáveis do session_state"""
+    if 'selected_ligas' not in st.session_state:
+        st.session_state.selected_ligas = DEFAULT_PRINCIPAIS.copy()
+    
+    if 'aba1_partidas' not in st.session_state:
+        st.session_state.aba1_partidas = None
+    if 'aba1_top15' not in st.session_state:
+        st.session_state.aba1_top15 = None
+    if 'aba1_top25' not in st.session_state:
+        st.session_state.aba1_top25 = None
+    if 'aba1_top35' not in st.session_state:
+        st.session_state.aba1_top35 = None
+    if 'aba1_data' not in st.session_state:
+        st.session_state.aba1_data = datetime.today().date()
+    
+    if 'aba2_partidas' not in st.session_state:
+        st.session_state.aba2_partidas = None
+    if 'aba2_data' not in st.session_state:
+        st.session_state.aba2_data = datetime.today().date()
+    if 'aba2_filtro_min15' not in st.session_state:
+        st.session_state.aba2_filtro_min15 = 50
+    if 'aba2_filtro_min25' not in st.session_state:
+        st.session_state.aba2_filtro_min25 = 50
+    if 'aba2_filtro_min35' not in st.session_state:
+        st.session_state.aba2_filtro_min35 = 50
+    
+    if 'aba3_lote_selecionado' not in st.session_state:
+        st.session_state.aba3_lote_selecionado = None
+
+inicializar_session_state()
+
 # Sidebar: seleção de ligas e configurações
 with st.sidebar:
     st.header("⚙️ Configurações")
@@ -690,10 +775,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Selecione as ligas**")
     liga_options = list(ALL_LIGAS.keys())
-    
-    # manter seleção em session_state
-    if "selected_ligas" not in st.session_state:
-        st.session_state.selected_ligas = DEFAULT_PRINCIPAIS.copy()
     
     selected = st.multiselect(
         "Ligas", 
@@ -723,13 +804,18 @@ with st.sidebar:
 selected_ligas = selected if selected else (st.session_state.get("selected_ligas") or DEFAULT_PRINCIPAIS)
 
 # Abas principais
-aba = st.tabs(["⚡ Gerar & Enviar Top3", "📊 Jogos (Odds)", "🎯 Conferência Top3", "🔧 Configurações"])
+aba1, aba2, aba3, aba4 = st.tabs(["⚡ Gerar & Enviar Top3", "📊 Jogos (Odds)", "🎯 Conferência Top3", "🔧 Configurações"])
 
 # ---------- ABA 1: Gerar & Enviar Top3 ----------
-with aba[0]:
+with aba1:
     st.subheader("🔎 Buscar jogos do dia e enviar Top3 por faixa")
-    data_selecionada = st.date_input("📅 Data dos jogos:", value=datetime.today().date())
-    hoje_str = data_selecionada.strftime("%Y-%m-%d")
+    
+    # Data com persistência
+    data_aba1 = st.date_input("📅 Data dos jogos:", 
+                             value=st.session_state.aba1_data,
+                             key="aba1_data")
+    st.session_state.aba1_data = data_aba1
+    hoje_str = data_aba1.strftime("%Y-%m-%d")
 
     st.markdown("**Obs:** uso das odds para estimar P(+1.5/+2.5/+3.5). Ajuste as ligas no *sidebar*.")
 
@@ -738,83 +824,99 @@ with aba[0]:
     with col1:
         if st.button("🔍 Buscar jogos e calcular Top3", type="primary", use_container_width=True):
             with st.spinner("Buscando jogos e calculando probabilidades via Odds API..."):
-                partidas_info = coletar_jogos_do_dia_por_ligas(selected_ligas, data_selecionada, regions=",".join(regions_config))
+                partidas_info = coletar_jogos_do_dia_por_ligas(selected_ligas, data_aba1, regions=",".join(regions_config))
 
                 if not partidas_info:
                     st.info("❌ Nenhum jogo encontrado para essa data nas ligas selecionadas (Odds API).")
+                    st.session_state.aba1_partidas = None
+                    st.session_state.aba1_top15 = None
+                    st.session_state.aba1_top25 = None
+                    st.session_state.aba1_top35 = None
                 else:
                     top_15, top_25, top_35 = selecionar_top3_distintos(partidas_info, max_por_faixa=3)
 
-                    # Exibir resultados
-                    st.success(f"✅ {len(partidas_info)} jogos processados. Top3 calculados!")
-                    
-                    col1a, col2a, col3a = st.columns(3)
-                    
-                    with col1a:
-                        st.write("### 🥇 Top 3 +1.5")
-                        if top_15:
-                            multipla_15 = calcular_multipla(top_15, "1.5")
-                            if multipla_15:
-                                st.write(f"**💰 Múltipla: ×{multipla_15}**")
-                            for t in top_15:
-                                odds_info = ""
-                                if t.get('odds_1_5') and t['odds_1_5'].get('over'):
-                                    odds_info = f" | 🎲 {t['odds_1_5']['over']}"
-                                st.write(f"**{t['home']} x {t['away']}**")
-                                st.write(f"⏰ {t['hora']} | P(+1.5): {t['prob_1_5']}%{odds_info}")
-                                st.write("---")
-                        else:
-                            st.info("Nenhum jogo selecionado")
-                    
-                    with col2a:
-                        st.write("### 🥈 Top 3 +2.5")
-                        if top_25:
-                            multipla_25 = calcular_multipla(top_25, "2.5")
-                            if multipla_25:
-                                st.write(f"**💰 Múltipla: ×{multipla_25}**")
-                            for t in top_25:
-                                odds_info = ""
-                                if t.get('odds_2_5') and t['odds_2_5'].get('over'):
-                                    odds_info = f" | 🎲 {t['odds_2_5']['over']}"
-                                st.write(f"**{t['home']} x {t['away']}**")
-                                st.write(f"⏰ {t['hora']} | P(+2.5): {t['prob_2_5']}%{odds_info}")
-                                st.write("---")
-                        else:
-                            st.info("Nenhum jogo selecionado")
-                    
-                    with col3a:
-                        st.write("### 🥉 Top 3 +3.5")
-                        if top_35:
-                            multipla_35 = calcular_multipla(top_35, "3.5")
-                            if multipla_35:
-                                st.write(f"**💰 Múltipla: ×{multipla_35}**")
-                            for t in top_35:
-                                odds_info = ""
-                                if t.get('odds_3_5') and t['odds_3_5'].get('over'):
-                                    odds_info = f" | 🎲 {t['odds_3_5']['over']}"
-                                st.write(f"**{t['home']} x {t['away']}**")
-                                st.write(f"⏰ {t['hora']} | P(+3.5): {t['prob_3_5']}%{odds_info}")
-                                st.write("---")
-                        else:
-                            st.info("Nenhum jogo selecionado")
+                    # Salvar no session_state
+                    st.session_state.aba1_partidas = partidas_info
+                    st.session_state.aba1_top15 = top_15
+                    st.session_state.aba1_top25 = top_25
+                    st.session_state.aba1_top35 = top_35
 
-                    # Salvar em session_state para possível envio
-                    st.session_state.last_top3 = {
-                        "top_15": top_15,
-                        "top_25": top_25, 
-                        "top_35": top_35,
-                        "data": hoje_str
-                    }
+                    st.success(f"✅ {len(partidas_info)} jogos processados. Top3 calculados!")
+
+    # Exibir resultados se existirem no session_state
+    if (st.session_state.aba1_partidas is not None and 
+        st.session_state.aba1_top15 is not None and
+        st.session_state.aba1_top25 is not None and
+        st.session_state.aba1_top35 is not None):
+        
+        partidas_info = st.session_state.aba1_partidas
+        top_15 = st.session_state.aba1_top15
+        top_25 = st.session_state.aba1_top25
+        top_35 = st.session_state.aba1_top35
+        
+        col1a, col2a, col3a = st.columns(3)
+        
+        with col1a:
+            st.write("### 🥇 Top 3 +1.5")
+            if top_15:
+                bookmaker_15, multipla_15 = calcular_multipla_real(top_15, "1.5")
+                if multipla_15:
+                    bookmaker_text = f" ({bookmaker_15})" if bookmaker_15 else ""
+                    st.write(f"**💰 Múltipla{bookmaker_text}: ×{multipla_15}**")
+                for t in top_15:
+                    odds_info = ""
+                    if t.get('odds_1_5') and t['odds_1_5'].get('over'):
+                        odds_info = f" | 🎲 {t['odds_1_5']['over']}"
+                    st.write(f"**{t['home']} x {t['away']}**")
+                    st.write(f"⏰ {t['hora']} | P(+1.5): {t['prob_1_5']}%{odds_info}")
+                    st.write("---")
+            else:
+                st.info("Nenhum jogo selecionado")
+        
+        with col2a:
+            st.write("### 🥈 Top 3 +2.5")
+            if top_25:
+                bookmaker_25, multipla_25 = calcular_multipla_real(top_25, "2.5")
+                if multipla_25:
+                    bookmaker_text = f" ({bookmaker_25})" if bookmaker_25 else ""
+                    st.write(f"**💰 Múltipla{bookmaker_text}: ×{multipla_25}**")
+                for t in top_25:
+                    odds_info = ""
+                    if t.get('odds_2_5') and t['odds_2_5'].get('over'):
+                        odds_info = f" | 🎲 {t['odds_2_5']['over']}"
+                    st.write(f"**{t['home']} x {t['away']}**")
+                    st.write(f"⏰ {t['hora']} | P(+2.5): {t['prob_2_5']}%{odds_info}")
+                    st.write("---")
+            else:
+                st.info("Nenhum jogo selecionado")
+        
+        with col3a:
+            st.write("### 🥉 Top 3 +3.5")
+            if top_35:
+                bookmaker_35, multipla_35 = calcular_multipla_real(top_35, "3.5")
+                if multipla_35:
+                    bookmaker_text = f" ({bookmaker_35})" if bookmaker_35 else ""
+                    st.write(f"**💰 Múltipla{bookmaker_text}: ×{multipla_35}**")
+                for t in top_35:
+                    odds_info = ""
+                    if t.get('odds_3_5') and t['odds_3_5'].get('over'):
+                        odds_info = f" | 🎲 {t['odds_3_5']['over']}"
+                    st.write(f"**{t['home']} x {t['away']}**")
+                    st.write(f"⏰ {t['hora']} | P(+3.5): {t['prob_3_5']}%{odds_info}")
+                    st.write("---")
+            else:
+                st.info("Nenhum jogo selecionado")
 
     with col2:
         if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True):
-            if "last_top3" not in st.session_state:
+            if (st.session_state.aba1_top15 is None and 
+                st.session_state.aba1_top25 is None and 
+                st.session_state.aba1_top35 is None):
                 st.warning("⚠️ Primeiro busque os jogos para gerar o Top3")
             else:
-                top_15 = st.session_state.last_top3["top_15"]
-                top_25 = st.session_state.last_top3["top_25"]
-                top_35 = st.session_state.last_top3["top_35"]
-                hoje_str = st.session_state.last_top3["data"]
+                top_15 = st.session_state.aba1_top15 or []
+                top_25 = st.session_state.aba1_top25 or []
+                top_35 = st.session_state.aba1_top35 or []
 
                 with st.spinner("Enviando mensagens para Telegram..."):
                     success_count = 0
@@ -858,52 +960,75 @@ with aba[0]:
                         st.error("❌ Falha ao enviar mensagens para Telegram")
 
 # ---------- ABA 2: Jogos (Odds) ----------
-with aba[1]:
+with aba2:
     st.subheader("📊 Jogos do dia com Odds (Odds API)")
-    data_selecionada2 = st.date_input("📅 Data dos jogos para listar:", value=datetime.today().date(), key="lista_odds")
+    
+    # Data com persistência
+    data_aba2 = st.date_input("📅 Data dos jogos para listar:", 
+                             value=st.session_state.aba2_data,
+                             key="aba2_data")
+    st.session_state.aba2_data = data_aba2
     
     if st.button("🔍 Listar jogos e odds do dia", key="listar_odds"):
         with st.spinner("Consultando Odds API para listar jogos..."):
-            partidas = coletar_jogos_do_dia_por_ligas(selected_ligas, data_selecionada2, regions=",".join(regions_config))
+            partidas = coletar_jogos_do_dia_por_ligas(selected_ligas, data_aba2, regions=",".join(regions_config))
+            st.session_state.aba2_partidas = partidas
+            
             if not partidas:
                 st.info("ℹ️ Nenhum jogo/odds encontrado para essa data nas ligas selecionadas.")
             else:
                 st.success(f"✅ {len(partidas)} jogos encontrados")
-                
-                # Filtros
-                col_f1, col_f2, col_f3 = st.columns(3)
-                with col_f1:
-                    min_prob_15 = st.slider("Mín. P(+1.5)%", 0, 100, 50)
-                with col_f2:
-                    min_prob_25 = st.slider("Mín. P(+2.5)%", 0, 100, 50)
-                with col_f3:
-                    min_prob_35 = st.slider("Mín. P(+3.5)%", 0, 100, 50)
-                
-                partidas_filtradas = [
-                    p for p in partidas 
-                    if p['prob_1_5'] >= min_prob_15 
-                    and p['prob_2_5'] >= min_prob_25 
-                    and p['prob_3_5'] >= min_prob_35
-                ]
-                
-                st.write(f"**Jogos filtrados:** {len(partidas_filtradas)}")
-                
-                for p in partidas_filtradas:
-                    with st.expander(f"🏟️ {p['home']} x {p['away']} — {p['competicao']} — {p['hora']} BRT"):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            odds_info = f"🎲 {p['odds_1_5']['over']}" if p.get('odds_1_5') and p['odds_1_5'].get('over') else "🎲 N/A"
-                            st.metric("P(+1.5)", f"{p['prob_1_5']}%", f"Conf: {p['conf_1_5']}% | {odds_info}")
-                        with col2:
-                            odds_info = f"🎲 {p['odds_2_5']['over']}" if p.get('odds_2_5') and p['odds_2_5'].get('over') else "🎲 N/A"
-                            st.metric("P(+2.5)", f"{p['prob_2_5']}%", f"Conf: {p['conf_2_5']}% | {odds_info}")
-                        with col3:
-                            odds_info = f"🎲 {p['odds_3_5']['over']}" if p.get('odds_3_5') and p['odds_3_5'].get('over') else "🎲 N/A"
-                            st.metric("P(+3.5)", f"{p['prob_3_5']}%", f"Conf: {p['conf_3_5']}% | {odds_info}")
-                        st.write(f"**Estimativa:** {p['estimativa']} gols")
+
+    # Exibir resultados se existirem no session_state
+    if st.session_state.aba2_partidas is not None:
+        partidas = st.session_state.aba2_partidas
+        
+        if partidas:
+            st.success(f"✅ {len(partidas)} jogos encontrados")
+            
+            # Filtros com persistência
+            col_f1, col_f2, col_f3 = st.columns(3)
+            with col_f1:
+                min_prob_15 = st.slider("Mín. P(+1.5)%", 0, 100, 
+                                       st.session_state.aba2_filtro_min15,
+                                       key="aba2_filtro_min15")
+                st.session_state.aba2_filtro_min15 = min_prob_15
+            with col_f2:
+                min_prob_25 = st.slider("Mín. P(+2.5)%", 0, 100, 
+                                       st.session_state.aba2_filtro_min25,
+                                       key="aba2_filtro_min25")
+                st.session_state.aba2_filtro_min25 = min_prob_25
+            with col_f3:
+                min_prob_35 = st.slider("Mín. P(+3.5)%", 0, 100, 
+                                       st.session_state.aba2_filtro_min35,
+                                       key="aba2_filtro_min35")
+                st.session_state.aba2_filtro_min35 = min_prob_35
+            
+            partidas_filtradas = [
+                p for p in partidas 
+                if p['prob_1_5'] >= min_prob_15 
+                and p['prob_2_5'] >= min_prob_25 
+                and p['prob_3_5'] >= min_prob_35
+            ]
+            
+            st.write(f"**Jogos filtrados:** {len(partidas_filtradas)}")
+            
+            for p in partidas_filtradas:
+                with st.expander(f"🏟️ {p['home']} x {p['away']} — {p['competicao']} — {p['hora']} BRT"):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        odds_info = f"🎲 {p['odds_1_5']['over']}" if p.get('odds_1_5') and p['odds_1_5'].get('over') else "🎲 N/A"
+                        st.metric("P(+1.5)", f"{p['prob_1_5']}%", f"Conf: {p['conf_1_5']}% | {odds_info}")
+                    with col2:
+                        odds_info = f"🎲 {p['odds_2_5']['over']}" if p.get('odds_2_5') and p['odds_2_5'].get('over') else "🎲 N/A"
+                        st.metric("P(+2.5)", f"{p['prob_2_5']}%", f"Conf: {p['conf_2_5']}% | {odds_info}")
+                    with col3:
+                        odds_info = f"🎲 {p['odds_3_5']['over']}" if p.get('odds_3_5') and p['odds_3_5'].get('over') else "🎲 N/A"
+                        st.metric("P(+3.5)", f"{p['prob_3_5']}%", f"Conf: {p['conf_3_5']}% | {odds_info}")
+                    st.write(f"**Estimativa:** {p['estimativa']} gols")
 
 # ---------- ABA 3: Conferência Top 3 ----------
-with aba[2]:
+with aba3:
     st.subheader("🎯 Conferência dos Top 3 enviados")
     top3_salvos = carregar_top3()
 
@@ -912,7 +1037,21 @@ with aba[2]:
     else:
         st.write(f"✅ Total de envios registrados: {len(top3_salvos)}")
         options = [f"{idx+1} - {t['data_envio']} ({t['hora_envio']})" for idx, t in enumerate(top3_salvos)]
-        seletor = st.selectbox("Selecione o lote Top3 para conferir:", options, index=len(options)-1)
+        
+        # Selectbox com persistência
+        seletor_index = 0
+        if st.session_state.aba3_lote_selecionado is not None:
+            try:
+                seletor_index = options.index(st.session_state.aba3_lote_selecionado)
+            except ValueError:
+                seletor_index = len(options) - 1
+        
+        seletor = st.selectbox("Selecione o lote Top3 para conferir:", 
+                              options, 
+                              index=seletor_index,
+                              key="aba3_seletor")
+        
+        st.session_state.aba3_lote_selecionado = seletor
         idx_selecionado = options.index(seletor)
         lote = top3_salvos[idx_selecionado]
         
@@ -1011,7 +1150,7 @@ with aba[2]:
                 st.error(f"❌ Erro ao exportar: {e}")
 
 # ---------- ABA 4: Configurações ----------
-with aba[3]:
+with aba4:
     st.subheader("🔧 Configurações Avançadas")
     
     col1, col2 = st.columns(2)
@@ -1039,7 +1178,12 @@ with aba[3]:
                     os.remove(TOP3_PATH)
                 if os.path.exists(ALERTAS_PATH):
                     os.remove(ALERTAS_PATH)
+                # Limpar session_state também
+                for key in list(st.session_state.keys()):
+                    if key.startswith('aba'):
+                        del st.session_state[key]
                 st.success("✅ Cache limpo com sucesso!")
+                st.rerun()
             except Exception as e:
                 st.error(f"❌ Erro ao limpar cache: {e}")
         
