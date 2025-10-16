@@ -68,6 +68,7 @@ ALL_LIGAS = {
     "soccer_uefa_womens_champs_league": "UEFA Women's Champions League",
 }
 
+
 # Default principais
 DEFAULT_PRINCIPAIS = [
     "soccer_epl",
