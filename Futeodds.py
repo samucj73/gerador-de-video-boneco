@@ -69,7 +69,6 @@ ALL_LIGAS = {
 
 
 
-
 # Default principais
 DEFAULT_PRINCIPAIS = [
     "soccer_epl",
