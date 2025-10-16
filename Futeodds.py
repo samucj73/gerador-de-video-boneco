@@ -9,6 +9,7 @@ import time
 import logging
 from functools import lru_cache
 from dotenv import load_dotenv
+import pytz
 
 # =============================
 # Configuração Inicial
@@ -37,36 +38,27 @@ ALL_LIGAS = {
     # Europe + Global (principais)
     "soccer_epl": "England - Premier League (EPL)",
     "soccer_spain_la_liga": "Spain - La Liga",
-    "soccer_spain_segunda_division": "Spain - La Liga 2",
     "soccer_italy_serie_a": "Italy - Serie A",
     "soccer_germany_bundesliga": "Germany - Bundesliga",
-    "soccer_germany_bundesliga2": "Germany - Bundesliga 2",
     "soccer_france_ligue_one": "France - Ligue 1",
     "soccer_brazil_campeonato": "Brazil - Série A (Brasileirão)",
-    "soccer_brazil_campeonato_b": "Brazil - Série B (Brasileirão B)",
     "soccer_uefa_champs_league": "UEFA Champions League",
-    "soccer_uefa_champs_league_women": "UEFA Champions League Feminina",
     "soccer_uefa_europa_league": "UEFA Europa League",
     "soccer_uefa_europa_conference_league": "UEFA Europa Conference League",
-    "soccer_copa_libertadores": "Copa Libertadores da América",
     "soccer_portugal_primeira_liga": "Portugal - Primeira Liga",
     "soccer_netherlands_eredivisie": "Netherlands - Eredivisie",
     "soccer_mexico_ligamx": "Mexico - Liga MX",
     "soccer_turkey_super_league": "Turkey - Super Lig",
     "soccer_argentina_primera_division": "Argentina - Primera División",
-
     # American leagues (US/CONCACAF)
     "soccer_usa_mls": "USA - Major League Soccer (MLS)",
     "soccer_usa_usl_championship": "USA - USL Championship",
-
     # Outras
     "soccer_china_superleague": "China - Super League",
     "soccer_japan_j_league": "Japan - J League",
     "soccer_korea_kleague1": "Korea - K League 1",
     "soccer_belgium_first_div": "Belgium - First Division A",
 }
-
-
 
 # Default principais
 DEFAULT_PRINCIPAIS = [
@@ -87,6 +79,11 @@ BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 ALERTAS_PATH = "alertas.json"
 TOP3_PATH = "top3.json"
+
+# =============================
+# Configuração de Fuso Horário
+# =============================
+TIMEZONE_BR = pytz.timezone('America/Sao_Paulo')  # UTC-3
 
 # =============================
 # Rate Limiter
@@ -250,18 +247,34 @@ def obter_odds_para_liga(liga_key, regions="eu,us,au", markets="totals", odds_fo
         st.warning(f"Erro Odds API {liga_key}: {e}")
         return []
 
-def parse_iso_to_datetime(s):
+def parse_iso_to_datetime_brasil(s):
+    """
+    Converte string ISO para datetime e ajusta para o fuso horário do Brasil
+    """
     if not s:
         return None
     try:
+        # Parse da string ISO
         if s.endswith("Z"):
-            s2 = s.replace("Z", "+00:00")
+            dt_utc = datetime.fromisoformat(s.replace("Z", "+00:00"))
         else:
-            s2 = s
-        return datetime.fromisoformat(s2)
+            dt_utc = datetime.fromisoformat(s)
+        
+        # Converter para UTC primeiro
+        dt_utc = dt_utc.replace(tzinfo=pytz.UTC)
+        
+        # Converter para horário do Brasil
+        dt_brasil = dt_utc.astimezone(TIMEZONE_BR)
+        
+        return dt_brasil
     except Exception:
         try:
-            return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+            # Fallback para formato sem timezone
+            dt_naive = datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+            # Assumir que é UTC e converter para Brasil
+            dt_utc = pytz.UTC.localize(dt_naive)
+            dt_brasil = dt_utc.astimezone(TIMEZONE_BR)
+            return dt_brasil
         except Exception:
             return None
 
@@ -604,7 +617,7 @@ def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
             
         for ev in eventos:
             commence = ev.get("commence_time") or ev.get("commence_time_zone")
-            dt = parse_iso_to_datetime(commence)
+            dt = parse_iso_to_datetime_brasil(commence)  # Usar a nova função com conversão para BR
             if not dt:
                 continue
             if dt.date() != data_obj:
@@ -613,6 +626,8 @@ def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
             # extrair nomes
             home = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
             away = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
+            
+            # Formatar hora no fuso do Brasil
             hora_formatada = dt.strftime("%H:%M") if dt else "??:??"
             
             calc = calcular_estimativas_e_probs_por_jogo_from_odds(ev)
@@ -873,7 +888,7 @@ with aba1:
                     if t.get('odds_1_5') and t['odds_1_5'].get('over'):
                         odds_info = f" | 🎲 {t['odds_1_5']['over']}"
                     st.write(f"**{t['home']} x {t['away']}**")
-                    st.write(f"⏰ {t['hora']} | P(+1.5): {t['prob_1_5']}%{odds_info}")
+                    st.write(f"⏰ {t['hora']} BRT | P(+1.5): {t['prob_1_5']}%{odds_info}")
                     st.write("---")
             else:
                 st.info("Nenhum jogo selecionado")
@@ -890,7 +905,7 @@ with aba1:
                     if t.get('odds_2_5') and t['odds_2_5'].get('over'):
                         odds_info = f" | 🎲 {t['odds_2_5']['over']}"
                     st.write(f"**{t['home']} x {t['away']}**")
-                    st.write(f"⏰ {t['hora']} | P(+2.5): {t['prob_2_5']}%{odds_info}")
+                    st.write(f"⏰ {t['hora']} BRT | P(+2.5): {t['prob_2_5']}%{odds_info}")
                     st.write("---")
             else:
                 st.info("Nenhum jogo selecionado")
@@ -907,7 +922,7 @@ with aba1:
                     if t.get('odds_3_5') and t['odds_3_5'].get('over'):
                         odds_info = f" | 🎲 {t['odds_3_5']['over']}"
                     st.write(f"**{t['home']} x {t['away']}**")
-                    st.write(f"⏰ {t['hora']} | P(+3.5): {t['prob_3_5']}%{odds_info}")
+                    st.write(f"⏰ {t['hora']} BRT | P(+3.5): {t['prob_3_5']}%{odds_info}")
                     st.write("---")
             else:
                 st.info("Nenhum jogo selecionado")
