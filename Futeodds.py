@@ -37,37 +37,27 @@ ALL_LIGAS = {
     # Europe + Global (principais)
     "soccer_epl": "England - Premier League (EPL)",
     "soccer_spain_la_liga": "Spain - La Liga",
-    "soccer_spain_segunda_division": "Spain - La Liga 2",
     "soccer_italy_serie_a": "Italy - Serie A",
     "soccer_germany_bundesliga": "Germany - Bundesliga",
-    "soccer_germany_bundesliga2": "Germany - Bundesliga 2",
     "soccer_france_ligue_one": "France - Ligue 1",
     "soccer_brazil_campeonato": "Brazil - Série A (Brasileirão)",
-    "soccer_brazil_campeonato_b": "Brazil - Série B (Brasileirão B)",
     "soccer_uefa_champs_league": "UEFA Champions League",
-    "soccer_uefa_champs_league_women": "UEFA Champions League Feminina",
     "soccer_uefa_europa_league": "UEFA Europa League",
     "soccer_uefa_europa_conference_league": "UEFA Europa Conference League",
-    "soccer_copa_libertadores": "Copa Libertadores da América",
     "soccer_portugal_primeira_liga": "Portugal - Primeira Liga",
     "soccer_netherlands_eredivisie": "Netherlands - Eredivisie",
     "soccer_mexico_ligamx": "Mexico - Liga MX",
     "soccer_turkey_super_league": "Turkey - Super Lig",
     "soccer_argentina_primera_division": "Argentina - Primera División",
-
     # American leagues (US/CONCACAF)
     "soccer_usa_mls": "USA - Major League Soccer (MLS)",
     "soccer_usa_usl_championship": "USA - USL Championship",
-
     # Outras
     "soccer_china_superleague": "China - Super League",
     "soccer_japan_j_league": "Japan - J League",
     "soccer_korea_kleague1": "Korea - K League 1",
     "soccer_belgium_first_div": "Belgium - First Division A",
 }
-
-
-
 
 # Default principais
 DEFAULT_PRINCIPAIS = [
@@ -726,6 +716,7 @@ def inicializar_session_state():
     if 'selected_ligas' not in st.session_state:
         st.session_state.selected_ligas = DEFAULT_PRINCIPAIS.copy()
     
+    # Aba 1
     if 'aba1_partidas' not in st.session_state:
         st.session_state.aba1_partidas = None
     if 'aba1_top15' not in st.session_state:
@@ -737,6 +728,7 @@ def inicializar_session_state():
     if 'aba1_data' not in st.session_state:
         st.session_state.aba1_data = datetime.today().date()
     
+    # Aba 2
     if 'aba2_partidas' not in st.session_state:
         st.session_state.aba2_partidas = None
     if 'aba2_data' not in st.session_state:
@@ -748,9 +740,11 @@ def inicializar_session_state():
     if 'aba2_filtro_min35' not in st.session_state:
         st.session_state.aba2_filtro_min35 = 50
     
+    # Aba 3
     if 'aba3_lote_selecionado' not in st.session_state:
         st.session_state.aba3_lote_selecionado = None
 
+# Inicializar session state
 inicializar_session_state()
 
 # Sidebar: seleção de ligas e configurações
@@ -810,12 +804,18 @@ aba1, aba2, aba3, aba4 = st.tabs(["⚡ Gerar & Enviar Top3", "📊 Jogos (Odds)"
 with aba1:
     st.subheader("🔎 Buscar jogos do dia e enviar Top3 por faixa")
     
-    # Data com persistência
-    data_aba1 = st.date_input("📅 Data dos jogos:", 
-                             value=st.session_state.aba1_data,
-                             key="aba1_data")
-    st.session_state.aba1_data = data_aba1
-    hoje_str = data_aba1.strftime("%Y-%m-%d")
+    # Data com persistência - usar callback para atualizar session_state
+    def atualizar_data_aba1():
+        st.session_state.aba1_data = st.session_state.aba1_data_input
+    
+    data_aba1 = st.date_input(
+        "📅 Data dos jogos:", 
+        value=st.session_state.aba1_data,
+        key="aba1_data_input",
+        on_change=atualizar_data_aba1
+    )
+    
+    hoje_str = st.session_state.aba1_data.strftime("%Y-%m-%d")
 
     st.markdown("**Obs:** uso das odds para estimar P(+1.5/+2.5/+3.5). Ajuste as ligas no *sidebar*.")
 
@@ -824,7 +824,7 @@ with aba1:
     with col1:
         if st.button("🔍 Buscar jogos e calcular Top3", type="primary", use_container_width=True):
             with st.spinner("Buscando jogos e calculando probabilidades via Odds API..."):
-                partidas_info = coletar_jogos_do_dia_por_ligas(selected_ligas, data_aba1, regions=",".join(regions_config))
+                partidas_info = coletar_jogos_do_dia_por_ligas(selected_ligas, st.session_state.aba1_data, regions=",".join(regions_config))
 
                 if not partidas_info:
                     st.info("❌ Nenhum jogo encontrado para essa data nas ligas selecionadas (Odds API).")
@@ -963,15 +963,20 @@ with aba1:
 with aba2:
     st.subheader("📊 Jogos do dia com Odds (Odds API)")
     
-    # Data com persistência
-    data_aba2 = st.date_input("📅 Data dos jogos para listar:", 
-                             value=st.session_state.aba2_data,
-                             key="aba2_data")
-    st.session_state.aba2_data = data_aba2
+    # Data com persistência - usar callback
+    def atualizar_data_aba2():
+        st.session_state.aba2_data = st.session_state.aba2_data_input
+    
+    data_aba2 = st.date_input(
+        "📅 Data dos jogos para listar:", 
+        value=st.session_state.aba2_data,
+        key="aba2_data_input",
+        on_change=atualizar_data_aba2
+    )
     
     if st.button("🔍 Listar jogos e odds do dia", key="listar_odds"):
         with st.spinner("Consultando Odds API para listar jogos..."):
-            partidas = coletar_jogos_do_dia_por_ligas(selected_ligas, data_aba2, regions=",".join(regions_config))
+            partidas = coletar_jogos_do_dia_por_ligas(selected_ligas, st.session_state.aba2_data, regions=",".join(regions_config))
             st.session_state.aba2_partidas = partidas
             
             if not partidas:
@@ -1067,7 +1072,8 @@ with aba3:
         
         st.markdown("---")
 
-        if st.button("🔄 Rechecar resultados e enviar conferência"):
+        # Botões de ação para a Aba 3
+        if st.button("🔄 Rechecar resultados e enviar conferência", key="aba3_conferir"):
             with st.spinner("Conferindo resultados via Odds API..."):
                 def processar_lista_e_mandar(lista_top, threshold_label):
                     detalhes_local = []
@@ -1105,7 +1111,7 @@ with aba3:
                 for label, detalhes, success in resultados:
                     st.write(f"**+{label} Gols:** {'✅ Enviado' if success else '❌ Falha'} ({len(detalhes)} jogos)")
 
-        if st.button("🔎 Rechecar odds aqui (sem enviar Telegram)"):
+        if st.button("🔎 Rechecar odds aqui (sem enviar Telegram)", key="aba3_rechecar"):
             with st.spinner("Conferindo odds localmente..."):
                 for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
                     st.write(f"### Conferência +{label}")
@@ -1140,7 +1146,7 @@ with aba3:
                             odds_info = f"🎲 {calc.get('odds_3_5', {}).get('over', 'N/A')}" if calc.get('odds_3_5') else "🎲 N/A"
                             st.write(f"P(+3.5): {calc.get('prob_3_5')}% | {odds_info}")
 
-        if st.button("📥 Exportar lote selecionado (.json)"):
+        if st.button("📥 Exportar lote selecionado (.json)", key="aba3_exportar"):
             nome_arquivo = f"relatorio_top3_{lote['data_envio']}_{lote['hora_envio'].replace(':','-').replace(' ','_')}.json"
             try:
                 with open(nome_arquivo, "w", encoding="utf-8") as f:
@@ -1160,7 +1166,7 @@ with aba4:
         st.info(f"Odds API Key: {'✅ Configurada' if ODDS_API_KEY else '❌ Não configurada'}")
         st.info(f"Telegram Token: {'✅ Configurado' if TELEGRAM_TOKEN else '❌ Não configurado'}")
         
-        if st.button("🔄 Testar Conexão Odds API"):
+        if st.button("🔄 Testar Conexão Odds API", key="aba4_testar"):
             with st.spinner("Testando conexão..."):
                 test_events = obter_odds_para_liga("soccer_epl", regions="eu", markets="totals")
                 if test_events:
@@ -1172,7 +1178,7 @@ with aba4:
     with col2:
         st.write("**Gerenciamento de Dados**")
         
-        if st.button("🗑️ Limpar Cache de Dados"):
+        if st.button("🗑️ Limpar Cache de Dados", key="aba4_limpar"):
             try:
                 if os.path.exists(TOP3_PATH):
                     os.remove(TOP3_PATH)
@@ -1187,7 +1193,7 @@ with aba4:
             except Exception as e:
                 st.error(f"❌ Erro ao limpar cache: {e}")
         
-        if st.button("📊 Estatísticas do Sistema"):
+        if st.button("📊 Estatísticas do Sistema", key="aba4_stats"):
             st.write("**Arquivos de Dados:**")
             st.write(f"- top3.json: {os.path.exists(TOP3_PATH)}")
             st.write(f"- alertas.json: {os.path.exists(ALERTAS_PATH)}")
@@ -1200,12 +1206,12 @@ with aba4:
     
     st.write("---")
     st.write("**Logs Recentes**")
-    if st.button("📋 Mostrar Últimos Logs"):
+    if st.button("📋 Mostrar Últimos Logs", key="aba4_logs"):
         if os.path.exists('app.log'):
             with open('app.log', 'r') as f:
                 lines = f.readlines()
                 last_lines = lines[-20:]  # Últimas 20 linhas
-                st.text_area("Logs", "\n".join(last_lines), height=300)
+                st.text_area("Logs", "\n".join(last_lines), height=300, key="aba4_logs_area")
         else:
             st.info("Arquivo de log não encontrado")
 
