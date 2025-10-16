@@ -37,36 +37,27 @@ ALL_LIGAS = {
     # Europe + Global (principais)
     "soccer_epl": "England - Premier League (EPL)",
     "soccer_spain_la_liga": "Spain - La Liga",
-    "soccer_spain_segunda_division": "Spain - La Liga 2",
     "soccer_italy_serie_a": "Italy - Serie A",
     "soccer_germany_bundesliga": "Germany - Bundesliga",
-    "soccer_germany_bundesliga2": "Germany - Bundesliga 2",
     "soccer_france_ligue_one": "France - Ligue 1",
     "soccer_brazil_campeonato": "Brazil - Série A (Brasileirão)",
-    "soccer_brazil_campeonato_b": "Brazil - Série B (Brasileirão B)",
     "soccer_uefa_champs_league": "UEFA Champions League",
-    "soccer_uefa_champs_league_women": "UEFA Champions League Feminina",
     "soccer_uefa_europa_league": "UEFA Europa League",
     "soccer_uefa_europa_conference_league": "UEFA Europa Conference League",
-    "soccer_copa_libertadores": "Copa Libertadores da América",
     "soccer_portugal_primeira_liga": "Portugal - Primeira Liga",
     "soccer_netherlands_eredivisie": "Netherlands - Eredivisie",
     "soccer_mexico_ligamx": "Mexico - Liga MX",
     "soccer_turkey_super_league": "Turkey - Super Lig",
     "soccer_argentina_primera_division": "Argentina - Primera División",
-
     # American leagues (US/CONCACAF)
     "soccer_usa_mls": "USA - Major League Soccer (MLS)",
     "soccer_usa_usl_championship": "USA - USL Championship",
-
     # Outras
     "soccer_china_superleague": "China - Super League",
     "soccer_japan_j_league": "Japan - J League",
     "soccer_korea_kleague1": "Korea - K League 1",
     "soccer_belgium_first_div": "Belgium - First Division A",
 }
-
-
 
 # Default principais
 DEFAULT_PRINCIPAIS = [
@@ -720,41 +711,36 @@ st.title("⚽ Oddstop — Alertas Top3 por Faixa (+1.5 / +2.5 / +3.5) — Odds A
 # =============================
 # Inicialização do Session State
 # =============================
-def inicializar_session_state():
-    """Inicializa todas as variáveis do session_state"""
-    if 'selected_ligas' not in st.session_state:
-        st.session_state.selected_ligas = DEFAULT_PRINCIPAIS.copy()
-    
-    # Aba 1
-    if 'aba1_partidas' not in st.session_state:
-        st.session_state.aba1_partidas = None
-    if 'aba1_top15' not in st.session_state:
-        st.session_state.aba1_top15 = None
-    if 'aba1_top25' not in st.session_state:
-        st.session_state.aba1_top25 = None
-    if 'aba1_top35' not in st.session_state:
-        st.session_state.aba1_top35 = None
-    if 'aba1_data' not in st.session_state:
-        st.session_state.aba1_data = datetime.today().date()
-    
-    # Aba 2
-    if 'aba2_partidas' not in st.session_state:
-        st.session_state.aba2_partidas = None
-    if 'aba2_data' not in st.session_state:
-        st.session_state.aba2_data = datetime.today().date()
-    if 'aba2_filtro_min15' not in st.session_state:
-        st.session_state.aba2_filtro_min15 = 50
-    if 'aba2_filtro_min25' not in st.session_state:
-        st.session_state.aba2_filtro_min25 = 50
-    if 'aba2_filtro_min35' not in st.session_state:
-        st.session_state.aba2_filtro_min35 = 50
-    
-    # Aba 3
-    if 'aba3_lote_selecionado' not in st.session_state:
-        st.session_state.aba3_lote_selecionado = None
+if 'selected_ligas' not in st.session_state:
+    st.session_state.selected_ligas = DEFAULT_PRINCIPAIS.copy()
 
-# Inicializar session state
-inicializar_session_state()
+# Aba 1
+if 'aba1_partidas' not in st.session_state:
+    st.session_state.aba1_partidas = None
+if 'aba1_top15' not in st.session_state:
+    st.session_state.aba1_top15 = None
+if 'aba1_top25' not in st.session_state:
+    st.session_state.aba1_top25 = None
+if 'aba1_top35' not in st.session_state:
+    st.session_state.aba1_top35 = None
+if 'aba1_data' not in st.session_state:
+    st.session_state.aba1_data = datetime.today().date()
+
+# Aba 2
+if 'aba2_partidas' not in st.session_state:
+    st.session_state.aba2_partidas = None
+if 'aba2_data' not in st.session_state:
+    st.session_state.aba2_data = datetime.today().date()
+if 'aba2_filtro_min15' not in st.session_state:
+    st.session_state.aba2_filtro_min15 = 50
+if 'aba2_filtro_min25' not in st.session_state:
+    st.session_state.aba2_filtro_min25 = 50
+if 'aba2_filtro_min35' not in st.session_state:
+    st.session_state.aba2_filtro_min35 = 50
+
+# Aba 3
+if 'aba3_lote_selecionado' not in st.session_state:
+    st.session_state.aba3_lote_selecionado = None
 
 # Sidebar: seleção de ligas e configurações
 with st.sidebar:
@@ -813,16 +799,17 @@ aba1, aba2, aba3, aba4 = st.tabs(["⚡ Gerar & Enviar Top3", "📊 Jogos (Odds)"
 with aba1:
     st.subheader("🔎 Buscar jogos do dia e enviar Top3 por faixa")
     
-    # Data com persistência - usar callback para atualizar session_state
-    def atualizar_data_aba1():
-        st.session_state.aba1_data = st.session_state.aba1_data_input
-    
+    # Data com persistência simples
     data_aba1 = st.date_input(
         "📅 Data dos jogos:", 
         value=st.session_state.aba1_data,
-        key="aba1_data_input",
-        on_change=atualizar_data_aba1
+        key="aba1_data_input"
     )
+    
+    # Atualizar session_state apenas quando o botão for pressionado
+    if st.button("💾 Atualizar data", key="aba1_atualizar_data"):
+        st.session_state.aba1_data = data_aba1
+        st.success("Data atualizada!")
     
     hoje_str = st.session_state.aba1_data.strftime("%Y-%m-%d")
 
@@ -831,7 +818,7 @@ with aba1:
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🔍 Buscar jogos e calcular Top3", type="primary", use_container_width=True):
+        if st.button("🔍 Buscar jogos e calcular Top3", type="primary", use_container_width=True, key="aba1_buscar"):
             with st.spinner("Buscando jogos e calculando probabilidades via Odds API..."):
                 partidas_info = coletar_jogos_do_dia_por_ligas(selected_ligas, st.session_state.aba1_data, regions=",".join(regions_config))
 
@@ -917,7 +904,7 @@ with aba1:
                 st.info("Nenhum jogo selecionado")
 
     with col2:
-        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True):
+        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True, key="aba1_enviar"):
             if (st.session_state.aba1_top15 is None and 
                 st.session_state.aba1_top25 is None and 
                 st.session_state.aba1_top35 is None):
@@ -972,18 +959,19 @@ with aba1:
 with aba2:
     st.subheader("📊 Jogos do dia com Odds (Odds API)")
     
-    # Data com persistência - usar callback
-    def atualizar_data_aba2():
-        st.session_state.aba2_data = st.session_state.aba2_data_input
-    
+    # Data com persistência simples
     data_aba2 = st.date_input(
         "📅 Data dos jogos para listar:", 
         value=st.session_state.aba2_data,
-        key="aba2_data_input",
-        on_change=atualizar_data_aba2
+        key="aba2_data_input"
     )
     
-    if st.button("🔍 Listar jogos e odds do dia", key="listar_odds"):
+    # Atualizar session_state apenas quando o botão for pressionado
+    if st.button("💾 Atualizar data", key="aba2_atualizar_data"):
+        st.session_state.aba2_data = data_aba2
+        st.success("Data atualizada!")
+    
+    if st.button("🔍 Listar jogos e odds do dia", key="aba2_listar"):
         with st.spinner("Consultando Odds API para listar jogos..."):
             partidas = coletar_jogos_do_dia_por_ligas(selected_ligas, st.session_state.aba2_data, regions=",".join(regions_config))
             st.session_state.aba2_partidas = partidas
@@ -1000,29 +988,33 @@ with aba2:
         if partidas:
             st.success(f"✅ {len(partidas)} jogos encontrados")
             
-            # Filtros com persistência
+            # Filtros com persistência simples
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
                 min_prob_15 = st.slider("Mín. P(+1.5)%", 0, 100, 
                                        st.session_state.aba2_filtro_min15,
                                        key="aba2_filtro_min15")
-                st.session_state.aba2_filtro_min15 = min_prob_15
             with col_f2:
                 min_prob_25 = st.slider("Mín. P(+2.5)%", 0, 100, 
                                        st.session_state.aba2_filtro_min25,
                                        key="aba2_filtro_min25")
-                st.session_state.aba2_filtro_min25 = min_prob_25
             with col_f3:
                 min_prob_35 = st.slider("Mín. P(+3.5)%", 0, 100, 
                                        st.session_state.aba2_filtro_min35,
                                        key="aba2_filtro_min35")
+            
+            # Atualizar filtros apenas quando o botão for pressionado
+            if st.button("💾 Aplicar Filtros", key="aba2_aplicar_filtros"):
+                st.session_state.aba2_filtro_min15 = min_prob_15
+                st.session_state.aba2_filtro_min25 = min_prob_25
                 st.session_state.aba2_filtro_min35 = min_prob_35
+                st.success("Filtros aplicados!")
             
             partidas_filtradas = [
                 p for p in partidas 
-                if p['prob_1_5'] >= min_prob_15 
-                and p['prob_2_5'] >= min_prob_25 
-                and p['prob_3_5'] >= min_prob_35
+                if p['prob_1_5'] >= st.session_state.aba2_filtro_min15 
+                and p['prob_2_5'] >= st.session_state.aba2_filtro_min25 
+                and p['prob_3_5'] >= st.session_state.aba2_filtro_min35
             ]
             
             st.write(f"**Jogos filtrados:** {len(partidas_filtradas)}")
@@ -1065,104 +1057,109 @@ with aba3:
                               index=seletor_index,
                               key="aba3_seletor")
         
-        st.session_state.aba3_lote_selecionado = seletor
-        idx_selecionado = options.index(seletor)
-        lote = top3_salvos[idx_selecionado]
+        # Atualizar apenas quando o botão for pressionado
+        if st.button("💾 Selecionar Lote", key="aba3_selecionar"):
+            st.session_state.aba3_lote_selecionado = seletor
+            st.success("Lote selecionado!")
         
-        st.markdown(f"### Lote selecionado — Envio: **{lote['data_envio']}** às **{lote['hora_envio']}**")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("+1.5 Gols", len(lote.get('top_1_5', [])))
-        with col2:
-            st.metric("+2.5 Gols", len(lote.get('top_2_5', [])))
-        with col3:
-            st.metric("+3.5 Gols", len(lote.get('top_3_5', [])))
-        
-        st.markdown("---")
+        if st.session_state.aba3_lote_selecionado:
+            idx_selecionado = options.index(st.session_state.aba3_lote_selecionado)
+            lote = top3_salvos[idx_selecionado]
+            
+            st.markdown(f"### Lote selecionado — Envio: **{lote['data_envio']}** às **{lote['hora_envio']}**")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("+1.5 Gols", len(lote.get('top_1_5', [])))
+            with col2:
+                st.metric("+2.5 Gols", len(lote.get('top_2_5', [])))
+            with col3:
+                st.metric("+3.5 Gols", len(lote.get('top_3_5', [])))
+            
+            st.markdown("---")
 
-        # Botões de ação para a Aba 3
-        if st.button("🔄 Rechecar resultados e enviar conferência", key="aba3_conferir"):
-            with st.spinner("Conferindo resultados via Odds API..."):
-                def processar_lista_e_mandar(lista_top, threshold_label):
-                    detalhes_local = []
-                    lines_for_msg = []
-                    for j in lista_top:
-                        liga = j.get("liga_key") or j.get("liga_id")
-                        eventos = obter_odds_para_liga(liga, regions=",".join(regions_config), markets="totals")
-                        found = None
-                        for ev in eventos:
-                            ht = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
-                            at = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
-                            if ht == j.get("home") and at == j.get("away"):
-                                found = ev
-                                break
-                        if not found:
-                            lines_for_msg.append(f"🏟️ {j.get('home')} x {j.get('away')} — _sem resultado disponível_")
-                            detalhes_local.append({"home": j.get("home"), "away": j.get("away"), "aposta": f"+{threshold_label}", "status": "Não encontrado / sem resultado"})
-                            continue
-                        lines_for_msg.append(f"🏟️ {found.get('home_team')} x {found.get('away_team')} — _Odds confirmadas — sem placar via Odds API_")
-                        detalhes_local.append({"home": found.get("home_team"), "away": found.get("away_team"), "aposta": f"+{threshold_label}", "status": "Odds encontradas — sem placar"})
-                    
-                    header = f"✅ RESULTADOS - CONFERÊNCIA +{threshold_label}\n(Lote: {lote['data_envio']})\n\n"
-                    body = "\n".join(lines_for_msg) if lines_for_msg else "_Nenhum jogo para conferir nesta faixa no lote selecionado._"
-                    msg = header + body
-                    
-                    success = enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2)
-                    return detalhes_local, success
+            # Botões de ação para a Aba 3
+            if st.button("🔄 Rechecar resultados e enviar conferência", key="aba3_conferir"):
+                with st.spinner("Conferindo resultados via Odds API..."):
+                    def processar_lista_e_mandar(lista_top, threshold_label):
+                        detalhes_local = []
+                        lines_for_msg = []
+                        for j in lista_top:
+                            liga = j.get("liga_key") or j.get("liga_id")
+                            eventos = obter_odds_para_liga(liga, regions=",".join(regions_config), markets="totals")
+                            found = None
+                            for ev in eventos:
+                                ht = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
+                                at = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
+                                if ht == j.get("home") and at == j.get("away"):
+                                    found = ev
+                                    break
+                            if not found:
+                                lines_for_msg.append(f"🏟️ {j.get('home')} x {j.get('away')} — _sem resultado disponível_")
+                                detalhes_local.append({"home": j.get("home"), "away": j.get("away"), "aposta": f"+{threshold_label}", "status": "Não encontrado / sem resultado"})
+                                continue
+                            lines_for_msg.append(f"🏟️ {found.get('home_team')} x {found.get('away_team')} — _Odds confirmadas — sem placar via Odds API_")
+                            detalhes_local.append({"home": found.get("home_team"), "away": found.get("away_team"), "aposta": f"+{threshold_label}", "status": "Odds encontradas — sem placar"})
+                        
+                        header = f"✅ RESULTADOS - CONFERÊNCIA +{threshold_label}\n(Lote: {lote['data_envio']})\n\n"
+                        body = "\n".join(lines_for_msg) if lines_for_msg else "_Nenhum jogo para conferir nesta faixa no lote selecionado._"
+                        msg = header + body
+                        
+                        success = enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2)
+                        return detalhes_local, success
 
-                resultados = []
-                for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
-                    detalhes, success = processar_lista_e_mandar(lista, label)
-                    resultados.append((label, detalhes, success))
+                    resultados = []
+                    for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
+                        detalhes, success = processar_lista_e_mandar(lista, label)
+                        resultados.append((label, detalhes, success))
 
-                st.success("✅ Mensagens de conferência processadas!")
-                for label, detalhes, success in resultados:
-                    st.write(f"**+{label} Gols:** {'✅ Enviado' if success else '❌ Falha'} ({len(detalhes)} jogos)")
+                    st.success("✅ Mensagens de conferência processadas!")
+                    for label, detalhes, success in resultados:
+                        st.write(f"**+{label} Gols:** {'✅ Enviado' if success else '❌ Falha'} ({len(detalhes)} jogos)")
 
-        if st.button("🔎 Rechecar odds aqui (sem enviar Telegram)", key="aba3_rechecar"):
-            with st.spinner("Conferindo odds localmente..."):
-                for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
-                    st.write(f"### Conferência +{label}")
-                    if not lista:
-                        st.info("Nenhum jogo nesta faixa")
-                        continue
-                    
-                    for j in lista:
-                        liga = j.get("liga_key") or j.get("liga_id")
-                        eventos = obter_odds_para_liga(liga, regions=",".join(regions_config), markets="totals")
-                        found = None
-                        for ev in eventos:
-                            ht = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
-                            at = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
-                            if ht == j.get("home") and at == j.get("away"):
-                                found = ev
-                                break
-                        if not found:
-                            st.warning(f"❌ {j.get('home')} x {j.get('away')} — Odds/Evento não encontrado")
+            if st.button("🔎 Rechecar odds aqui (sem enviar Telegram)", key="aba3_rechecar"):
+                with st.spinner("Conferindo odds localmente..."):
+                    for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
+                        st.write(f"### Conferência +{label}")
+                        if not lista:
+                            st.info("Nenhum jogo nesta faixa")
                             continue
                         
-                        calc = calcular_estimativas_e_probs_por_jogo_from_odds(found)
-                        st.success(f"✅ {found.get('home_team')} x {found.get('away_team')}")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            odds_info = f"🎲 {calc.get('odds_1_5', {}).get('over', 'N/A')}" if calc.get('odds_1_5') else "🎲 N/A"
-                            st.write(f"P(+1.5): {calc.get('prob_1_5')}% | {odds_info}")
-                        with col2:
-                            odds_info = f"🎲 {calc.get('odds_2_5', {}).get('over', 'N/A')}" if calc.get('odds_2_5') else "🎲 N/A"
-                            st.write(f"P(+2.5): {calc.get('prob_2_5')}% | {odds_info}")
-                        with col3:
-                            odds_info = f"🎲 {calc.get('odds_3_5', {}).get('over', 'N/A')}" if calc.get('odds_3_5') else "🎲 N/A"
-                            st.write(f"P(+3.5): {calc.get('prob_3_5')}% | {odds_info}")
+                        for j in lista:
+                            liga = j.get("liga_key") or j.get("liga_id")
+                            eventos = obter_odds_para_liga(liga, regions=",".join(regions_config), markets="totals")
+                            found = None
+                            for ev in eventos:
+                                ht = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
+                                at = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
+                                if ht == j.get("home") and at == j.get("away"):
+                                    found = ev
+                                    break
+                            if not found:
+                                st.warning(f"❌ {j.get('home')} x {j.get('away')} — Odds/Evento não encontrado")
+                                continue
+                            
+                            calc = calcular_estimativas_e_probs_por_jogo_from_odds(found)
+                            st.success(f"✅ {found.get('home_team')} x {found.get('away_team')}")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                odds_info = f"🎲 {calc.get('odds_1_5', {}).get('over', 'N/A')}" if calc.get('odds_1_5') else "🎲 N/A"
+                                st.write(f"P(+1.5): {calc.get('prob_1_5')}% | {odds_info}")
+                            with col2:
+                                odds_info = f"🎲 {calc.get('odds_2_5', {}).get('over', 'N/A')}" if calc.get('odds_2_5') else "🎲 N/A"
+                                st.write(f"P(+2.5): {calc.get('prob_2_5')}% | {odds_info}")
+                            with col3:
+                                odds_info = f"🎲 {calc.get('odds_3_5', {}).get('over', 'N/A')}" if calc.get('odds_3_5') else "🎲 N/A"
+                                st.write(f"P(+3.5): {calc.get('prob_3_5')}% | {odds_info}")
 
-        if st.button("📥 Exportar lote selecionado (.json)", key="aba3_exportar"):
-            nome_arquivo = f"relatorio_top3_{lote['data_envio']}_{lote['hora_envio'].replace(':','-').replace(' ','_')}.json"
-            try:
-                with open(nome_arquivo, "w", encoding="utf-8") as f:
-                    json.dump(lote, f, ensure_ascii=False, indent=2)
-                st.success(f"✅ Lote exportado: {nome_arquivo}")
-            except Exception as e:
-                st.error(f"❌ Erro ao exportar: {e}")
+            if st.button("📥 Exportar lote selecionado (.json)", key="aba3_exportar"):
+                nome_arquivo = f"relatorio_top3_{lote['data_envio']}_{lote['hora_envio'].replace(':','-').replace(' ','_')}.json"
+                try:
+                    with open(nome_arquivo, "w", encoding="utf-8") as f:
+                        json.dump(lote, f, ensure_ascii=False, indent=2)
+                    st.success(f"✅ Lote exportado: {nome_arquivo}")
+                except Exception as e:
+                    st.error(f"❌ Erro ao exportar: {e}")
 
 # ---------- ABA 4: Configurações ----------
 with aba4:
