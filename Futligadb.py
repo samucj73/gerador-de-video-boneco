@@ -1,20 +1,17 @@
-# Futebol_Alertas_OpenLiga_Top3_Sports.py
+# Futebol_Alertas_EliteMaster.py
 """
-App Streamlit - Futebol Alertas Top3 (OpenLigaDB)
-Tema: Sports Style (Dark) + Mensagens Premium / VIP (modelo B)
-Fonte de dados: OpenLigaDB (https://api.openligadb.de)
-
-Como usar:
-- Defina variáveis de ambiente opcionais: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_CHAT_ID_ALT2
-- Ou preencha os campos na aba Configurações do app (recomendado para testes locais).
-- Rode: streamlit run Futebol_Alertas_OpenLiga_Top3_Sports.py
+Elite Master — Futebol Alertas (Clean Professional)
+Fonte: OpenLigaDB
+Mensagens: Estilo B (Premium / VIP)
+Estrutura: abas (Dashboard, Jogos do Dia, Top 3 Alertas, Histórico/Conferência, Configurações)
+Uso: streamlit run Futebol_Alertas_EliteMaster.py
 """
 
 import streamlit as st
 from datetime import datetime, timedelta, date
 import requests
-import json
 import os
+import json
 import math
 import time
 import logging
@@ -22,64 +19,62 @@ from functools import lru_cache, wraps
 from typing import List, Dict, Any, Optional, Tuple
 
 # ----------------------------
-# Config básica & logging
+# Logging & page
 # ----------------------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("FutebolAlertasSports")
+logger = logging.getLogger("EliteMaster")
 
-st.set_page_config(page_title="⚽ Alertas Sports — Top3 (OpenLigaDB)", layout="wide")
+st.set_page_config(page_title="🏆 ELITE MASTER — Alertas Top3", layout="wide")
 
 # ----------------------------
-# CSS - Tema Sports (escuro com acentos)
+# CSS - Clean Professional theme
 # ----------------------------
-# Atenção: esse CSS usa hacks simples para o Streamlit atual — personalize conforme preferir.
 st.markdown(
     """
     <style>
-    /* Fundo geral */
+    /* Background / cards */
     .reportview-container, .main, .block-container {
-        background: linear-gradient(180deg, #0b1220 0%, #0f1724 100%);
-        color: #e6eef6;
+        background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%);
+        color: #0b2545;
     }
-    /* Card-like containers */
     .card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.08));
+        background: #ffffff;
         padding: 14px;
         border-radius: 10px;
-        box-shadow: 0 3px 12px rgba(0,0,0,0.4);
-        margin-bottom: 10px;
+        border: 1px solid rgba(11,37,69,0.06);
+        box-shadow: 0 4px 20px rgba(11,37,69,0.04);
+        margin-bottom: 12px;
     }
-    .stButton>button {
-        background: linear-gradient(90deg,#2bb673,#1f9d4a);
-        color: white;
-        border: none;
-    }
-    .small-muted { color: #9fb0a0; font-size: 13px; }
-    .big-title { font-size:22px; font-weight:700; color:#f7f9fb; }
-    .accent { color: #ffd166; font-weight:700; } /* amarelo sports */
-    .green { color: #2bb673; font-weight:700; }
+    .header-title { font-size:20px; font-weight:700; color:#072146; }
+    .muted { color: #6b7a90; font-size:13px; }
+    .btn-primary > button { background-color: #0b66c3; color: white; border-radius:6px; }
+    .small { font-size:13px; color:#44596b; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ----------------------------
-# Constantes e paths
+# Constants & paths
 # ----------------------------
 OPENLIGA_BASE = "https://api.openligadb.de"
 
-# Ligas (exemplo: Alemanha) - você pode adicionar outras.
-LIGAS_OPENLIGA = {
+# Map of leagues (you can expand)
+LEAGAS_MAP = {
     "Bundesliga (Alemanha)": "bl1",
     "2. Bundesliga (Alemanha)": "bl2",
-    "DFB-Pokal (Alemanha)": "dfb"
+    "DFB-Pokal (Alemanha)": "dfb",
+    "Brasileirão Série A": "br1",  # placeholder key for mapping; OpenLiga may not have BR - kept for UI
+    "Brasileirão Série B": "br2",
+    "LaLiga (Espanha)": "laliga",
+    "Libertadores": "libertadores"
 }
 
 ALERTAS_PATH = "alertas.json"
 TOP3_PATH = "top3.json"
 
 # ----------------------------
-# Utilitários: persistência simples
+# Persistence helpers
 # ----------------------------
 def carregar_json(path: str, default):
     if os.path.exists(path):
@@ -87,13 +82,13 @@ def carregar_json(path: str, default):
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            logger.warning(f"Erro ao ler {path}: {e}")
+            logger.warning(f"Erro ler {path}: {e}")
             return default
     return default
 
-def salvar_json(path: str, data):
+def salvar_json(path: str, obj):
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(obj, f, ensure_ascii=False, indent=2)
 
 def carregar_alertas():
     return carregar_json(ALERTAS_PATH, {})
@@ -108,14 +103,14 @@ def salvar_top3(lista):
     salvar_json(TOP3_PATH, lista)
 
 # ----------------------------
-# Retries decorator simples
+# Retries decorator
 # ----------------------------
 def with_retries(max_attempts=3, backoff=0.6):
     def deco(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             last_exc = None
-            for attempt in range(1, max_attempts + 1):
+            for attempt in range(1, max_attempts+1):
                 try:
                     return fn(*args, **kwargs)
                 except Exception as e:
@@ -128,10 +123,9 @@ def with_retries(max_attempts=3, backoff=0.6):
     return deco
 
 # ----------------------------
-# Telegram - mensagem estilo B (premium/vip)
+# Telegram formatting (Modelo B - Premium / VIP)
 # ----------------------------
-def montar_mensagem_alerta_vip(home: str, away: str, faixa: str, prob_pct: float, estimativa: float, liga: str, hora_brt: str) -> str:
-    # faixa ex: "1.5" ou "+1.5"
+def montar_mensagem_alerta_premium(home: str, away: str, faixa: str, prob_pct: float, estimativa: float, liga: str, hora_brt: str) -> str:
     faixa_text = faixa if faixa.startswith("+") else f"+{faixa}"
     msg = (
         "🔥 *ALERTA ELITE MASTER* 🔥\n\n"
@@ -142,7 +136,7 @@ def montar_mensagem_alerta_vip(home: str, away: str, faixa: str, prob_pct: float
     )
     return msg
 
-def montar_mensagem_conferencia(home: str, away: str, faixa: str, score: str, resultado: str) -> str:
+def montar_mensagem_resultado_premium(home: str, away: str, faixa: str, score: str, resultado: str) -> str:
     msg = (
         "📊 *RESULTADO CONFERIDO*\n\n"
         f"🏟️ *{home} x {away}*\n"
@@ -154,14 +148,14 @@ def montar_mensagem_conferencia(home: str, away: str, faixa: str, score: str, re
 
 @with_retries(max_attempts=3, backoff=0.7)
 def enviar_telegram_raw(token: str, chat_id: str, text: str, parse_mode: str="Markdown") -> dict:
-    base = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode, "disable_web_page_preview": True}
-    r = requests.post(base, data=payload, timeout=12)
+    r = requests.post(url, data=payload, timeout=12)
     r.raise_for_status()
-    logger.info(f"Telegram send OK to {chat_id} (len {len(text)})")
+    logger.info(f"Sent telegram msg to {chat_id} ({len(text)} chars)")
     return r.json()
 
-def enviar_para_config(token: str, chat_ids: List[str], text: str) -> List[Tuple[str, Optional[str]]]:
+def enviar_para_chats(token: str, chat_ids: List[str], text: str) -> List[Tuple[str,str]]:
     results = []
     for cid in chat_ids:
         if not cid:
@@ -169,14 +163,14 @@ def enviar_para_config(token: str, chat_ids: List[str], text: str) -> List[Tuple
         try:
             enviar_telegram_raw(token, cid, text)
             results.append((cid, "ok"))
-            time.sleep(0.5)
+            time.sleep(0.4)
         except Exception as e:
-            logger.warning(f"Erro envio TG {cid}: {e}")
+            logger.warning(f"Erro enviar TG para {cid}: {e}")
             results.append((cid, str(e)))
     return results
 
 # ----------------------------
-# OpenLiga helpers (com cache simples)
+# OpenLiga helpers (cache)
 # ----------------------------
 @lru_cache(maxsize=64)
 @with_retries(max_attempts=2, backoff=0.4)
@@ -190,8 +184,7 @@ def obter_jogos_liga_temporada(liga_id: str, temporada: str) -> List[dict]:
     return []
 
 def parse_data_openliga(s: Optional[str]) -> Optional[datetime]:
-    if not s:
-        return None
+    if not s: return None
     try:
         if s.endswith("Z"):
             s2 = s.replace("Z", "+00:00")
@@ -209,33 +202,31 @@ def filtrar_jogos_por_data(jogos: List[dict], data_obj: date) -> List[dict]:
     for j in jogos:
         date_str = j.get("matchDateTimeUTC") or j.get("matchDateTime")
         dt = parse_data_openliga(date_str)
-        if not dt:
-            continue
+        if not dt: continue
         if dt.date() == data_obj:
             out.append(j)
     return out
 
 # ----------------------------
-# Estatística / Poisson (mesma lógica)
+# Estatística / Poisson
 # ----------------------------
 def calcular_media_gols_times(jogos_hist: List[dict]) -> Dict[str, dict]:
     stats = {}
     for j in jogos_hist:
         home = j.get("team1", {}).get("teamName")
         away = j.get("team2", {}).get("teamName")
-        final = None
+        placar = None
         for r in j.get("matchResults", []):
             if r.get("resultTypeID") == 2:
-                final = (r.get("pointsTeam1", 0), r.get("pointsTeam2", 0))
+                placar = (r.get("pointsTeam1", 0), r.get("pointsTeam2", 0))
                 break
-        if not final:
-            continue
+        if not placar: continue
         stats.setdefault(home, {"marcados": [], "sofridos": []})
         stats.setdefault(away, {"marcados": [], "sofridos": []})
-        stats[home]["marcados"].append(final[0])
-        stats[home]["sofridos"].append(final[1])
-        stats[away]["marcados"].append(final[1])
-        stats[away]["sofridos"].append(final[0])
+        stats[home]["marcados"].append(placar[0])
+        stats[home]["sofridos"].append(placar[1])
+        stats[away]["marcados"].append(placar[1])
+        stats[away]["sofridos"].append(placar[0])
     medias = {}
     for t, g in stats.items():
         media_m = sum(g["marcados"]) / len(g["marcados"]) if g["marcados"] else 1.5
@@ -257,13 +248,13 @@ def media_gols_h2h(home: str, away: str, jogos_hist: List[dict], max_jogos=5):
     if not confrontos:
         return {"media_gols": 0, "total_jogos": 0}
     confrontos = sorted(confrontos, key=lambda x: x[0] or "", reverse=True)[:max_jogos]
-    total_pontos = 0
-    total_peso = 0
+    total_p = 0
+    total_w = 0
     for idx, (_, total) in enumerate(confrontos):
         peso = max_jogos - idx
-        total_pontos += total * peso
-        total_peso += peso
-    media = round(total_pontos / total_peso,2) if total_peso else 0
+        total_p += total * peso
+        total_w += peso
+    media = round(total_p / total_w, 2) if total_w else 0
     return {"media_gols": media, "total_jogos": len(confrontos)}
 
 def calcular_estimativa(media_h2h, media_casa, media_fora, peso_h2h=0.3):
@@ -276,7 +267,7 @@ def calcular_estimativa(media_h2h, media_casa, media_fora, peso_h2h=0.3):
     base = (time_casa + time_fora) / 2
     h2h = media_h2h.get("media_gols", base) if media_h2h.get("total_jogos",0)>0 else base
     final = (1 - peso_h2h) * base + peso_h2h * h2h
-    return round(final,2)
+    return round(final, 2)
 
 def poisson_cdf(k: int, lam: float) -> float:
     s = 0.0
@@ -299,166 +290,206 @@ def prob_over_k(estimativa: float, threshold: float) -> float:
 def prob_to_conf(prob: float) -> float:
     conf = 50 + (prob - 0.5) * 100
     conf = max(30, min(95, conf))
-    return round(conf,0)
+    return round(conf, 0)
 
 # ----------------------------
-# Seleção Top (mais simples e forte: Top por prob +1.5)
+# Selection logic
 # ----------------------------
-def selecionar_top_por_faixa(partidas: List[dict], faixa: str, top_n=3) -> List[dict]:
-    # faixa: "1.5" | "2.5" | "3.5"
-    key_prob = f"prob_{faixa.replace('.','_')}"
-    sorted_ = sorted(partidas, key=lambda x: x.get(key_prob, 0), reverse=True)
-    return sorted_[:top_n]
+def selecionar_top3_distintos(partidas_info: List[dict], max_por_faixa=3):
+    """
+    mantem prioridade: +1.5 -> +2.5 -> +3.5
+    evita repetir fixture_id entre faixas
+    """
+    if not partidas_info:
+        return [], [], []
+
+    def get_num(d, k):
+        v = d.get(k, 0)
+        try:
+            return float(v) if v is not None else 0.0
+        except Exception:
+            return 0.0
+
+    selected_ids = set()
+    selected_teams = set()
+
+    def safe_names(m):
+        return str(m.get("home","")).strip(), str(m.get("away","")).strip()
+
+    def allocate(key_prob, other_probs):
+        candidatos = [m for m in partidas_info if str(m.get("fixture_id")) not in selected_ids]
+        # prefer candidates where this prob is >= other probs
+        preferred = [m for m in candidatos if get_num(m, key_prob) >= max([get_num(m, p) for p in other_probs])]
+        def sort_key(x):
+            return (get_num(x, key_prob), get_num(x, key_prob.replace("prob","conf")), x.get("estimativa",0))
+        preferred_sorted = sorted(preferred, key=sort_key, reverse=True)
+        remaining = [m for m in candidatos if m not in preferred_sorted]
+        remaining_sorted = sorted(remaining, key=sort_key, reverse=True)
+
+        chosen = []
+        def try_add(arr, respect_teams=True):
+            nonlocal chosen
+            for m in arr:
+                if len(chosen) >= max_por_faixa: break
+                fid = str(m.get("fixture_id"))
+                if fid in selected_ids: continue
+                home, away = safe_names(m)
+                if respect_teams and (home in selected_teams or away in selected_teams): continue
+                chosen.append(m)
+                selected_ids.add(fid)
+                selected_teams.add(home); selected_teams.add(away)
+        try_add(preferred_sorted, True)
+        if len(chosen) < max_por_faixa:
+            try_add(remaining_sorted, True)
+        if len(chosen) < max_por_faixa:
+            try_add(preferred_sorted + remaining_sorted, False)
+        return chosen
+
+    top_15 = allocate("prob_1_5", ["prob_2_5","prob_3_5"])
+    top_25 = allocate("prob_2_5", ["prob_1_5","prob_3_5"])
+    top_35 = allocate("prob_3_5", ["prob_1_5","prob_2_5"])
+
+    return top_15, top_25, top_35
 
 # ----------------------------
-# Conferência de resultado (reconsulta OpenLiga)
+# Conferência reconsulta OpenLiga
 # ----------------------------
-def conferir_jogo_openliga(fixture_id: Any, liga_id: str, temporada: str, threshold_label: str):
+def conferir_jogo_openliga(fixture_id: Any, liga_id: str, temporada: str, tipo_threshold: str):
     try:
         jogos = obter_jogos_liga_temporada(liga_id, temporada)
         match = None
         for j in jogos:
             if str(j.get("matchID")) == str(fixture_id):
-                match = j
-                break
+                match = j; break
         if not match:
             return None
-        home = match.get("team1", {}).get("teamName")
-        away = match.get("team2", {}).get("teamName")
+        home = match.get("team1",{}).get("teamName")
+        away = match.get("team2",{}).get("teamName")
         final = None
         for r in match.get("matchResults", []):
             if r.get("resultTypeID") == 2:
-                final = (r.get("pointsTeam1", 0), r.get("pointsTeam2", 0))
+                final = (r.get("pointsTeam1",0), r.get("pointsTeam2",0))
                 break
         if final is None:
-            return {"home": home, "away": away, "total_gols": None, "aposta": f"+{threshold_label}", "resultado": "Em andamento / sem resultado"}
+            return {"home": home, "away": away, "total_gols": None, "aposta": f"+{tipo_threshold}", "resultado": "Em andamento / sem resultado"}
         total = final[0] + final[1]
-        if threshold_label == "1.5":
+        if tipo_threshold == "1.5":
             green = total >= 2
-        elif threshold_label == "2.5":
+        elif tipo_threshold == "2.5":
             green = total >= 3
         else:
             green = total >= 4
-        return {"home": home, "away": away, "total_gols": total, "aposta": f"+{threshold_label}", "resultado": "🟢 GREEN" if green else "🔴 RED", "score": f"{final[0]} x {final[1]}"}
+        return {"home": home, "away": away, "total_gols": total, "aposta": f"+{tipo_threshold}", "resultado": "🟢 GREEN" if green else "🔴 RED", "score": f"{final[0]} x {final[1]}"}
     except Exception as e:
-        logger.exception("Erro na conferência OpenLiga")
+        logger.exception("Erro conferir jogo")
         return None
 
 # ----------------------------
-# UI: Layout com abas
+# UI: Tabs & main flow
 # ----------------------------
-st.markdown('<div class="big-title">⚽ Alertas Sports — Top3 (OpenLigaDB)</div>', unsafe_allow_html=True)
-st.markdown('<div class="small-muted">Visual: Sports • Mensagens: Premium / VIP • Fonte: OpenLigaDB</div>', unsafe_allow_html=True)
+st.markdown('<div class="header-title">🏆 ELITE MASTER — Alertas Top3</div>', unsafe_allow_html=True)
+st.markdown('<div class="muted">Análises com OpenLigaDB · Mensagens Premium · Layout Clean</div>', unsafe_allow_html=True)
 st.markdown("---")
 
 tabs = st.tabs(["🏠 Dashboard", "⚽ Jogos do Dia", "🔥 Top 3 Alertas", "📊 Histórico / Conferência", "⚙️ Configurações"])
 
-# --- Configurações (aba) ---
+# ----------------------------
+# Configurações tab
+# ----------------------------
 with tabs[4]:
-    st.markdown('<div class="card"><b>Configurações & Tokens</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card"><b>Configurações</b></div>', unsafe_allow_html=True)
     col1, col2 = st.columns([2,1])
     with col1:
-        st.info("Prefira usar VARIÁVEIS DE AMBIENTE em produção. Aqui você pode preencher para testes.")
-        token_input = st.text_input("Telegram Bot Token (ou deixe vazio para usar env)", value=os.getenv("TELEGRAM_TOKEN",""), placeholder="123456:ABC-DEF...") 
-        chat_main = st.text_input("Telegram Chat ID principal (chat_id)", value=os.getenv("TELEGRAM_CHAT_ID",""), placeholder="-1001234567890")
-        chat_alt = st.text_input("Telegram Chat ID alternativo (opcional)", value=os.getenv("TELEGRAM_CHAT_ID_ALT2",""), placeholder="-100987654321")
+        st.info("Insira token/chat para testes ou configure variáveis de ambiente (recomendado).")
+        token_input = st.text_input("Telegram Bot Token", value=os.getenv("TELEGRAM_TOKEN",""), placeholder="123456:ABC-DEF...")
+        chat_main = st.text_input("Telegram Chat ID (principal)", value=os.getenv("TELEGRAM_CHAT_ID",""), placeholder="-1001234567890")
+        chat_alt = st.text_input("Telegram Chat ID (alternativo, opcional)", value=os.getenv("TELEGRAM_CHAT_ID_ALT2",""), placeholder="-100987654321")
         temporada_padrao = st.selectbox("Temporada padrão (para médias)", ["2022","2023","2024","2025"], index=2)
-        ligar_envio_limite = st.slider("Enviar apenas se Prob >= (apenas para envio automático)", 30, 95, 45, 5)
+        envio_auto_checkbox = st.checkbox("Ativar envio automático diário (Top3)", value=False)
+        envio_min_prob = st.slider("Enviar apenas se Prob >= (apenas para envio automático)", 30, 95, 45, 5)
     with col2:
-        st.markdown("### Ações")
-        if st.button("Salvar (temporário) configurações nesta sessão"):
+        st.markdown("### Ações rápidas")
+        if st.button("Salvar configurações na sessão"):
             st.session_state["TG_TOKEN"] = token_input.strip()
             st.session_state["TG_CHAT"] = chat_main.strip()
             st.session_state["TG_CHAT_ALT"] = chat_alt.strip()
             st.session_state["TEMP_PADRAO"] = temporada_padrao
-            st.session_state["ENVIO_LIMITE"] = ligar_envio_limite
-            st.success("Configurações salvas na sessão atual.")
+            st.session_state["AUTO_SEND"] = envio_auto_checkbox
+            st.session_state["AUTO_SEND_MIN"] = envio_min_prob
+            st.success("Configurações salvas na sessão.")
         if st.button("Testar envio Telegram (mensagem de teste)"):
             token = token_input.strip() or os.getenv("TELEGRAM_TOKEN","")
             c_main = chat_main.strip() or os.getenv("TELEGRAM_CHAT_ID","")
             if not token or not c_main:
-                st.error("Token ou Chat ID principal ausente. Preencha ou configure env vars.")
+                st.error("Token ou Chat ID principal ausente. Configure primeiro.")
             else:
                 try:
-                    txt = "🔥 *TESTE DE ALERTA* 🔥\n\nMensagem de teste enviada pelo app Sports."
-                    res = enviar_para_config(token, [c_main, chat_alt.strip() if chat_alt.strip() else None], txt)
+                    msg = "🔥 *ELITE MASTER - TESTE* 🔥\n\nMensagem de teste enviada pelo painel."
+                    res = enviar_para_chats(token, [c_main, chat_alt.strip() if chat_alt.strip() else None], msg)
                     st.write(res)
-                    st.success("Teste executado. Verifique o(s) chat(s).")
+                    st.success("Teste enviado. Verifique o chat.")
                 except Exception as e:
-                    st.error(f"Erro no envio de teste: {e}")
+                    st.error(f"Erro envio teste: {e}")
 
     st.markdown("---")
-    st.markdown("**Paths usados para histórico:**")
-    st.code(f"{TOP3_PATH} (Top3 enviados)\n{ALERTAS_PATH} (alertas e log)")
+    st.markdown("**Arquivo(s) de histórico:**")
+    st.code(f"{TOP3_PATH}  (histórico de envios)\n{ALERTAS_PATH}  (log de alertas)")
 
-# --- Dashboard (aba) ---
+# ----------------------------
+# Dashboard tab
+# ----------------------------
 with tabs[0]:
     st.markdown('<div class="card"><b>Dashboard</b></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
     top3_salvos = carregar_top3()
     total_envios = len(top3_salvos)
-    total_alerts = len(carregar_alertas().get("log", []))
-    # calcular taxa de acerto simples nos históricos (se houver)
-    greens = 0
-    reds = 0
+    log_alertas = carregar_alertas().get("log", [])
+    total_alerts = len(log_alertas)
+    greens = reds = 0
     for lote in top3_salvos:
-        for key in ("top_1_5","top_2_5","top_3_5"):
-            for j in lote.get(key, []):
-                # se existirem resultados marcados
-                if "resultado" in j and j.get("resultado"):
+        for k in ("top_1_5","top_2_5","top_3_5"):
+            for j in lote.get(k, []):
+                if j.get("resultado"):
                     if "GREEN" in j.get("resultado"):
                         greens += 1
                     else:
                         reds += 1
-    taxa_acerto = f"{(greens/(greens+reds)*100):.1f}%" if (greens+reds)>0 else "N/A"
-    with col1:
-        st.metric("Total Top3 enviados", total_envios)
-    with col2:
-        st.metric("Total alertas (log)", total_alerts)
-    with col3:
-        st.metric("Taxa de acerto (conferidos)", taxa_acerto)
-
-    st.markdown("### Últimos resultados conferidos")
-    # mostrar até últimos 8 itens
+    taxa = f"{(greens/(greens+reds)*100):.1f}%" if (greens+reds)>0 else "N/A"
+    with col1: st.metric("Top3 enviados", total_envios)
+    with col2: st.metric("Alertas (log)", total_alerts)
+    with col3: st.metric("Taxa de acerto (conferidos)", taxa)
+    st.markdown("### Últimos envios")
     preview = []
-    for lote in reversed(top3_salvos[-8:]):
-        data = lote.get("data_envio")
-        hora = lote.get("hora_envio")
-        resumo = []
-        for key in ("top_1_5","top_2_5","top_3_5"):
-            for j in lote.get(key, []):
-                res = j.get("resultado") or ""
-                if res:
-                    resumo.append(f"{j.get('home')} {res}")
-        preview.append({"Envio": f"{data} {hora}", "Resumo": " | ".join(resumo)[:150]})
+    for lote in reversed(top3_salvos[-6:]):
+        preview.append({"Envio": f"{lote.get('data_envio')} {lote.get('hora_envio')}", "Itens": sum(len(lote.get(k,[])) for k in lote if k.startswith("top_"))})
     if preview:
         st.table(preview)
     else:
-        st.info("Nenhum histórico para exibir ainda.")
+        st.info("Nenhum envio registrado ainda.")
 
-# --- Jogos do Dia (aba) ---
+# ----------------------------
+# Jogos do Dia tab
+# ----------------------------
 with tabs[1]:
     st.markdown('<div class="card"><b>Jogos do Dia</b></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([2,1,1])
     with col1:
-        data_selecionada = st.date_input("Selecione a data", value=datetime.utcnow().date())
-        liga_selecionada = st.selectbox("Liga", list(LIGAS_OPENLIGA.keys()))
+        data_selecionada = st.date_input("Data", value=datetime.utcnow().date())
+        liga_selecionada = st.selectbox("Escolha a liga (OpenLiga)", list(LEAGAS_MAP.keys()))
     with col2:
-        temporada = st.selectbox("Temporada (para médias)", ["2022","2023","2024","2025"], index=2)
+        temporada_input = st.selectbox("Temporada (para médias)", ["2022","2023","2024","2025"], index=2)
     with col3:
-        if st.button("Buscar jogos & Analisar"):
+        if st.button("Carregar jogos & Analisar"):
             pass
 
-    # ação de busca
-    if st.button("Carregar jogos do dia (OpenLiga)"):
-        liga_id = LIGAS_OPENLIGA.get(liga_selecionada)
+    if st.button("Buscar jogos (OpenLigaDB)"):
+        liga_id = LEAGAS_MAP.get(liga_selecionada)
         try:
-            jogos_hist = obter_jogos_liga_temporada(liga_id, temporada)
+            jogos_hist = obter_jogos_liga_temporada(liga_id, temporada_input)
             jogos_dia = filtrar_jogos_por_data(jogos_hist, data_selecionada)
             if not jogos_dia:
-                st.info("Nenhum jogo encontrado para essa data/ligas.")
+                st.info("Nenhum jogo encontrado para a data/ligas selecionadas.")
             else:
-                # montar dados com estimativas
                 medias_liga = calcular_media_gols_times(jogos_hist)
                 rows = []
                 for m in jogos_dia:
@@ -472,131 +503,124 @@ with tabs[1]:
                     estim = calcular_estimativa(media_h2h, media_home, media_away, peso_h2h=0.3)
                     p15 = prob_over_k(estim, 1.5); p25 = prob_over_k(estim, 2.5); p35 = prob_over_k(estim, 3.5)
                     rows.append({
-                        "fixture_id": m.get("matchID"),
-                        "home": home, "away": away,
-                        "hora": hora_brt,
-                        "estimativa": estim,
-                        "prob_1_5": round(p15*100,1),
-                        "prob_2_5": round(p25*100,1),
-                        "prob_3_5": round(p35*100,1),
-                        "liga_id": liga_id,
-                        "temporada": temporada
+                        "fixture_id": m.get("matchID"), "home": home, "away": away,
+                        "hora": hora_brt, "estimativa": estim,
+                        "prob_1_5": round(p15*100,1), "prob_2_5": round(p25*100,1), "prob_3_5": round(p35*100,1),
+                        "liga_id": liga_id, "temporada": temporada_input
                     })
                 st.session_state["JOGOS_DO_DIA"] = rows
-                st.success(f"{len(rows)} jogos carregados.")
+                st.success(f"{len(rows)} jogos carregados e analisados.")
         except Exception as e:
-            st.error(f"Erro ao carregar jogos: {e}")
+            st.error(f"Erro ao buscar jogos: {e}")
 
-    # Exibição tabela com estilo
     jogos = st.session_state.get("JOGOS_DO_DIA", [])
     if jogos:
-        st.markdown("### Tabela de Jogos (análise rápida)")
-        # constrói tabela simples
+        st.markdown("### Jogos analisados")
         tabela = []
         for j in jogos:
-            tabela.append({
-                "Jogo": f"{j['home']} x {j['away']}",
-                "Hora (BRT)": j["hora"],
-                "Estimativa": j["estimativa"],
-                "P(+1.5)": f"{j['prob_1_5']}%",
-                "P(+2.5)": f"{j['prob_2_5']}%",
-                "P(+3.5)": f"{j['prob_3_5']}%"
-            })
+            tabela.append({"Jogo": f"{j['home']} x {j['away']}", "Hora (BRT)": j["hora"], "Estimativa": j["estimativa"], "P(+1.5)": f"{j['prob_1_5']}%", "P(+2.5)": f"{j['prob_2_5']}%", "P(+3.5)": f"{j['prob_3_5']}%"})
         st.table(tabela)
-        st.markdown("Você pode ir para a aba *Top 3 Alertas* para selecionar/enviar os melhores jogos automaticamente.")
+        st.info("Vá em 'Top 3 Alertas' para selecionar e enviar os melhores jogos.")
 
-# --- Top 3 Alertas (aba) ---
+# ----------------------------
+# Top 3 Alertas tab
+# ----------------------------
 with tabs[2]:
     st.markdown('<div class="card"><b>Top 3 Alertas — Seleção & Envio</b></div>', unsafe_allow_html=True)
     jogos = st.session_state.get("JOGOS_DO_DIA", [])
     if not jogos:
-        st.info("Nenhum jogo carregado. Vá em 'Jogos do Dia' e carregue os jogos primeiro.")
+        st.info("Nenhum jogo carregado. Use 'Jogos do Dia' primeiro.")
     else:
-        faixa = st.selectbox("Escolher faixa para Top (prioridade)", ["1.5","2.5","3.5"], index=0)
-        top_n = st.slider("Quantos top (n)", 1, 5, 3)
-        top_sel = selecionar_top_por_faixa(jogos, faixa, top_n)
-        st.markdown("#### Selecionados")
-        for i, j in enumerate(top_sel, start=1):
-            st.markdown(f"**{i}** — {j['home']} x {j['away']}  |  P(+{faixa}): *{j[f'prob_{faixa.replace('.','_')}']}%*  |  Est: *{j['estimativa']}*  |  {j['hora']} BRT")
+        faixa = st.selectbox("Prioridade de faixa", ["1.5","2.5","3.5"], index=0)
+        top_n = st.slider("Quantos por faixa (Top N)", 1, 5, 3)
+        top_15, top_25, top_35 = selecionar_top3_distintos(jogos, max_por_faixa=top_n)
+        st.markdown("#### Top selecionados por faixa (prioridade: +1.5 → +2.5 → +3.5)")
+        def mostrar_lista(lst, label):
+            if not lst:
+                st.write(f"— nenhum Top para +{label}")
+                return
+            for i, j in enumerate(lst, start=1):
+                st.write(f"{i}. {j['home']} x {j['away']}  |  P(+{label}) {j[f'prob_{label.replace('.','_')}']}%  |  Est: {j['estimativa']}  |  {j['hora']} BRT")
+        mostrar_lista(top_15, "1.5")
+        mostrar_lista(top_25, "2.5")
+        mostrar_lista(top_35, "3.5")
 
         st.markdown("---")
-        # envio
         col_send1, col_send2 = st.columns([1,1])
         with col_send1:
-            if st.button("Enviar TOP selecionados (Premium VIP)"):
-                # pegar token/chat da sessão ou env
+            if st.button("Enviar TOPs separados (uma mensagem por faixa)"):
                 token = st.session_state.get("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN","")
                 chat_main = st.session_state.get("TG_CHAT") or os.getenv("TELEGRAM_CHAT_ID","")
                 chat_alt = st.session_state.get("TG_CHAT_ALT") or os.getenv("TELEGRAM_CHAT_ID_ALT2","")
                 if not token or not chat_main:
-                    st.error("Token ou Chat ID principal não configurado. Vá em Configurações.")
+                    st.error("Configure token/chat em Configurações.")
                 else:
-                    envio_res = []
-                    for j in top_sel:
-                        msg = montar_mensagem_alerta_vip(j['home'], j['away'], faixa, j[f'prob_{faixa.replace(".","_")}'], j['estimativa'], j.get('liga_id',''), j.get('hora','??:??'))
-                        res = enviar_para_config(token, [chat_main, chat_alt], msg)
-                        envio_res.append({"fixture": j["fixture_id"], "res": res})
-                        # marcar log local
-                        log = carregar_alertas()
-                        log.setdefault("log", [])
-                        log["log"].append({"when": datetime.now().isoformat(), "fixture": j["fixture_id"], "message": msg})
-                        salvar_alertas(log)
-                        time.sleep(0.4)
-                    # salvar top3 no histórico
-                    top3_list = carregar_top3()
-                    novo = {"data_envio": date.today().isoformat(), "hora_envio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "temporada": jogos[0].get("temporada",""), f"top_{faixa.replace('.','_')}": top_sel}
-                    top3_list.append(novo)
-                    salvar_top3(top3_list)
-                    st.success("Envio executado. Verifique os chats. Resultado resumido abaixo.")
-                    st.json(envio_res)
-        with col_send2:
-            if st.button("Enviar Mensagem Consolidada (1 msg)"):
-                token = st.session_state.get("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN","")
-                chat_main = st.session_state.get("TG_CHAT") or os.getenv("TELEGRAM_CHAT_ID","")
-                chat_alt = st.session_state.get("TG_CHAT_ALT") or os.getenv("TELEGRAM_CHAT_ID_ALT2","")
-                if not token or not chat_main:
-                    st.error("Token ou Chat ID principal não configurado. Vá em Configurações.")
-                else:
-                    consolidated = f"🔥 *TOP {top_n} - Consolidados (faixa +{faixa})* 🔥\n\n"
-                    for i, j in enumerate(top_sel, start=1):
-                        consolidated += f"{i}. *{j['home']} x {j['away']}* — P:+{faixa} *{j[f'prob_{faixa.replace('.','_')}']}%* | Est: *{j['estimativa']}* | {j['hora']} BRT\n"
-                    res = enviar_para_config(token, [chat_main, chat_alt], consolidated)
-                    # salvar log e histórico (como acima)
+                    # mensagens por faixa
+                    def enviar_lista(lista, label):
+                        if not lista: return
+                        msg = f"🔥 *TOP {len(lista)} +{label} — ELITE MASTER* 🔥\n\n"
+                        for idx, j in enumerate(lista, start=1):
+                            msg += f"{idx}. *{j['home']} x {j['away']}*  |  P:+{label} *{j[f'prob_{label.replace('.','_')}']}%*  |  Est: *{j['estimativa']}*  |  {j['hora']} BRT\n"
+                        return enviar_para_chats(token, [chat_main, chat_alt], msg)
+                    res1 = enviar_lista(top_15, "1.5")
+                    res2 = enviar_lista(top_25, "2.5")
+                    res3 = enviar_lista(top_35, "3.5")
+                    # log
                     log = carregar_alertas()
-                    log.setdefault("log", []).append({"when": datetime.now().isoformat(), "consolidated_top": [x["fixture_id"] for x in top_sel]})
+                    log.setdefault("log",[]).append({"when": datetime.now().isoformat(), "tops": {"1.5":[x["fixture_id"] for x in top_15], "2.5":[x["fixture_id"] for x in top_25], "3.5":[x["fixture_id"] for x in top_35]}})
                     salvar_alertas(log)
-                    top3_list = carregar_top3()
-                    novo = {"data_envio": date.today().isoformat(), "hora_envio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "temporada": jogos[0].get("temporada",""), f"top_{faixa.replace('.','_')}": top_sel}
-                    top3_list.append(novo)
-                    salvar_top3(top3_list)
+                    # salvar histórico compacto
+                    hist = carregar_top3()
+                    novo = {"data_envio": date.today().isoformat(), "hora_envio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "temporada": jogos[0].get("temporada",""), "top_1_5": top_15, "top_2_5": top_25, "top_3_5": top_35}
+                    hist.append(novo); salvar_top3(hist)
+                    st.success("Mensagens enviadas. Veja o log ou o chat do Telegram.")
+        with col_send2:
+            if st.button("Enviar Mensagem consolidada (1 mensagem)"):
+                token = st.session_state.get("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN","")
+                chat_main = st.session_state.get("TG_CHAT") or os.getenv("TELEGRAM_CHAT_ID","")
+                chat_alt = st.session_state.get("TG_CHAT_ALT") or os.getenv("TELEGRAM_CHAT_ID_ALT2","")
+                if not token or not chat_main:
+                    st.error("Configure token/chat em Configurações.")
+                else:
+                    # consolidar top de todas faixas (concatenar)
+                    consolidated = f"🔥 *ELITE MASTER - TOPS Consolidados* 🔥\n\n"
+                    for label, lst in [("1.5", top_15), ("2.5", top_25), ("3.5", top_35)]:
+                        if not lst: continue
+                        consolidated += f"• +{label}\n"
+                        for i, j in enumerate(lst, start=1):
+                            consolidated += f"  {i}. *{j['home']} x {j['away']}*  |  P:+{label} *{j[f'prob_{label.replace('.','_')}']}%*  |  Est: *{j['estimativa']}*  |  {j['hora']} BRT\n"
+                    res = enviar_para_chats(token, [chat_main, chat_alt], consolidated)
+                    # log + histórico
+                    log = carregar_alertas(); log.setdefault("log",[]).append({"when": datetime.now().isoformat(), "consolidated_top": [x["fixture_id"] for x in (top_15+top_25+top_35)]}); salvar_alertas(log)
+                    hist = carregar_top3(); novo = {"data_envio": date.today().isoformat(), "hora_envio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "temporada": jogos[0].get("temporada",""), "top_all": top_15+top_25+top_35}; hist.append(novo); salvar_top3(hist)
                     st.success("Mensagem consolidada enviada.")
-                    st.write(res)
 
-# --- Histórico / Conferência (aba) ---
+# ----------------------------
+# Histórico / Conferência tab
+# ----------------------------
 with tabs[3]:
     st.markdown('<div class="card"><b>Histórico e Conferência</b></div>', unsafe_allow_html=True)
     top3_salvos = carregar_top3()
     if not top3_salvos:
-        st.info("Nenhum Top3 salvo ainda. Gere e envie Top3 primeiro.")
+        st.info("Nenhum histórico encontrado. Gere e envie Top3 primeiro.")
     else:
         options = [f"{i+1} - {t['data_envio']} ({t['hora_envio']})" for i,t in enumerate(top3_salvos)]
-        selecionado = st.selectbox("Escolha lote para conferir:", options)
+        selecionado = st.selectbox("Selecione lote para conferência:", options)
         idx = options.index(selecionado)
         lote = top3_salvos[idx]
-        st.write("Lote selecionado:", lote["data_envio"], lote["hora_envio"])
-        st.markdown("### Partidas no lote")
-        # list all found keys like top_1_5 top_2_5 top_3_5
+        st.write("Lote:", lote.get("data_envio"), lote.get("hora_envio"))
+        # mostrar partidas
         for k in [k for k in lote.keys() if k.startswith("top_")]:
-            st.write(f"#### {k.replace('_',' ')}")
+            st.write(f"### {k.replace('_',' ')}")
             for j in lote.get(k, []):
-                st.write(f"- {j.get('home')} x {j.get('away')} — Est: {j.get('estimativa')} — Resultado: {j.get('resultado','-')}")
+                st.write(f"- {j.get('home')} x {j.get('away')}  |  Est: {j.get('estimativa')}  |  Resultado: {j.get('resultado','-')}")
         st.markdown("---")
-        if st.button("Rechecar resultados e enviar conferência (uma mensagem por faixa)"):
+        if st.button("Rechecar resultados e enviar conferência (Telegram)"):
             token = st.session_state.get("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN","")
             chat_main = st.session_state.get("TG_CHAT") or os.getenv("TELEGRAM_CHAT_ID","")
             chat_alt = st.session_state.get("TG_CHAT_ALT") or os.getenv("TELEGRAM_CHAT_ID_ALT2","")
             if not token or not chat_main:
-                st.error("Configure token/chat na aba Configurações.")
+                st.error("Configure token/chat em Configurações.")
             else:
                 resumo_total = {}
                 for k in [k for k in lote.keys() if k.startswith("top_")]:
@@ -617,13 +641,14 @@ with tabs[3]:
                             greens += 1
                         else:
                             reds += 1
+                        # atualizar lote com resultado localmente (não sobrescreve histórico original, só mostra)
                     header = f"✅ RESULTADOS - CONFERÊNCIA +{label}\n(Lote: {lote['data_envio']})\n\n"
                     body = "\n".join(lines) if lines else "_Nenhum jogo nesta faixa_"
                     resumo = f"\n\nResumo: 🟢 {greens} GREEN | 🔴 {reds} RED"
                     msg = header + body + resumo
-                    enviar_para_config(token, [chat_main, chat_alt], msg)
+                    enviar_para_chats(token, [chat_main, chat_alt], msg)
                     resumo_total[label] = {"greens": greens, "reds": reds}
-                st.success("Conferência enviada para Telegram.")
+                st.success("Conferência enviada ao Telegram.")
                 st.json(resumo_total)
 
         if st.button("Rechecar resultados local (sem enviar)"):
@@ -633,7 +658,7 @@ with tabs[3]:
                 for j in lote.get(k, []):
                     info = conferir_jogo_openliga(j.get("fixture_id"), j.get("liga_id"), lote.get("temporada",""), label)
                     if not info:
-                        st.warning(f"🏟️ {j.get('home')} x {j.get('away')} — resultado não encontrado")
+                        st.warning(f"🏟️ {j.get('home')} x {j.get('away')} — sem resultado")
                         continue
                     if info.get("total_gols") is None:
                         st.info(f"🏟️ {info['home']} — Em andamento / sem resultado")
@@ -644,7 +669,7 @@ with tabs[3]:
                         st.error(f"🏟️ {info['home']} {info.get('score','')} {info['away']} → {info['resultado']}")
 
 # ----------------------------
-# Footer nota
+# Footer
 # ----------------------------
 st.markdown("---")
-st.markdown('<div class="small-muted">Desenvolvido para uso com OpenLigaDB. Configure tokens na aba <b>Configurações</b>. Em produção, mova tokens para variáveis de ambiente.</div>', unsafe_allow_html=True)
+st.markdown('<div class="muted">Elite Master • Fonte: OpenLigaDB • Configure tokens em Configurações ou via variáveis de ambiente.</div>', unsafe_allow_html=True)
