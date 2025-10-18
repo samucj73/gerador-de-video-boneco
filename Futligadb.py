@@ -49,30 +49,146 @@ logger = logging.getLogger("EliteMasterDarkAuto")
 st.set_page_config(page_title="🏆 ELITE MASTER DARK — Alertas Automáticos", layout="wide")
 
 # ----------------------------
-# CSS Dark responsivo (limpo)
+# CSS Dark Premium (melhorado)
 # ----------------------------
 st.markdown(
     """
     <style>
     /* Dark background and clean cards */
     .reportview-container, .main, .block-container {
-        background: linear-gradient(180deg,#0e1116 0%, #0b0f14 100%);
+        background: linear-gradient(180deg, #0e1116 0%, #0b0f14 100%);
         color: #e6eef6;
     }
-    .card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.16));
-        padding: 14px;
-        border-radius: 10px;
-        border: 1px solid rgba(255,255,255,0.03);
-        box-shadow: 0 6px 22px rgba(0,0,0,0.6);
-        margin-bottom: 12px;
+    
+    /* Cards modernos */
+    .card-premium {
+        background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.2) 100%);
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,215,107,0.1);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        margin-bottom: 16px;
+        backdrop-filter: blur(10px);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-    .header { font-size:20px; color:#ffd86b; font-weight:700; }
-    .muted { color: #9fb0c4; font-size:13px; }
-    .small { font-size:13px; color:#9fb0c4; }
-    .btn-primary > button { background: linear-gradient(90deg,#ffd86b,#ffb84d); color: #0b0f14; border-radius:8px; }
-    @media (max-width: 600px) {
-        .header { font-size:18px; }
+    
+    .card-premium:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    }
+    
+    .card-match {
+        background: linear-gradient(135deg, rgba(255,215,107,0.05) 0%, rgba(255,184,77,0.02) 100%);
+        padding: 16px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,215,107,0.08);
+        margin: 8px 0;
+        transition: all 0.3s ease;
+    }
+    
+    .card-match:hover {
+        border-color: rgba(255,215,107,0.3);
+        background: linear-gradient(135deg, rgba(255,215,107,0.08) 0%, rgba(255,184,77,0.05) 100%);
+    }
+    
+    .header { 
+        font-size: 28px; 
+        color: #ffd86b; 
+        font-weight: 800;
+        background: linear-gradient(90deg, #ffd86b, #ffb84d);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 8px;
+    }
+    
+    .subheader {
+        font-size: 18px;
+        color: #9fb0c4;
+        font-weight: 500;
+        margin-bottom: 20px;
+    }
+    
+    .metric-card {
+        background: linear-gradient(135deg, rgba(255,215,107,0.1) 0%, rgba(255,184,77,0.05) 100%);
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        border: 1px solid rgba(255,215,107,0.15);
+    }
+    
+    .probability-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        margin: 2px;
+    }
+    
+    .badge-high { background: linear-gradient(90deg, #00d26a, #00b45a); color: white; }
+    .badge-medium { background: linear-gradient(90deg, #ffb84d, #ffa726); color: white; }
+    .badge-low { background: linear-gradient(90deg, #ff6b6b, #ff5252); color: white; }
+    
+    .confidence-bar {
+        height: 6px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 3px;
+        margin: 8px 0;
+        overflow: hidden;
+    }
+    
+    .confidence-fill {
+        height: 100%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #ffd86b, #ffb84d);
+    }
+    
+    .team-name {
+        font-weight: 600;
+        color: #ffd86b;
+    }
+    
+    .match-time {
+        font-size: 12px;
+        color: #9fb0c4;
+        background: rgba(255,255,255,0.05);
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 8px;
+        margin: 12px 0;
+    }
+    
+    .stat-item {
+        text-align: center;
+        padding: 8px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+    }
+    
+    .stat-value {
+        font-size: 16px;
+        font-weight: 700;
+        color: #ffd86b;
+    }
+    
+    .stat-label {
+        font-size: 11px;
+        color: #9fb0c4;
+        text-transform: uppercase;
+    }
+    
+    .green-text { color: #00d26a; }
+    .red-text { color: #ff6b6b; }
+    .yellow-text { color: #ffb84d; }
+    
+    @media (max-width: 768px) {
+        .header { font-size: 22px; }
+        .stats-grid { grid-template-columns: repeat(2, 1fr); }
     }
     </style>
     """,
@@ -566,10 +682,95 @@ def executar_conferencia_automatica(token: str, chats: List[str]):
     return resumo_global
 
 # ----------------------------
+# Componentes de UI Melhorados
+# ----------------------------
+def render_metric_card(title, value, delta=None, delta_color="normal"):
+    """Renderiza um cartão de métrica estilizado"""
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.markdown(f"**{title}**")
+        st.markdown(f"<h3 style='color: #ffd86b; margin: 0;'>{value}</h3>", unsafe_allow_html=True)
+    if delta:
+        with col3:
+            color = "#00d26a" if delta_color == "green" else "#ff6b6b" if delta_color == "red" else "#ffb84d"
+            st.markdown(f"<div style='text-align: right;'><span style='color: {color}; font-weight: bold;'>{delta}</span></div>", unsafe_allow_html=True)
+
+def render_match_card(match, show_details=True):
+    """Renderiza um cartão de partida com informações detalhadas"""
+    with st.container():
+        st.markdown(f"""
+        <div class="card-match">
+            <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 12px;">
+                <div style="flex: 1;">
+                    <div class="team-name">{match['home']}</div>
+                    <div style="font-size: 12px; color: #9fb0c4;">vs</div>
+                    <div class="team-name">{match['away']}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div class="match-time">{match.get('hora', '??:??')} BRT</div>
+                    <div style="font-size: 12px; color: #9fb0c4; margin-top: 4px;">{match.get('competicao', '')}</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if show_details:
+            # Barra de probabilidades
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                prob = match.get('prob_1_5', 0)
+                badge_class = "badge-high" if prob > 70 else "badge-medium" if prob > 50 else "badge-low"
+                st.markdown(f'<div class="probability-badge {badge_class}">+1.5: {prob}%</div>', unsafe_allow_html=True)
+            with col2:
+                prob = match.get('prob_2_5', 0)
+                badge_class = "badge-high" if prob > 70 else "badge-medium" if prob > 50 else "badge-low"
+                st.markdown(f'<div class="probability-badge {badge_class}">+2.5: {prob}%</div>', unsafe_allow_html=True)
+            with col3:
+                prob = match.get('prob_3_5', 0)
+                badge_class = "badge-high" if prob > 70 else "badge-medium" if prob > 50 else "badge-low"
+                st.markdown(f'<div class="probability-badge {badge_class}">+3.5: {prob}%</div>', unsafe_allow_html=True)
+            
+            # Estatísticas
+            st.markdown('<div class="stats-grid">', unsafe_allow_html=True)
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown(f'<div class="stat-item"><div class="stat-value">{match.get("estimativa", 0):.2f}</div><div class="stat-label">Estimativa</div></div>', unsafe_allow_html=True)
+            with col2:
+                conf = match.get('conf_1_5', 0)
+                st.markdown(f'<div class="stat-item"><div class="stat-value">{conf:.0f}%</div><div class="stat-label">Confiança</div></div>', unsafe_allow_html=True)
+            with col3:
+                st.markdown(f'<div class="stat-item"><div class="stat-value">{match.get("fixture_id", "")}</div><div class="stat-label">ID</div></div>', unsafe_allow_html=True)
+            with col4:
+                # Barra de confiança visual
+                st.markdown(f"""
+                <div class="stat-item">
+                    <div class="stat-label">Nível</div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: {conf}%"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+def render_top3_section(title, matches, faixa):
+    """Renderiza uma seção de Top 3 matches"""
+    if not matches:
+        return
+    
+    st.markdown(f'<div class="card-premium"><h3>🏆 {title}</h3>', unsafe_allow_html=True)
+    
+    for i, match in enumerate(matches, 1):
+        st.markdown(f"### #{i} - +{faixa} Gols")
+        render_match_card(match, show_details=True)
+        st.markdown("---")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ----------------------------
 # UI: Abas e execução automática ao carregar
 # ----------------------------
 st.markdown('<div class="header">🏆 ELITE MASTER — Dark Premium (Auto Alerts)</div>', unsafe_allow_html=True)
-st.markdown('<div class="muted">Envio automático de Top3 + conferência automática de resultados (teste local)</div>', unsafe_allow_html=True)
+st.markdown('<div class="subheader">Sistema automático de alertas para apostas em Over • Dados em tempo real</div>', unsafe_allow_html=True)
 st.markdown("---")
 
 tabs = st.tabs(["🏠 Dashboard", "⚽ Jogos do Dia", "🔥 Top 3 (Auto)", "📊 Histórico / Conferência", "⚙️ Configurações"])
@@ -578,51 +779,55 @@ tabs = st.tabs(["🏠 Dashboard", "⚽ Jogos do Dia", "🔥 Top 3 (Auto)", "📊
 # Aba Configurações (mostra/permite editar tokens no app)
 # ----------------------------
 with tabs[4]:
-    st.markdown('<div class="card"><b>Configurações (teste local)</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card-premium"><b>⚙️ Configurações (teste local)</b></div>', unsafe_allow_html=True)
     col1, col2 = st.columns([2,1])
     with col1:
         # mostrar os tokens atuais e permitir alterar para sessão
-        token_sess = st.text_input("Telegram Token (coloque seu token aqui para testes)", value=TELEGRAM_TOKEN)
+        token_sess = st.text_input("Telegram Token (coloque seu token aqui para testes)", value=TELEGRAM_TOKEN, type="password")
         chat_sess = st.text_input("Telegram Chat ID (ex: @EliteMaster ou -100...)", value=TELEGRAM_CHAT_ID)
         chat_alt_sess = st.text_input("Telegram Chat ID alt (opcional)", value=TELEGRAM_CHAT_ID_ALT2)
         temporada_padrao = st.selectbox("Temporada padrão:", ["2022","2023","2024","2025"], index=2)
         top_n_conf = st.slider("Top N por faixa (ao enviar)", 1, 5, 3)
     with col2:
-        if st.button("Salvar configurações nesta sessão"):
+        if st.button("💾 Salvar configurações", use_container_width=True):
             st.session_state["TG_TOKEN"] = token_sess.strip()
             st.session_state["TG_CHAT"] = chat_sess.strip()
             st.session_state["TG_CHAT_ALT"] = chat_alt_sess.strip()
             st.session_state["TEMP_PADRAO"] = temporada_padrao
             st.session_state["TOP_N"] = top_n_conf
-            st.success("Configurações salvas na sessão (temporário).")
-        if st.button("Testar envio (mensagem de teste)"):
+            st.success("✅ Configurações salvas na sessão (temporário).")
+        if st.button("🧪 Testar envio", use_container_width=True):
             tok = token_sess.strip()
             chats = [chat_sess.strip()] + ([chat_alt_sess.strip()] if chat_alt_sess.strip() else [])
             if not tok or not chats[0]:
-                st.error("Token ou chat principal ausente.")
+                st.error("❌ Token ou chat principal ausente.")
             else:
                 try:
                     txt = "🔥 *ELITE MASTER - TESTE DE ENVIO* 🔥\n\nTeste automático do app."
                     res = enviar_para_todos(tok, chats, txt)
                     st.write(res)
-                    st.success("Teste enviado.")
+                    st.success("✅ Teste enviado com sucesso!")
                 except Exception as e:
-                    st.error(f"Erro envio teste: {e}")
+                    st.error(f"❌ Erro envio teste: {e}")
 
     st.markdown("---")
-    st.markdown("**Nota:** Para produção mova os tokens para variáveis de ambiente e não mantenha no código.")
-    st.markdown("**Arquivos:**")
+    st.markdown("**📝 Nota:** Para produção mova os tokens para variáveis de ambiente e não mantenha no código.")
+    st.markdown("**📁 Arquivos:**")
     st.code(f"{TOP3_PATH}  (histórico de envios)\n{ALERTAS_PATH}  (log de envios)")
 
 # ----------------------------
 # Aba Dashboard
 # ----------------------------
 with tabs[0]:
-    st.markdown('<div class="card"><b>Dashboard</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card-premium"><b>📊 Dashboard</b></div>', unsafe_allow_html=True)
+    
+    # Métricas principais
     top3_hist = carregar_top3()
     log = carregar_alertas().get("log", [])
     total_envios = len(top3_hist)
     total_alerts = len(log)
+    
+    # Calcular estatísticas
     greens = reds = 0
     for lote in top3_hist:
         for k in ("top_1_5","top_2_5","top_3_5"):
@@ -632,38 +837,75 @@ with tabs[0]:
                         greens += 1
                     else:
                         reds += 1
+    
     taxa = f"{(greens/(greens+reds)*100):.1f}%" if (greens+reds)>0 else "N/A"
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Top3 enviados (lotes)", total_envios)
-    c2.metric("Entradas no log", total_alerts)
-    c3.metric("Taxa acerto (conferidos)", taxa)
-    st.markdown("### Últimos envios (preview)")
-    preview = []
-    for lote in reversed(top3_hist[-8:]):
-        preview.append({"Envio": f"{lote.get('data_envio')} {lote.get('hora_envio')}", "Itens": sum(len(lote.get(k,[])) for k in lote if k.startswith("top_"))})
-    if preview:
-        st.table(preview)
+    total_analisados = greens + reds
+    
+    # Layout de métricas
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Top3 Enviados", total_envios, "Lotes")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Alertas no Log", total_alerts)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Taxa de Acerto", taxa, f"{greens}/{total_analisados}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Partidas Analisadas", total_analisados)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Últimos envios
+    st.markdown("### 📋 Últimos Envios")
+    if top3_hist:
+        for lote in reversed(top3_hist[-3:]):
+            data_envio = lote.get('data_envio', 'N/A')
+            hora_envio = lote.get('hora_envio', 'N/A')
+            total_jogos = sum(len(lote.get(k, [])) for k in lote if k.startswith('top_'))
+            
+            st.markdown(f'<div class="card-match">', unsafe_allow_html=True)
+            st.markdown(f"**📅 {data_envio}** • **🕒 {hora_envio}** • **⚽ {total_jogos} jogos**")
+            
+            for faixa in ['1_5', '2_5', '3_5']:
+                jogos = lote.get(f'top_{faixa}', [])
+                if jogos:
+                    st.markdown(f"**+{faixa.replace('_', '.')}:** {len(jogos)} jogos")
+                    for jogo in jogos:
+                        st.markdown(f"• {jogo['home']} vs {jogo['away']} - Est: {jogo.get('estimativa', 0):.2f}")
+            st.markdown('</div>', unsafe_allow_html=True)
     else:
-        st.info("Nenhum envio registrado ainda.")
+        st.info("ℹ️ Nenhum envio registrado ainda.")
 
 # ----------------------------
 # Aba Jogos do Dia
 # ----------------------------
 with tabs[1]:
-    st.markdown('<div class="card"><b>Jogos do Dia</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card-premium"><b>⚽ Jogos do Dia</b></div>', unsafe_allow_html=True)
+    
     colA, colB = st.columns([2,1])
     with colA:
-        data_selecionada = st.date_input("Data", value=datetime.utcnow().date())
-        liga_selecionada = st.selectbox("Liga (OpenLiga)", list(LEAGAS_MAP.keys()))
+        data_selecionada = st.date_input("📅 Data", value=datetime.utcnow().date())
+        liga_selecionada = st.selectbox("🏆 Liga (OpenLiga)", list(LEAGAS_MAP.keys()))
     with colB:
-        temporada_input = st.selectbox("Temporada (para médias)", ["2022","2023","2024","2025"], index=2)
-    if st.button("Carregar jogos e analisar (manual)"):
+        temporada_input = st.selectbox("🎯 Temporada (para médias)", ["2022","2023","2024","2025"], index=2)
+    
+    if st.button("🔍 Carregar jogos e analisar", use_container_width=True):
         liga_id = LEAGAS_MAP.get(liga_selecionada)
         try:
             jogos_hist = obter_jogos_liga_temporada(liga_id, temporada_input)
             jogos_dia = filtrar_jogos_por_data(jogos_hist, data_selecionada)
+            
             if not jogos_dia:
-                st.info("Nenhum jogo encontrado para a data/league.")
+                st.info("ℹ️ Nenhum jogo encontrado para a data/liga selecionada.")
             else:
                 medias_liga = calcular_media_gols_times(jogos_hist)
                 rows = []
@@ -677,77 +919,159 @@ with tabs[1]:
                     media_away = medias_liga.get(away, {"media_gols_marcados":1.4,"media_gols_sofridos":1.1})
                     estim = calcular_estimativa(media_h2h, media_home, media_away, peso_h2h=0.3)
                     p15 = prob_over_k(estim, 1.5); p25 = prob_over_k(estim, 2.5); p35 = prob_over_k(estim, 3.5)
-                    rows.append({"fixture_id": m.get("matchID"), "home": home, "away": away, "hora": hora_brt, "estimativa": estim, "prob_1_5": round(p15*100,1), "prob_2_5": round(p25*100,1), "prob_3_5": round(p35*100,1), "liga_id": liga_id, "temporada": temporada_input})
+                    rows.append({
+                        "fixture_id": m.get("matchID"), 
+                        "home": home, 
+                        "away": away, 
+                        "hora": hora_brt, 
+                        "estimativa": estim, 
+                        "prob_1_5": round(p15*100,1), 
+                        "prob_2_5": round(p25*100,1), 
+                        "prob_3_5": round(p35*100,1),
+                        "conf_1_5": prob_to_conf(p15),
+                        "conf_2_5": prob_to_conf(p25),
+                        "conf_3_5": prob_to_conf(p35),
+                        "competicao": liga_selecionada
+                    })
                 st.session_state["JOGOS_DO_DIA"] = rows
-                st.success(f"{len(rows)} jogos carregados.")
+                st.success(f"✅ {len(rows)} jogos carregados e analisados!")
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"❌ Erro ao carregar jogos: {e}")
 
+    # Exibir jogos carregados
     jogos = st.session_state.get("JOGOS_DO_DIA", [])
     if jogos:
-        st.markdown("### Jogos carregados")
-        display = []
-        for j in jogos:
-            display.append({"Jogo": f"{j['home']} x {j['away']}", "Hora (BRT)": j["hora"], "Estimativa": j["estimativa"], "P(+1.5)": f"{j['prob_1_5']}%", "P(+2.5)": f"{j['prob_2_5']}%", "P(+3.5)": f"{j['prob_3_5']}%"})
-        st.table(display)
-        st.info("O envio automático ocorrerá ao carregar a página (se tokens estiverem configurados).")
+        st.markdown(f"### 📊 Análise dos Jogos ({len(jogos)} encontrados)")
+        
+        # Filtros
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            min_prob = st.slider("Probabilidade mínima (%)", 0, 100, 50)
+        with col2:
+            faixa_filtro = st.selectbox("Filtrar por faixa", ["Todas", "+1.5", "+2.5", "+3.5"])
+        with col3:
+            sort_by = st.selectbox("Ordenar por", ["Probabilidade", "Estimativa", "Hora"])
+        
+        # Aplicar filtros
+        jogos_filtrados = jogos.copy()
+        
+        if faixa_filtro != "Todas":
+            prob_key = f"prob_{faixa_filtro.replace('+', '').replace('.', '_')}"
+            jogos_filtrados = [j for j in jogos_filtrados if j.get(prob_key, 0) >= min_prob]
+        else:
+            jogos_filtrados = [j for j in jogos_filtrados if max(j.get('prob_1_5', 0), j.get('prob_2_5', 0), j.get('prob_3_5', 0)) >= min_prob]
+        
+        if sort_by == "Probabilidade":
+            jogos_filtrados.sort(key=lambda x: max(x.get('prob_1_5', 0), x.get('prob_2_5', 0), x.get('prob_3_5', 0)), reverse=True)
+        elif sort_by == "Estimativa":
+            jogos_filtrados.sort(key=lambda x: x.get('estimativa', 0), reverse=True)
+        else:  # Hora
+            jogos_filtrados.sort(key=lambda x: x.get('hora', '99:99'))
+        
+        # Exibir jogos filtrados
+        for jogo in jogos_filtrados:
+            render_match_card(jogo, show_details=True)
+            st.markdown("---")
+        
+        st.info(f"ℹ️ Mostrando {len(jogos_filtrados)} de {len(jogos)} jogos")
 
 # ----------------------------
 # Aba Top 3 (Auto)
 # ----------------------------
 with tabs[2]:
-    st.markdown('<div class="card"><b>Top 3 (Automático)</b></div>', unsafe_allow_html=True)
-    st.markdown("O sistema calcula e envia automaticamente os Top3 do dia (uma vez por dia). Para testes, insira token/chat na aba Configurações e recarregue a página.")
+    st.markdown('<div class="card-premium"><b>🔥 Top 3 (Automático)</b></div>', unsafe_allow_html=True)
+    st.markdown("""
+    O sistema calcula e envia automaticamente os Top3 do dia (uma vez por dia). 
+    Para testes, insira token/chat na aba Configurações e recarregue a página.
+    """)
+    
     # Mostrar resumo do último envio (se houver)
     top3_hist = carregar_top3()
     if top3_hist:
         ultimo = top3_hist[-1]
-        st.write("Último envio:", ultimo.get("data_envio"), ultimo.get("hora_envio"))
-        for k in ("top_1_5","top_2_5","top_3_5"):
-            lst = ultimo.get(k, [])
-            if lst:
-                st.write(f"### {k.replace('_',' ')}")
-                for j in lst:
-                    st.write(f"- {j['home']} x {j['away']}  |  P(+{k.split('_')[1].replace('_','.')}): {j.get(f'prob_{k.split('_')[1]}','-')}%  |  Est: {j.get('estimativa')}")
+        
+        st.markdown(f"### 📅 Último Envio: {ultimo.get('data_envio')} {ultimo.get('hora_envio')}")
+        
+        # Top +1.5
+        render_top3_section("TOP +1.5 GOLS", ultimo.get("top_1_5", []), "1.5")
+        
+        # Top +2.5
+        render_top3_section("TOP +2.5 GOLS", ultimo.get("top_2_5", []), "2.5")
+        
+        # Top +3.5
+        render_top3_section("TOP +3.5 GOLS", ultimo.get("top_3_5", []), "3.5")
+        
     else:
-        st.info("Nenhum envio automático registrado ainda.")
+        st.info("ℹ️ Nenhum envio automático registrado ainda.")
 
 # ----------------------------
 # Aba Histórico / Conferência
 # ----------------------------
 with tabs[3]:
-    st.markdown('<div class="card"><b>Histórico e Conferência</b></div>', unsafe_allow_html=True)
+    st.markdown('<div class="card-premium"><b>📊 Histórico e Conferência</b></div>', unsafe_allow_html=True)
+    
     top3_hist = carregar_top3()
     if not top3_hist:
-        st.info("Sem histórico.")
+        st.info("ℹ️ Sem histórico para exibir.")
     else:
+        # Seletor de lote
         options = [f"{i+1} - {t['data_envio']} ({t['hora_envio']})" for i,t in enumerate(top3_hist)]
-        sel = st.selectbox("Selecione lote:", options)
+        sel = st.selectbox("Selecione lote para detalhes:", options)
         idx = options.index(sel)
         lote = top3_hist[idx]
-        st.write("Lote:", lote.get("data_envio"), lote.get("hora_envio"))
-        for k in [k for k in lote.keys() if k.startswith("top_")]:
-            st.write(f"## {k.replace('_',' ')}")
-            for j in lote.get(k, []):
-                st.write(f"- {j.get('home')} x {j.get('away')}  |  Est: {j.get('estimativa')}  | Resultado: {j.get('resultado','-')}")
-        if st.button("Forçar conferir este lote e enviar resultados (Telegram)"):
+        
+        # Estatísticas do lote
+        st.markdown(f"### 📈 Estatísticas do Lote {lote.get('data_envio')}")
+        
+        total_jogos = sum(len(lote.get(k, [])) for k in lote if k.startswith('top_'))
+        greens = sum(1 for k in lote if k.startswith('top_') for j in lote[k] if j.get('resultado') and 'GREEN' in j.get('resultado'))
+        reds = sum(1 for k in lote if k.startswith('top_') for j in lote[k] if j.get('resultado') and 'RED' in j.get('resultado'))
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Jogos", total_jogos)
+        col2.metric("🟢 GREEN", greens)
+        col3.metric("🔴 RED", reds)
+        col4.metric("Taxa Acerto", f"{(greens/(greens+reds)*100):.1f}%" if (greens+reds) > 0 else "N/A")
+        
+        # Detalhes por faixa
+        for faixa_key in ['top_1_5', 'top_2_5', 'top_3_5']:
+            jogos_faixa = lote.get(faixa_key, [])
+            if jogos_faixa:
+                faixa_label = faixa_key.replace('top_', '+').replace('_', '.')
+                st.markdown(f"### 🎯 {faixa_label} Gols")
+                
+                for jogo in jogos_faixa:
+                    resultado = jogo.get('resultado', 'Não conferido')
+                    cor = "🟢" if "GREEN" in resultado else "🔴" if "RED" in resultado else "⚪"
+                    
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    with col1:
+                        st.write(f"**{jogo['home']}** vs **{jogo['away']}**")
+                    with col2:
+                        st.write(f"Est: {jogo.get('estimativa', 0):.2f}")
+                    with col3:
+                        st.write(f"{cor} {resultado}")
+        
+        # Botão de conferência forçada
+        if st.button("🔄 Forçar conferência deste lote", use_container_width=True):
             token = st.session_state.get("TG_TOKEN") or TELEGRAM_TOKEN
             chat_main = st.session_state.get("TG_CHAT") or TELEGRAM_CHAT_ID
             chat_alt = st.session_state.get("TG_CHAT_ALT") or TELEGRAM_CHAT_ID_ALT2
             chats = [chat_main] + ([chat_alt] if chat_alt else [])
-            resumo = []
-            for k in [k for k in lote.keys() if k.startswith("top_")]:
-                label = k.split("_",1)[1].replace("_",".")
-                for j in lote.get(k, []):
-                    info = conferir_jogo_openliga(j.get("fixture_id"), j.get("liga_id"), lote.get("temporada",""), label)
-                    if not info:
-                        resumo.append({"fixture": j.get("fixture_id"), "status": "no_result"})
-                        continue
-                    # enviar resultado por partida
-                    msg = montar_mensagem_resultado_vip(info["home"], info["away"], label, info.get("score","-"), info.get("resultado","-"))
-                    enviar_para_todos(token, chats, msg)
-                    resumo.append({"fixture": j.get("fixture_id"), "resultado": info.get("resultado","-")})
-            st.json(resumo)
+            
+            with st.spinner("Conferindo resultados..."):
+                resumo = []
+                for faixa_key in ['top_1_5', 'top_2_5', 'top_3_5']:
+                    label = faixa_key.split('_', 1)[1].replace('_', '.')
+                    for j in lote.get(faixa_key, []):
+                        info = conferir_jogo_openliga(j.get("fixture_id"), j.get("liga_id"), lote.get("temporada",""), label)
+                        if info:
+                            msg = montar_mensagem_resultado_vip(info["home"], info["away"], label, info.get("score","-"), info.get("resultado","-"))
+                            enviar_para_todos(token, chats, msg)
+                            resumo.append({"fixture": j.get("fixture_id"), "resultado": info.get("resultado","-")})
+                
+                st.success("✅ Conferência concluída e resultados enviados!")
+                st.json(resumo)
 
 # ----------------------------
 # Execução automática ao carregar a página
@@ -760,19 +1084,40 @@ chats_list = [chat_use] + ([chat_alt_use] if chat_alt_use else [])
 
 # Executar envio automático do dia atual (somente se token/chat estiverem presentes)
 try:
-    resultado_auto = executar_fluxo_automatico(date.today(), LEAGAS_MAP, st.session_state.get("TEMP_PADRAO","2024"), top_n_per_faixa=st.session_state.get("TOP_N",3), token=token_use, chats=chats_list)
-    # Em seguida, executar conferência automática de envios anteriores (que ainda não foram conferidos)
-    resultado_conf = executar_conferencia_automatica(token_use, chats_list)
-    # Mostrar um resumo discreto no footer
-    st.sidebar.markdown("### Auto: status")
-    st.sidebar.write(resultado_auto.get("sent_summary", {}).get("sent_batches", []) if isinstance(resultado_auto, dict) else resultado_auto)
-    st.sidebar.write({"conferencias": resultado_conf})
+    if token_use and token_use != "SEU_TOKEN_DE_TESTE_AQUI" and chats_list:
+        with st.sidebar:
+            st.markdown("### 🤖 Auto Execução")
+            with st.spinner("Executando fluxo automático..."):
+                resultado_auto = executar_fluxo_automatico(
+                    date.today(), 
+                    LEAGAS_MAP, 
+                    st.session_state.get("TEMP_PADRAO","2024"), 
+                    top_n_per_faixa=st.session_state.get("TOP_N",3), 
+                    token=token_use, 
+                    chats=chats_list
+                )
+                
+                # Em seguida, executar conferência automática de envios anteriores
+                resultado_conf = executar_conferencia_automatica(token_use, chats_list)
+                
+                if resultado_auto.get("sent_summary", {}).get("sent_batches"):
+                    st.success("✅ Fluxo automático executado!")
+                else:
+                    st.info("ℹ️ Nenhum envio necessário (já enviado hoje)")
+                    
+                if resultado_conf:
+                    st.success(f"✅ {len(resultado_conf)} lotes conferidos!")
 except Exception as e:
     logger.warning(f"Erro no fluxo automático: {e}")
-    st.sidebar.error("Erro no fluxo automático. Veja logs.")
 
 # ----------------------------
 # Footer
 # ----------------------------
 st.markdown("---")
-st.markdown('<div class="small">Elite Master • Dark Premium • Envio Automático • Use apenas para testes com token no código</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="small">'
+    '🏆 Elite Master • Dark Premium • Envio Automático • '
+    'Use apenas para testes com token seguro'
+    '</div>', 
+    unsafe_allow_html=True
+)
