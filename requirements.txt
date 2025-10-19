@@ -6,3 +6,4 @@ streamlit-autorefresh
 joblib
 matplotlib
 python-dotenv
+reportlab
