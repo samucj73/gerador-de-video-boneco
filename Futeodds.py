@@ -1,1262 +1,888 @@
-# Futebol_Alertas_Oddstop.py
+# ================================================
+# ⚽ ESPN Soccer - Elite Master
+# ================================================
 import streamlit as st
-from datetime import datetime, timedelta, date
 import requests
-import os
 import json
-import math
+import os
+import io
+from datetime import datetime, timedelta
+import pandas as pd
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 import time
-import logging
-from functools import lru_cache
-from dotenv import load_dotenv
-import pytz
+from typing import List, Dict, Optional
+import re
 
 # =============================
-# Configuração Inicial
+# Configurações e Constantes
 # =============================
-load_dotenv()
+st.set_page_config(page_title="⚽ ESPN Soccer - Elite", layout="wide")
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# =============================
-# Configurações Odds API + Telegram
-# =============================
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "7ad63ba7ce77a6f31c33acc766f3e9fb")
-ODDS_BASE = "https://api.the-odds-api.com/v4"
-
-# Mapa de ligas: chave -> nome amigável
-ALL_LIGAS = {
-    # Europe + Global (principais)
-    "soccer_epl": "England - Premier League (EPL)",
-    "soccer_spain_la_liga": "Spain - La Liga",
-    "soccer_spain_segunda_division": "Spain - La Liga 2",
-    "soccer_italy_serie_a": "Italy - Serie A",
-    "soccer_germany_bundesliga": "Germany - Bundesliga",
-    "soccer_germany_bundesliga2": "Germany - Bundesliga 2",
-    "soccer_france_ligue_one": "France - Ligue 1",
-    "soccer_brazil_campeonato": "Brazil - Série A (Brasileirão)",
-    "soccer_brazil_campeonato_b": "Brazil - Série B (Brasileirão B)",
-    "soccer_uefa_champs_league": "UEFA Champions League",
-    "soccer_uefa_champs_league_women": "UEFA Champions League Feminina",
-    "soccer_uefa_europa_league": "UEFA Europa League",
-    "soccer_uefa_europa_conference_league": "UEFA Europa Conference League",
-    "soccer_copa_libertadores": "Copa Libertadores da América",
-    "soccer_portugal_primeira_liga": "Portugal - Primeira Liga",
-    "soccer_netherlands_eredivisie": "Netherlands - Eredivisie",
-    "soccer_mexico_ligamx": "Mexico - Liga MX",
-    "soccer_turkey_super_league": "Turkey - Super Lig",
-    "soccer_argentina_primera_division": "Argentina - Primera División",
-
-    # American leagues (US/CONCACAF)
-    "soccer_usa_mls": "USA - Major League Soccer (MLS)",
-    "soccer_usa_usl_championship": "USA - USL Championship",
-
-    # Outras
-    "soccer_china_superleague": "China - Super League",
-    "soccer_japan_j_league": "Japan - J League",
-    "soccer_korea_kleague1": "Korea - K League 1",
-    "soccer_belgium_first_div": "Belgium - First Division A",
-}
-
-
-
-# Default principais
-DEFAULT_PRINCIPAIS = [
-    "soccer_epl",
-    "soccer_spain_la_liga",
-    "soccer_italy_serie_a",
-    "soccer_germany_bundesliga",
-    "soccer_france_ligue_one",
-    "soccer_brazil_campeonato",
-    "soccer_uefa_champs_league",
-    "soccer_usa_mls",
-]
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003073115320")
-TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2", "-1002932611974")
+TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2", "-1002754276285")
 BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 ALERTAS_PATH = "alertas.json"
-TOP3_PATH = "top3.json"
+CACHE_JOGOS = "cache_jogos.json"
+CACHE_TIMEOUT = 3600  # 1 hora
 
 # =============================
-# Configuração de Fuso Horário
+# Principais ligas (ESPN) - ATUALIZADO
 # =============================
-TIMEZONE_BR = pytz.timezone('America/Sao_Paulo')  # UTC-3
+LIGAS_ESPN = {
+    "Premier League (Inglaterra)": "eng.1",
+    "La Liga (Espanha)": "esp.1", 
+    "Serie A (Itália)": "ita.1",
+    "Bundesliga (Alemanha)": "ger.1",
+    "Ligue 1 (França)": "fra.1",
+    "MLS (Estados Unidos)": "usa.1",
+    "Brasileirão Série A": "bra.1",
+    "Brasileirão Série B": "bra.2",
+    "Liga MX (México)": "mex.1",
+    "Copa Libertadores": "ccm",
+    "Champions League": "uefa.champions",
+    "Europa League": "uefa.europa"
+}
 
-# =============================
-# Rate Limiter
-# =============================
-class RateLimitedAPI:
-    def __init__(self, calls_per_minute=30):
-        self.calls_per_minute = calls_per_minute
-        self.last_calls = []
-    
-    def wait_if_needed(self):
-        now = time.time()
-        # Remove chamadas antigas
-        self.last_calls = [t for t in self.last_calls if now - t < 60]
-        
-        if len(self.last_calls) >= self.calls_per_minute:
-            sleep_time = 60 - (now - self.last_calls[0])
-            if sleep_time > 0:
-                logger.info(f"Rate limit atingido. Aguardando {sleep_time:.1f} segundos")
-                time.sleep(sleep_time)
-        
-        self.last_calls.append(now)
+# Cores e emojis para status
+STATUS_CONFIG = {
+    "Agendado": {"emoji": "⏰", "color": "#4A90E2"},
+    "Ao Vivo": {"emoji": "🔴", "color": "#E74C3C"},
+    "Halftime": {"emoji": "⏸️", "color": "#F39C12"},
+    "Finalizado": {"emoji": "✅", "color": "#27AE60"},
+    "Adiado": {"emoji": "🚫", "color": "#95A5A6"},
+    "Cancelado": {"emoji": "❌", "color": "#7F8C8D"}
+}
 
-rate_limiter = RateLimitedAPI(30)
-
-# =============================
-# Persistência
-# =============================
-def carregar_alertas():
-    try:
-        if os.path.exists(ALERTAS_PATH):
-            with open(ALERTAS_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Erro ao carregar alertas: {e}")
-    return {}
-
-def salvar_alertas(alertas):
-    try:
-        with open(ALERTAS_PATH, "w", encoding="utf-8") as f:
-            json.dump(alertas, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Erro ao salvar alertas: {e}")
-
-def carregar_top3():
-    try:
-        if os.path.exists(TOP3_PATH):
-            with open(TOP3_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Erro ao carregar top3: {e}")
-    return []
-
-def salvar_top3(lista):
-    try:
-        with open(TOP3_PATH, "w", encoding="utf-8") as f:
-            json.dump(lista, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Erro ao salvar top3: {e}")
-
-# =============================
-# Envio Telegram (Melhorado)
-# =============================
-def enviar_telegram_seguro(msg, chat_id=TELEGRAM_CHAT_ID, max_retries=3):
-    """Versão mais robusta para envio no Telegram"""
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(
-                BASE_URL_TG, 
-                params={
-                    "chat_id": chat_id, 
-                    "text": msg, 
-                    "parse_mode": "Markdown"
-                }, 
-                timeout=15
-            )
-            if response.status_code == 200:
-                logger.info(f"Mensagem enviada com sucesso para Telegram (tentativa {attempt + 1})")
-                return True
-            else:
-                logger.warning(f"Telegram retornou status {response.status_code} na tentativa {attempt + 1}")
-        except Exception as e:
-            logger.warning(f"Tentativa {attempt + 1} falhou: {e}")
-            time.sleep(2)
-    
-    logger.error(f"Falha ao enviar para Telegram após {max_retries} tentativas")
-    return False
-
-def enviar_telegram(msg, chat_id=TELEGRAM_CHAT_ID):
-    """Função wrapper para manter compatibilidade"""
-    return enviar_telegram_seguro(msg, chat_id)
-
-# =============================
-# Validação de Dados
-# =============================
-def validar_resposta_odds_api(dados):
-    """Valida a estrutura dos dados da Odds API"""
-    if not isinstance(dados, list):
-        logger.error("Resposta inválida da Odds API - não é uma lista")
-        return False
-    
-    valid_count = 0
-    for evento in dados:
-        required_fields = ['id', 'commence_time', 'home_team', 'away_team', 'bookmakers']
-        if all(field in evento for field in required_fields):
-            valid_count += 1
-        else:
-            logger.warning(f"Evento com campos faltando: {evento.get('id', 'unknown')}")
-    
-    logger.info(f"Validação: {valid_count}/{len(dados)} eventos válidos")
-    return valid_count > 0
-
-# =============================
-# Helpers Odds API (Com Cache e Rate Limiting)
-# =============================
-@lru_cache(maxsize=100)
-def obter_odds_para_liga_cached(liga_key, regions="eu,us,au", date_str=None):
-    """Versão com cache para evitar requisições repetidas"""
-    if not date_str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    return obter_odds_para_liga(liga_key, regions)
-
-def obter_odds_para_liga(liga_key, regions="eu,us,au", markets="totals", odds_format="decimal"):
-    """
-    Consulta a Odds API para uma liga (sport_key) retornando eventos com mercado 'totals'.
-    """
-    rate_limiter.wait_if_needed()
-    
-    url = f"{ODDS_BASE}/sports/{liga_key}/odds"
-    params = {
-        "apiKey": ODDS_API_KEY,
-        "regions": regions,
-        "markets": markets,
-        "oddsFormat": odds_format,
-        "dateFormat": "iso"
-    }
-    try:
-        logger.info(f"Consultando Odds API para liga: {liga_key}")
-        r = requests.get(url, params=params, timeout=20)
-        
-        if r.status_code == 200:
-            dados = r.json()
-            if validar_resposta_odds_api(dados):
-                logger.info(f"✅ {len(dados)} eventos obtidos para {liga_key}")
-                return dados
-            else:
-                logger.warning(f"⚠️ Dados inválidos para {liga_key}")
-                return []
-        elif r.status_code == 401:
-            logger.error("❌ Erro de autenticação na Odds API - verifique a API key")
-            st.error("❌ Erro de autenticação na Odds API - verifique a API key")
-            return []
-        elif r.status_code == 429:
-            logger.warning("⚠️ Rate limit excedido na Odds API")
-            st.warning("⚠️ Rate limit excedido - aguarde um momento")
-            return []
-        else:
-            logger.warning(f"⚠️ Status code {r.status_code} para {liga_key}")
-            return []
-    except Exception as e:
-        logger.error(f"❌ Erro na requisição para {liga_key}: {e}")
-        st.warning(f"Erro Odds API {liga_key}: {e}")
-        return []
-
-def parse_iso_to_datetime_brasil(s):
-    """
-    Converte string ISO para datetime e ajusta para o fuso horário do Brasil
-    """
-    if not s:
-        return None
-    try:
-        # Parse da string ISO
-        if s.endswith("Z"):
-            dt_utc = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        else:
-            dt_utc = datetime.fromisoformat(s)
-        
-        # Converter para UTC primeiro
-        dt_utc = dt_utc.replace(tzinfo=pytz.UTC)
-        
-        # Converter para horário do Brasil
-        dt_brasil = dt_utc.astimezone(TIMEZONE_BR)
-        
-        return dt_brasil
-    except Exception:
-        try:
-            # Fallback para formato sem timezone
-            dt_naive = datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
-            # Assumir que é UTC e converter para Brasil
-            dt_utc = pytz.UTC.localize(dt_naive)
-            dt_brasil = dt_utc.astimezone(TIMEZONE_BR)
-            return dt_brasil
-        except Exception:
-            return None
-
-def extrair_melhor_odd_por_bookmaker(event, ponto_alvo="2.5"):
-    """
-    Extrai a melhor odd Over para um ponto específico de cada bookmaker.
-    Retorna dict com {bookmaker: odd}
-    """
-    bookmakers_odds = {}
-    
-    for bookmaker in event.get("bookmakers", []):
-        bookmaker_nome = bookmaker.get("title", "Unknown")
-        for market in bookmaker.get("markets", []):
-            if market.get("key") != "totals":
-                continue
-            for outcome in market.get("outcomes", []):
-                try:
-                    point = str(float(outcome.get("point"))) if outcome.get("point") is not None else None
-                except Exception:
-                    continue
-                
-                if point == ponto_alvo and outcome.get("name", "").strip().lower() == "over":
-                    price = outcome.get("price")
-                    if price is not None:
-                        bookmakers_odds[bookmaker_nome] = float(price)
-    
-    return bookmakers_odds
-
-def encontrar_bookmaker_comum_e_calcular_multipla(jogos, faixa):
-    """
-    Encontra um bookmaker que tenha odds para todos os jogos e calcula a múltipla.
-    Retorna (bookmaker_nome, multipla) ou (None, None) se não encontrar.
-    """
-    if not jogos:
-        return None, None
-    
-    ponto_alvo = str(faixa)
-    
-    # Coleta todos os bookmakers disponíveis para cada jogo
-    bookmakers_por_jogo = []
-    for jogo in jogos:
-        raw_event = jogo.get('raw_event')
-        if not raw_event:
-            return None, None
-        bookmakers_odds = extrair_melhor_odd_por_bookmaker(raw_event, ponto_alvo)
-        bookmakers_por_jogo.append(bookmakers_odds)
-    
-    # Encontra bookmakers comuns a todos os jogos
-    bookmakers_comuns = set(bookmakers_por_jogo[0].keys())
-    for bookmakers in bookmakers_por_jogo[1:]:
-        bookmakers_comuns = bookmakers_comuns.intersection(set(bookmakers.keys()))
-    
-    if not bookmakers_comuns:
-        return None, None
-    
-    # Escolhe o bookmaker com a melhor múltipla (maior valor)
-    melhor_bookmaker = None
-    melhor_multipla = 0
-    
-    for bookmaker in bookmakers_comuns:
-        multipla = 1.0
-        odds_validas = True
-        
-        for bookmakers_odds in bookmakers_por_jogo:
-            odd = bookmakers_odds.get(bookmaker)
-            if odd:
-                multipla *= odd
-            else:
-                odds_validas = False
-                break
-        
-        if odds_validas and multipla > melhor_multipla:
-            melhor_multipla = multipla
-            melhor_bookmaker = bookmaker
-    
-    if melhor_bookmaker:
-        return melhor_bookmaker, round(melhor_multipla, 2)
-    
-    return None, None
-
-def extrair_markets_totals(event):
-    """
-    Retorna um dicionário com os mercados totals encontrados no evento,
-    mapeado por ponto (ex: 2.5 => {'over': odds, 'under': odds})
-    """
-    totals_map = {}
-    for bookmaker in event.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            if market.get("key") != "totals":
-                continue
-            for outcome in market.get("outcomes", []):
-                try:
-                    point = float(outcome.get("point")) if outcome.get("point") is not None else None
-                except Exception:
-                    try:
-                        point = float(str(outcome.get("point")))
-                    except Exception:
-                        point = None
-                name = outcome.get("name", "").strip().lower()
-                price = outcome.get("price")
-                if point is None or price is None:
-                    continue
-                key = str(point)
-                totals_map.setdefault(key, {"overs": [], "unders": []})
-                if "over" in name:
-                    totals_map[key]["overs"].append(price)
-                elif "under" in name:
-                    totals_map[key]["unders"].append(price)
-    consolidated = {}
-    for k, v in totals_map.items():
-        if not v["overs"] or not v["unders"]:
-            continue
-        avg_over = sum(v["overs"]) / len(v["overs"])
-        avg_under = sum(v["unders"]) / len(v["unders"])
-        consolidated[k] = {"over": avg_over, "under": avg_under}
-    return consolidated
-
-def implied_prob_from_over_under(over_odds, under_odds):
-    """
-    Calcula probabilidade implícita de Over usando over_odds e under_odds (decimal).
-    Faz normalização para retirar o vigorish (bookmaker margin).
-    """
-    try:
-        inv_over = 1.0 / float(over_odds)
-        inv_under = 1.0 / float(under_odds)
-        total = inv_over + inv_under
-        if total <= 0:
-            return 0.5
-        prob_over = inv_over / total
-        return max(0.0, min(1.0, prob_over))
-    except Exception:
-        return 0.5
-
-# =============================
-# Estatística / Poisson helpers
-# =============================
-def poisson_cdf(k, lam):
-    try:
-        s = 0.0
-        for i in range(0, k+1):
-            s += (lam**i) / math.factorial(i)
-        return math.exp(-lam) * s
-    except Exception:
-        return 0.5
-
-def prob_over_k(estimativa, threshold):
-    try:
-        if threshold == 1.5:
-            k = 1
-        elif threshold == 2.5:
-            k = 2
-        elif threshold == 3.5:
-            k = 3
-        else:
-            k = int(math.floor(threshold))
-        p = 1 - poisson_cdf(k, estimativa)
-        return max(0.0, min(1.0, p))
-    except Exception:
-        return 0.5
-
-def confidence_from_prob(prob):
-    try:
-        conf = 50 + (prob - 0.5) * 100
-        conf = max(30, min(95, conf))
-        return round(conf, 0)
-    except Exception:
-        return 50
-
-# =============================
-# Funções de cálculo (usando odds quando possível)
-# =============================
-def calcular_estimativas_e_probs_por_jogo_from_odds(event):
-    """Calcula estimativas e probabilidades baseadas nas odds"""
-    try:
-        totals = extrair_markets_totals(event)
-        estimativa = 2.5
-        probs = {"1.5": None, "2.5": None, "3.5": None}
-        confs = {"1.5": 30, "2.5": 30, "3.5": 30}
-        odds = {"1.5": None, "2.5": None, "3.5": None}
-
-        if "2.5" in totals:
-            estimativa = 2.5
-
-        for point in ["1.5", "2.5", "3.5"]:
-            if point in totals:
-                over_odds = totals[point]["over"]
-                under_odds = totals[point]["under"]
-                prob = implied_prob_from_over_under(over_odds, under_odds)
-                probs[point] = prob
-                confs[point] = confidence_from_prob(prob)
-                odds[point] = {
-                    'over': round(over_odds, 2),
-                    'under': round(under_odds, 2)
-                }
-
-        # Estimativas para pontos faltantes
-        if probs["1.5"] is None and probs["2.5"] is not None:
-            p25 = probs["2.5"]
-            p15_est = min(0.99, p25 + 0.18)
-            probs["1.5"] = p15_est
-            confs["1.5"] = confidence_from_prob(p15_est)
-        if probs["3.5"] is None and probs["2.5"] is not None:
-            p25 = probs["2.5"]
-            p35_est = max(0.01, p25 - 0.28)
-            probs["3.5"] = p35_est
-            confs["3.5"] = confidence_from_prob(p35_est)
-
-        # Fallback para valores None
-        for k in probs:
-            if probs[k] is None:
-                probs[k] = 0.5
-                confs[k] = confidence_from_prob(0.5)
-
-        return {
-            "estimativa": round(estimativa, 2),
-            "prob_1_5": round(probs["1.5"] * 100, 1),
-            "prob_2_5": round(probs["2.5"] * 100, 1),
-            "prob_3_5": round(probs["3.5"] * 100, 1),
-            "conf_1_5": confs["1.5"],
-            "conf_2_5": confs["2.5"],
-            "conf_3_5": confs["3.5"],
-            "odds_1_5": odds["1.5"],
-            "odds_2_5": odds["2.5"],
-            "odds_3_5": odds["3.5"],
-        }
-    except Exception as e:
-        logger.error(f"Erro no cálculo de probabilidades: {e}")
-        # Retorna valores padrão em caso de erro
-        return {
-            "estimativa": 2.5,
-            "prob_1_5": 50.0,
-            "prob_2_5": 50.0,
-            "prob_3_5": 50.0,
-            "conf_1_5": 50,
-            "conf_2_5": 50,
-            "conf_3_5": 50,
-            "odds_1_5": None,
-            "odds_2_5": None,
-            "odds_3_5": None,
-        }
-
-# =============================
-# Seleção Top3
-# =============================
-def selecionar_top3_distintos(partidas_info, max_por_faixa=3, prefer_best_fit=True):
-    """Seleciona os top 3 jogos distintos para cada faixa de gols"""
-    if not partidas_info:
-        return [], [], []
-
-    base = list(partidas_info)
-
-    def get_num(d, k):
-        v = d.get(k, 0)
-        try:
-            return float(v) if v is not None else 0.0
-        except Exception:
-            return 0.0
-
-    def sort_key(match, prob_key):
-        prob = get_num(match, prob_key)
-        conf = get_num(match, prob_key.replace("prob", "conf"))
-        est = get_num(match, "estimativa")
-        return (prob, conf, est)
-
-    selected_ids = set()
-    selected_teams = set()
-
-    def safe_team_names(m):
-        return str(m.get("home", "")).strip(), str(m.get("away", "")).strip()
-
-    def allocate(prefix, other_prefixes):
-        nonlocal base, selected_ids, selected_teams
-        prob_key = f"prob_{prefix}"
-        candidatos = [m for m in base if str(m.get("fixture_id")) not in selected_ids]
-
-        preferred = []
-        if prefer_best_fit:
-            for m in candidatos:
-                cur = get_num(m, prob_key)
-                others = [get_num(m, f"prob_{o}") for o in other_prefixes]
-                if cur >= max(others):
-                    preferred.append(m)
-
-        preferred_sorted = sorted(preferred, key=lambda x: sort_key(x, prob_key), reverse=True)
-        remaining = [m for m in candidatos if m not in preferred_sorted]
-        remaining_sorted = sorted(remaining, key=lambda x: sort_key(x, prob_key), reverse=True)
-
-        chosen = []
-
-        def try_add_list(lst, respect_teams=True):
-            nonlocal chosen, selected_ids, selected_teams
-            for m in lst:
-                if len(chosen) >= max_por_faixa:
-                    break
-                fid = str(m.get("fixture_id"))
-                if fid in selected_ids:
-                    continue
-                home, away = safe_team_names(m)
-                if respect_teams and (home in selected_teams or away in selected_teams):
-                    continue
-                chosen.append(m)
-                selected_ids.add(fid)
-                selected_teams.add(home)
-                selected_teams.add(away)
-
-        try_add_list(preferred_sorted, respect_teams=True)
-        if len(chosen) < max_por_faixa:
-            try_add_list(remaining_sorted, respect_teams=True)
-        if len(chosen) < max_por_faixa:
-            try_add_list(preferred_sorted + remaining_sorted, respect_teams=False)
-
-        return chosen
-
-    # Ordem: +2.5 primeiro
-    top_25 = allocate("2_5", other_prefixes=["1_5", "3_5"])
-    top_15 = allocate("1_5", other_prefixes=["2_5", "3_5"])
-    top_35 = allocate("3_5", other_prefixes=["2_5", "1_5"])
-
-    logger.info(f"Seleção Top3: +1.5={len(top_15)}, +2.5={len(top_25)}, +3.5={len(top_35)}")
-    return top_15, top_25, top_35
-
-# =============================
-# Coleta eventos / transformação
-# =============================
-def coletar_jogos_do_dia_por_ligas(ligas, data_obj: date, regions="eu,us,au"):
-    """Coleta jogos do dia para as ligas selecionadas"""
-    partidas = []
-    total_ligas = len(ligas)
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for idx, liga in enumerate(ligas):
-        status_text.text(f"Consultando {ALL_LIGAS.get(liga, liga)}... ({idx+1}/{total_ligas})")
-        progress_bar.progress((idx + 1) / total_ligas)
-        
-        eventos = obter_odds_para_liga(liga, regions=regions, markets="totals", odds_format="decimal")
-        if not eventos:
-            continue
-            
-        for ev in eventos:
-            commence = ev.get("commence_time") or ev.get("commence_time_zone")
-            dt = parse_iso_to_datetime_brasil(commence)  # Usar a nova função com conversão para BR
-            if not dt:
-                continue
-            if dt.date() != data_obj:
-                continue
-                
-            # extrair nomes
-            home = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
-            away = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
-            
-            # Formatar hora no fuso do Brasil
-            hora_formatada = dt.strftime("%H:%M") if dt else "??:??"
-            
-            calc = calcular_estimativas_e_probs_por_jogo_from_odds(ev)
-            partidas.append({
-                "fixture_id": ev.get("id") or ev.get("id") or f"{liga}_{home}_{away}_{commence}",
-                "home": home,
-                "away": away,
-                "hora": hora_formatada,
-                "competicao": ALL_LIGAS.get(liga, liga),
-                "estimativa": calc.get("estimativa"),
-                "prob_1_5": calc.get("prob_1_5"),
-                "prob_2_5": calc.get("prob_2_5"),
-                "prob_3_5": calc.get("prob_3_5"),
-                "conf_1_5": calc.get("conf_1_5"),
-                "conf_2_5": calc.get("conf_2_5"),
-                "conf_3_5": calc.get("conf_3_5"),
-                "odds_1_5": calc.get("odds_1_5"),
-                "odds_2_5": calc.get("odds_2_5"),
-                "odds_3_5": calc.get("odds_3_5"),
-                "liga_key": liga,
-                "raw_event": ev
-            })
-    
-    progress_bar.empty()
-    status_text.empty()
-    
-    logger.info(f"Coletados {len(partidas)} jogos para {data_obj}")
-    return partidas
-
-# =============================
-# Funções para formatação de mensagens
-# =============================
-def calcular_multipla_real(jogos, faixa):
-    """
-    Calcula a múltipla real baseada em um bookmaker comum a todos os jogos.
-    Retorna (bookmaker_nome, multipla) ou (None, None)
-    """
-    return encontrar_bookmaker_comum_e_calcular_multipla(jogos, faixa)
-
-def formatar_mensagem_top3(top_jogos, faixa, data_str):
-    """Formata mensagem do Top3 de forma organizada em tripla coluna"""
-    
-    if not top_jogos:
-        return f"🔔 *TOP 3 +{faixa} GOLS — {data_str}*\n\n*Nenhum jogo selecionado para esta faixa*"
-    
-    # Calcula a múltipla real
-    bookmaker, multipla = calcular_multipla_real(top_jogos, faixa)
-    
-    # Cabeçalho
-    mensagem = f"🎯 *TOP 3 +{faixa} GOLS* 🎯\n"
-    mensagem += f"📅 *Data:* {data_str}\n"
-    if bookmaker and multipla:
-        mensagem += f"💰 *MÚLTIPLA ({bookmaker}):* ×{multipla}\n"
-    elif multipla:
-        mensagem += f"💰 *MÚLTIPLA:* ×{multipla}\n"
-    mensagem += "\n"
-    
-    # Jogos em formato de tripla coluna
-    for idx, jogo in enumerate(top_jogos, 1):
-        # Odds específicas para a faixa
-        odds_key = f"odds_{faixa.replace('.', '_')}"
-        odds = jogo.get(odds_key)
-        
-        # Informações do jogo
-        hora = jogo['hora']
-        home = jogo['home'][:15]  # Limita tamanho do nome
-        away = jogo['away'][:15]
-        competicao = jogo['competicao']
-        prob_key = f"prob_{faixa.replace('.', '_')}"
-        probabilidade = jogo.get(prob_key, 0)
-        conf_key = f"conf_{faixa.replace('.', '_')}"
-        confianca = jogo.get(conf_key, 0)
-        
-        # Formata odds
-        odds_text = ""
-        if odds and odds.get('over'):
-            odds_text = f"🎲 *{odds['over']}*"
-        
-        mensagem += f"*{idx}️⃣ {home} x {away}*\n"
-        mensagem += f"⏰ {hora} BRT | {competicao}\n"
-        mensagem += f"📊 Prob: *{probabilidade:.1f}%* | Conf: *{confianca:.0f}%*\n"
-        if odds_text:
-            mensagem += f"{odds_text}\n"
-        mensagem += "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    # Ordem total dos jogos por horário
-    mensagem += "⏰ *ORDEM POR HORÁRIO:*\n"
-    jogos_ordenados = sorted(top_jogos, key=lambda x: x['hora'])
-    for idx, jogo in enumerate(jogos_ordenados, 1):
-        mensagem += f"{idx}️⃣ {jogo['hora']} - {jogo['home']} x {jogo['away']}\n"
-    
-    return mensagem
-
-# =============================
-# UI Streamlit
-# =============================
-st.set_page_config(
-    page_title="Oddstop - ⚽ Alertas Top3 (Odds API)", 
-    layout="wide",
-    page_icon="⚽"
-)
-
-st.title("⚽ Oddstop — Alertas Top3 por Faixa (+1.5 / +2.5 / +3.5) — Odds API")
+# Headers para simular navegador
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+    'Referer': 'https://www.espn.com.br/',
+    'Origin': 'https://www.espn.com.br'
+}
 
 # =============================
 # Inicialização do Session State
 # =============================
-if 'selected_ligas' not in st.session_state:
-    st.session_state.selected_ligas = DEFAULT_PRINCIPAIS.copy()
+def inicializar_session_state():
+    """Inicializa todas as variáveis do session state"""
+    if 'dados_carregados' not in st.session_state:
+        st.session_state.dados_carregados = False
+    if 'todas_partidas' not in st.session_state:
+        st.session_state.todas_partidas = []
+    if 'modo_exibicao' not in st.session_state:
+        st.session_state.modo_exibicao = "liga"
+    if 'ultima_busca' not in st.session_state:
+        st.session_state.ultima_busca = None
+    if 'ultimas_ligas' not in st.session_state:
+        st.session_state.ultimas_ligas = []
+    if 'busca_hoje' not in st.session_state:
+        st.session_state.busca_hoje = False
+    if 'data_ultima_busca' not in st.session_state:
+        st.session_state.data_ultima_busca = None
+    if 'filtros_liga' not in st.session_state:
+        st.session_state.filtros_liga = {}
+    if 'top_n' not in st.session_state:
+        st.session_state.top_n = 5
 
-# Aba 1
-if 'aba1_partidas' not in st.session_state:
-    st.session_state.aba1_partidas = None
-if 'aba1_top15' not in st.session_state:
-    st.session_state.aba1_top15 = None
-if 'aba1_top25' not in st.session_state:
-    st.session_state.aba1_top25 = None
-if 'aba1_top35' not in st.session_state:
-    st.session_state.aba1_top35 = None
-if 'aba1_data' not in st.session_state:
-    st.session_state.aba1_data = datetime.today().date()
+# =============================
+# Funções utilitárias
+# =============================
+def carregar_json(caminho: str) -> dict:
+    """Carrega dados de arquivo JSON com tratamento de erros robusto"""
+    try:
+        if os.path.exists(caminho):
+            with open(caminho, "r", encoding='utf-8') as f:
+                dados = json.load(f)
+            return dados
+    except json.JSONDecodeError as e:
+        st.warning(f"⚠️ Arquivo {caminho} corrompido. Criando novo.")
+        try:
+            if os.path.exists(caminho):
+                backup_name = f"{caminho}.backup_{int(time.time())}"
+                os.rename(caminho, backup_name)
+        except:
+            pass
+        return {}
+    except Exception as e:
+        st.error(f"Erro ao carregar {caminho}: {str(e)}")
+    return {}
 
-# Aba 2
-if 'aba2_partidas' not in st.session_state:
-    st.session_state.aba2_partidas = None
-if 'aba2_data' not in st.session_state:
-    st.session_state.aba2_data = datetime.today().date()
-if 'aba2_filtro_min15' not in st.session_state:
-    st.session_state.aba2_filtro_min15 = 50
-if 'aba2_filtro_min25' not in st.session_state:
-    st.session_state.aba2_filtro_min25 = 50
-if 'aba2_filtro_min35' not in st.session_state:
-    st.session_state.aba2_filtro_min35 = 50
+def salvar_json(caminho: str, dados: dict):
+    """Salva dados em arquivo JSON com tratamento de erros"""
+    try:
+        with open(caminho, "w", encoding='utf-8') as f:
+            json.dump(dados, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar {caminho}: {str(e)}")
+        return False
 
-# Aba 3
-if 'aba3_lote_selecionado' not in st.session_state:
-    st.session_state.aba3_lote_selecionado = None
+def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID):
+    """Envia mensagem para o Telegram com tratamento de erros"""
+    try:
+        response = requests.post(
+            BASE_URL_TG,
+            json={
+                "chat_id": chat_id,
+                "text": msg,
+                "parse_mode": "HTML"
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao enviar para Telegram: {str(e)}")
+        return False
 
-# Sidebar: seleção de ligas e configurações
-with st.sidebar:
-    st.header("⚙️ Configurações")
-    
-    # Configurações de API
-    st.subheader("Configurações de API")
-    regions_config = st.multiselect(
-        "Regiões para odds",
-        ["eu", "us", "au", "uk"],
-        default=["eu", "us", "au"]
-    )
-    
-    # Limite de requisições
-    max_requests = st.slider("Máx. requisições/minuto", 10, 100, 30)
-    rate_limiter.calls_per_minute = max_requests
-    
-    # Modo debug
-    debug_mode = st.checkbox("Modo Debug", value=False)
-    
-    st.markdown("---")
-    st.markdown("**Selecione as ligas**")
-    liga_options = list(ALL_LIGAS.keys())
-    
-    selected = st.multiselect(
-        "Ligas", 
-        options=liga_options, 
-        format_func=lambda k: ALL_LIGAS[k], 
-        default=st.session_state.selected_ligas
-    )
-    
-    # botão para salvar seleção atual na session_state
-    if st.button("💾 Salvar seleção de ligas"):
-        st.session_state.selected_ligas = selected.copy()
-        st.success("Seleção salva para esta sessão.")
-    
-    st.markdown("---")
-    
-    # Estatísticas
-    st.subheader("📊 Estatísticas")
-    top3_salvos = carregar_top3()
-    st.write(f"Envios registrados: **{len(top3_salvos)}**")
-    
-    if debug_mode:
-        st.write("🔍 Modo Debug Ativo")
-        st.write(f"Ligas selecionadas: {len(selected)}")
-        st.write(f"Rate Limit: {max_requests}/min")
+def formatar_hora_brasilia(hora_utc: str) -> Optional[datetime]:
+    """Converte hora UTC para horário de Brasília"""
+    try:
+        if not hora_utc:
+            return None
+        
+        if hora_utc.endswith('Z'):
+            hora_utc = hora_utc[:-1] + '+00:00'
+        
+        hora_dt = datetime.fromisoformat(hora_utc)
+        hora_brasilia = hora_dt - timedelta(hours=3)
+        return hora_brasilia
+    except Exception:
+        return None
 
-# Seleção final usada pelo app
-selected_ligas = selected if selected else (st.session_state.get("selected_ligas") or DEFAULT_PRINCIPAIS)
+def get_status_config(status: str) -> Dict:
+    """Retorna configuração de cor e emoji para o status"""
+    status_lower = status.lower()
+    for key, config in STATUS_CONFIG.items():
+        if key.lower() in status_lower:
+            return config
+    return {"emoji": "⚫", "color": "#95A5A6"}
 
-# Abas principais
-aba1, aba2, aba3, aba4 = st.tabs(["⚡ Gerar & Enviar Top3", "📊 Jogos (Odds)", "🎯 Conferência Top3", "🔧 Configurações"])
+def is_datetime_valid(dt: Optional[datetime]) -> bool:
+    """Verifica se um datetime é válido e não é muito antigo/futuro"""
+    if not dt:
+        return False
+    try:
+        # Verifica se está em um range razoável (1900-2100)
+        return 1900 <= dt.year <= 2100
+    except:
+        return False
 
-# ---------- ABA 1: Gerar & Enviar Top3 ----------
-with aba1:
-    st.subheader("🔎 Buscar jogos do dia e enviar Top3 por faixa")
+def safe_datetime_compare(dt1: Optional[datetime], dt2: Optional[datetime]) -> bool:
+    """Comparação segura entre datetimes"""
+    if not is_datetime_valid(dt1) or not is_datetime_valid(dt2):
+        return False
+    try:
+        # Remove timezone info para comparação segura
+        dt1_naive = dt1.replace(tzinfo=None) if dt1.tzinfo else dt1
+        dt2_naive = dt2.replace(tzinfo=None) if dt2.tzinfo else dt2
+        return dt1_naive > dt2_naive
+    except:
+        return False
+
+def safe_datetime_range(dt: Optional[datetime], start: datetime, end: datetime) -> bool:
+    """Verifica se um datetime está dentro de um range de forma segura"""
+    if not is_datetime_valid(dt):
+        return False
+    try:
+        # Remove timezone info para comparação segura
+        dt_naive = dt.replace(tzinfo=None) if dt.tzinfo else dt
+        start_naive = start.replace(tzinfo=None) if start.tzinfo else start
+        end_naive = end.replace(tzinfo=None) if end.tzinfo else end
+        return start_naive <= dt_naive <= end_naive
+    except:
+        return False
+
+# =============================
+# Componentes de UI Melhorados
+# =============================
+def criar_card_partida(partida: Dict):
+    """Cria um card visual para cada partida"""
+    status_config = get_status_config(partida['status'])
     
-    # Data com persistência simples
-    data_aba1 = st.date_input(
-        "📅 Data dos jogos:", 
-        value=st.session_state.aba1_data,
-        key="aba1_data_input"
-    )
+    # Determina se o placar deve ser destacado
+    placar = partida['placar']
+    if placar != "0 - 0" and partida['status'] != 'Agendado':
+        placar_style = "font-size: 24px; font-weight: bold; color: #E74C3C;"
+    else:
+        placar_style = "font-size: 20px; font-weight: normal; color: #7F8C8D;"
     
-    # Atualizar session_state apenas quando o botão for pressionado
-    if st.button("💾 Atualizar data", key="aba1_atualizar_data"):
-        st.session_state.aba1_data = data_aba1
-        st.success("Data atualizada!")
+    with st.container():
+        col1, col2, col3, col4 = st.columns([3, 2, 3, 2])
+        
+        with col1:
+            st.markdown(f"**{partida['home']}**")
+        
+        with col2:
+            st.markdown(f"<div style='text-align: center; {placar_style}'>{placar}</div>", 
+                       unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f"**{partida['away']}**")
+        
+        with col4:
+            status_color = status_config['color']
+            st.markdown(
+                f"<div style='background-color: {status_color}; color: white; padding: 4px 8px; "
+                f"border-radius: 12px; text-align: center; font-size: 12px;'>"
+                f"{status_config['emoji']} {partida['status']}</div>", 
+                unsafe_allow_html=True
+            )
+        
+        # Linha inferior com informações adicionais
+        col_info1, col_info2, col_info3 = st.columns([1, 1, 1])
+        with col_info1:
+            st.caption(f"🕒 {partida['hora_formatada']}")
+        with col_info2:
+            st.caption(f"🏆 {partida['liga']}")
+        with col_info3:
+            hora_partida = partida['hora']
+            agora = datetime.now()
+            if is_datetime_valid(hora_partida) and safe_datetime_compare(hora_partida, agora):
+                try:
+                    # Remove timezone info para cálculo seguro
+                    hora_partida_naive = hora_partida.replace(tzinfo=None) if hora_partida.tzinfo else hora_partida
+                    agora_naive = agora.replace(tzinfo=None) if agora.tzinfo else agora
+                    tempo_restante = hora_partida_naive - agora_naive
+                    
+                    horas = int(tempo_restante.total_seconds() // 3600)
+                    minutos = int((tempo_restante.total_seconds() % 3600) // 60)
+                    if horas > 0:
+                        st.caption(f"⏳ {horas}h {minutos}min")
+                    elif minutos > 0:
+                        st.caption(f"⏳ {minutos}min")
+                    else:
+                        st.caption("⏳ Agora!")
+                except:
+                    st.caption("⏳ --")
+        
+        st.markdown("---")
+
+def exibir_partidas_por_liga(partidas: List[Dict]):
+    """Exibe partidas agrupadas por liga com visual melhorado"""
+    # Agrupa partidas por liga
+    partidas_por_liga = {}
+    for partida in partidas:
+        liga = partida['liga']
+        if liga not in partidas_por_liga:
+            partidas_por_liga[liga] = []
+        partidas_por_liga[liga].append(partida)
     
-    hoje_str = st.session_state.aba1_data.strftime("%Y-%m-%d")
+    # Ordena ligas por número de partidas (mais partidas primeiro)
+    ligas_ordenadas = sorted(partidas_por_liga.keys(), 
+                           key=lambda x: len(partidas_por_liga[x]), reverse=True)
+    
+    for liga_index, liga in enumerate(ligas_ordenadas):
+        partidas_liga = partidas_por_liga[liga]
+        
+        # Container da liga
+        with st.container():
+            st.markdown(f"### 🏆 {liga}")
+            st.markdown(f"**{len(partidas_liga)} partida(s) encontrada(s)**")
+            
+            # Inicializar filtros para esta liga se não existirem
+            liga_key = f"filtro_{liga}"
+            if liga_key not in st.session_state.filtros_liga:
+                st.session_state.filtros_liga[liga_key] = {
+                    'status': "Todos",
+                    'time': ""
+                }
+            
+            # Filtros para a liga
+            col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+            with col_filtro1:
+                novo_status = st.selectbox(
+                    f"Status - {liga}",
+                    ["Todos", "Agendado", "Ao Vivo", "Finalizado"],
+                    index=["Todos", "Agendado", "Ao Vivo", "Finalizado"].index(
+                        st.session_state.filtros_liga[liga_key]['status']
+                    )
+                )
+                st.session_state.filtros_liga[liga_key]['status'] = novo_status
+            
+            with col_filtro2:
+                novo_time = st.text_input(
+                    f"Buscar time - {liga}", 
+                    value=st.session_state.filtros_liga[liga_key]['time']
+                )
+                st.session_state.filtros_liga[liga_key]['time'] = novo_time
+            
+            with col_filtro3:
+                if st.button(f"🎯 Top 3 - {liga}"):
+                    partidas_liga = partidas_liga[:3]
+            
+            # Aplica filtros
+            partidas_filtradas = partidas_liga.copy()
+            filtro_atual = st.session_state.filtros_liga[liga_key]
+            
+            if filtro_atual['status'] != "Todos":
+                partidas_filtradas = [p for p in partidas_filtradas if filtro_atual['status'].lower() in p['status'].lower()]
+            
+            if filtro_atual['time']:
+                partidas_filtradas = [p for p in partidas_filtradas 
+                               if filtro_atual['time'].lower() in p['home'].lower() 
+                               or filtro_atual['time'].lower() in p['away'].lower()]
+            
+            # Exibe partidas
+            if partidas_filtradas:
+                for partida in partidas_filtradas:
+                    criar_card_partida(partida)
+            else:
+                st.info(f"ℹ️ Nenhuma partida encontrada para os filtros em {liga}")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
 
-    st.markdown("**Obs:** uso das odds para estimar P(+1.5/+2.5/+3.5). Ajuste as ligas no *sidebar*.")
-
-    col1, col2 = st.columns(2)
+def exibir_estatisticas(partidas: List[Dict]):
+    """Exibe estatísticas visuais das partidas com tratamento seguro de datas"""
+    total_partidas = len(partidas)
+    ligas_unicas = len(set(p['liga'] for p in partidas))
+    
+    # Contagem por status
+    status_count = {}
+    for partida in partidas:
+        status = partida['status']
+        status_count[status] = status_count.get(status, 0) + 1
+    
+    # Partidas ao vivo
+    partidas_ao_vivo = len([p for p in partidas if any(x in p['status'].lower() for x in ['vivo', 'live', 'andamento', 'halftime'])])
+    
+    # Próximas partidas (nas próximas 3 horas) - COM TRATAMENTO SEGURO
+    agora = datetime.now()
+    limite_3h = agora + timedelta(hours=3)
+    proximas_3h = []
+    
+    for partida in partidas:
+        hora_partida = partida['hora']
+        if safe_datetime_range(hora_partida, agora, limite_3h):
+            proximas_3h.append(partida)
+    
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("🔍 Buscar jogos e calcular Top3", type="primary", use_container_width=True, key="aba1_buscar"):
-            with st.spinner("Buscando jogos e calculando probabilidades via Odds API..."):
-                partidas_info = coletar_jogos_do_dia_por_ligas(selected_ligas, st.session_state.aba1_data, regions=",".join(regions_config))
-
-                if not partidas_info:
-                    st.info("❌ Nenhum jogo encontrado para essa data nas ligas selecionadas (Odds API).")
-                    st.session_state.aba1_partidas = None
-                    st.session_state.aba1_top15 = None
-                    st.session_state.aba1_top25 = None
-                    st.session_state.aba1_top35 = None
-                else:
-                    top_15, top_25, top_35 = selecionar_top3_distintos(partidas_info, max_por_faixa=3)
-
-                    # Salvar no session_state
-                    st.session_state.aba1_partidas = partidas_info
-                    st.session_state.aba1_top15 = top_15
-                    st.session_state.aba1_top25 = top_25
-                    st.session_state.aba1_top35 = top_35
-
-                    st.success(f"✅ {len(partidas_info)} jogos processados. Top3 calculados!")
-
-    # Exibir resultados se existirem no session_state
-    if (st.session_state.aba1_partidas is not None and 
-        st.session_state.aba1_top15 is not None and
-        st.session_state.aba1_top25 is not None and
-        st.session_state.aba1_top35 is not None):
-        
-        partidas_info = st.session_state.aba1_partidas
-        top_15 = st.session_state.aba1_top15
-        top_25 = st.session_state.aba1_top25
-        top_35 = st.session_state.aba1_top35
-        
-        col1a, col2a, col3a = st.columns(3)
-        
-        with col1a:
-            st.write("### 🥇 Top 3 +1.5")
-            if top_15:
-                bookmaker_15, multipla_15 = calcular_multipla_real(top_15, "1.5")
-                if multipla_15:
-                    bookmaker_text = f" ({bookmaker_15})" if bookmaker_15 else ""
-                    st.write(f"**💰 Múltipla{bookmaker_text}: ×{multipla_15}**")
-                for t in top_15:
-                    odds_info = ""
-                    if t.get('odds_1_5') and t['odds_1_5'].get('over'):
-                        odds_info = f" | 🎲 {t['odds_1_5']['over']}"
-                    st.write(f"**{t['home']} x {t['away']}**")
-                    st.write(f"⏰ {t['hora']} BRT | P(+1.5): {t['prob_1_5']}%{odds_info}")
-                    st.write("---")
-            else:
-                st.info("Nenhum jogo selecionado")
-        
-        with col2a:
-            st.write("### 🥈 Top 3 +2.5")
-            if top_25:
-                bookmaker_25, multipla_25 = calcular_multipla_real(top_25, "2.5")
-                if multipla_25:
-                    bookmaker_text = f" ({bookmaker_25})" if bookmaker_25 else ""
-                    st.write(f"**💰 Múltipla{bookmaker_text}: ×{multipla_25}**")
-                for t in top_25:
-                    odds_info = ""
-                    if t.get('odds_2_5') and t['odds_2_5'].get('over'):
-                        odds_info = f" | 🎲 {t['odds_2_5']['over']}"
-                    st.write(f"**{t['home']} x {t['away']}**")
-                    st.write(f"⏰ {t['hora']} BRT | P(+2.5): {t['prob_2_5']}%{odds_info}")
-                    st.write("---")
-            else:
-                st.info("Nenhum jogo selecionado")
-        
-        with col3a:
-            st.write("### 🥉 Top 3 +3.5")
-            if top_35:
-                bookmaker_35, multipla_35 = calcular_multipla_real(top_35, "3.5")
-                if multipla_35:
-                    bookmaker_text = f" ({bookmaker_35})" if bookmaker_35 else ""
-                    st.write(f"**💰 Múltipla{bookmaker_text}: ×{multipla_35}**")
-                for t in top_35:
-                    odds_info = ""
-                    if t.get('odds_3_5') and t['odds_3_5'].get('over'):
-                        odds_info = f" | 🎲 {t['odds_3_5']['over']}"
-                    st.write(f"**{t['home']} x {t['away']}**")
-                    st.write(f"⏰ {t['hora']} BRT | P(+3.5): {t['prob_3_5']}%{odds_info}")
-                    st.write("---")
-            else:
-                st.info("Nenhum jogo selecionado")
-
+        st.metric("📊 Total de Partidas", total_partidas)
+    
     with col2:
-        if st.button("📤 Enviar Top3 para Telegram", type="secondary", use_container_width=True, key="aba1_enviar"):
-            if (st.session_state.aba1_top15 is None and 
-                st.session_state.aba1_top25 is None and 
-                st.session_state.aba1_top35 is None):
-                st.warning("⚠️ Primeiro busque os jogos para gerar o Top3")
-            else:
-                top_15 = st.session_state.aba1_top15 or []
-                top_25 = st.session_state.aba1_top25 or []
-                top_35 = st.session_state.aba1_top35 or []
-
-                with st.spinner("Enviando mensagens para Telegram..."):
-                    success_count = 0
-
-                    # Mensagem +1.5
-                    if top_15:
-                        msg = formatar_mensagem_top3(top_15, "1.5", hoje_str)
-                        if enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2):
-                            success_count += 1
-                            st.success("✅ +1.5 enviado")
-
-                    # Mensagem +2.5
-                    if top_25:
-                        msg = formatar_mensagem_top3(top_25, "2.5", hoje_str)
-                        if enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2):
-                            success_count += 1
-                            st.success("✅ +2.5 enviado")
-
-                    # Mensagem +3.5
-                    if top_35:
-                        msg = formatar_mensagem_top3(top_35, "3.5", hoje_str)
-                        if enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2):
-                            success_count += 1
-                            st.success("✅ +3.5 enviado")
-
-                    # salva o lote Top3 (persistente)
-                    if success_count > 0:
-                        top3_list = carregar_top3()
-                        novo_top = {
-                            "data_envio": hoje_str,
-                            "hora_envio": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "selected_ligas": selected_ligas,
-                            "top_1_5": top_15,
-                            "top_2_5": top_25,
-                            "top_3_5": top_35
-                        }
-                        top3_list.append(novo_top)
-                        salvar_top3(top3_list)
-                        st.success(f"✅ {success_count} mensagens enviadas com sucesso!")
-                    else:
-                        st.error("❌ Falha ao enviar mensagens para Telegram")
-
-# ---------- ABA 2: Jogos (Odds) ----------
-with aba2:
-    st.subheader("📊 Jogos do dia com Odds (Odds API)")
+        st.metric("🏆 Ligas", ligas_unicas)
     
-    # Data com persistência simples
-    data_aba2 = st.date_input(
-        "📅 Data dos jogos para listar:", 
-        value=st.session_state.aba2_data,
-        key="aba2_data_input"
-    )
+    with col3:
+        st.metric("🔴 Ao Vivo", partidas_ao_vivo, 
+                 delta=partidas_ao_vivo if partidas_ao_vivo > 0 else None)
     
-    # Atualizar session_state apenas quando o botão for pressionado
-    if st.button("💾 Atualizar data", key="aba2_atualizar_data"):
-        st.session_state.aba2_data = data_aba2
-        st.success("Data atualizada!")
+    with col4:
+        st.metric("⏰ Próximas 3h", len(proximas_3h),
+                 delta=len(proximas_3h) if len(proximas_3h) > 0 else None)
     
-    if st.button("🔍 Listar jogos e odds do dia", key="aba2_listar"):
-        with st.spinner("Consultando Odds API para listar jogos..."):
-            partidas = coletar_jogos_do_dia_por_ligas(selected_ligas, st.session_state.aba2_data, regions=",".join(regions_config))
-            st.session_state.aba2_partidas = partidas
-            
-            if not partidas:
-                st.info("ℹ️ Nenhum jogo/odds encontrado para essa data nas ligas selecionadas.")
-            else:
-                st.success(f"✅ {len(partidas)} jogos encontrados")
+    # Gráfico de status simples
+    if status_count:
+        st.markdown("### 📈 Distribuição por Status")
+        status_df = pd.DataFrame(list(status_count.items()), columns=['Status', 'Quantidade'])
+        st.bar_chart(status_df.set_index('Status'))
 
-    # Exibir resultados se existirem no session_state
-    if st.session_state.aba2_partidas is not None:
-        partidas = st.session_state.aba2_partidas
-        
-        if partidas:
-            st.success(f"✅ {len(partidas)} jogos encontrados")
-            
-            # Filtros com persistência simples
-            col_f1, col_f2, col_f3 = st.columns(3)
-            with col_f1:
-                min_prob_15 = st.slider("Mín. P(+1.5)%", 0, 100, 
-                                       st.session_state.aba2_filtro_min15,
-                                       key="aba2_filtro_min15")
-            with col_f2:
-                min_prob_25 = st.slider("Mín. P(+2.5)%", 0, 100, 
-                                       st.session_state.aba2_filtro_min25,
-                                       key="aba2_filtro_min25")
-            with col_f3:
-                min_prob_35 = st.slider("Mín. P(+3.5)%", 0, 100, 
-                                       st.session_state.aba2_filtro_min35,
-                                       key="aba2_filtro_min35")
-            
-            # Atualizar filtros apenas quando o botão for pressionado
-            if st.button("💾 Aplicar Filtros", key="aba2_aplicar_filtros"):
-                st.session_state.aba2_filtro_min15 = min_prob_15
-                st.session_state.aba2_filtro_min25 = min_prob_25
-                st.session_state.aba2_filtro_min35 = min_prob_35
-                st.success("Filtros aplicados!")
-            
-            partidas_filtradas = [
-                p for p in partidas 
-                if p['prob_1_5'] >= st.session_state.aba2_filtro_min15 
-                and p['prob_2_5'] >= st.session_state.aba2_filtro_min25 
-                and p['prob_3_5'] >= st.session_state.aba2_filtro_min35
-            ]
-            
-            st.write(f"**Jogos filtrados:** {len(partidas_filtradas)}")
-            
-            for p in partidas_filtradas:
-                with st.expander(f"🏟️ {p['home']} x {p['away']} — {p['competicao']} — {p['hora']} BRT"):
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        odds_info = f"🎲 {p['odds_1_5']['over']}" if p.get('odds_1_5') and p['odds_1_5'].get('over') else "🎲 N/A"
-                        st.metric("P(+1.5)", f"{p['prob_1_5']}%", f"Conf: {p['conf_1_5']}% | {odds_info}")
-                    with col2:
-                        odds_info = f"🎲 {p['odds_2_5']['over']}" if p.get('odds_2_5') and p['odds_2_5'].get('over') else "🎲 N/A"
-                        st.metric("P(+2.5)", f"{p['prob_2_5']}%", f"Conf: {p['conf_2_5']}% | {odds_info}")
-                    with col3:
-                        odds_info = f"🎲 {p['odds_3_5']['over']}" if p.get('odds_3_5') and p['odds_3_5'].get('over') else "🎲 N/A"
-                        st.metric("P(+3.5)", f"{p['prob_3_5']}%", f"Conf: {p['conf_3_5']}% | {odds_info}")
-                    st.write(f"**Estimativa:** {p['estimativa']} gols")
-
-# ---------- ABA 3: Conferência Top 3 ----------
-with aba3:
-    st.subheader("🎯 Conferência dos Top 3 enviados")
-    top3_salvos = carregar_top3()
-
-    if not top3_salvos:
-        st.info("ℹ️ Nenhum Top 3 registrado ainda. Gere e envie um Top 3 na aba 'Gerar & Enviar Top3'.")
-    else:
-        st.write(f"✅ Total de envios registrados: {len(top3_salvos)}")
-        options = [f"{idx+1} - {t['data_envio']} ({t['hora_envio']})" for idx, t in enumerate(top3_salvos)]
-        
-        # Selectbox com persistência
-        seletor_index = 0
-        if st.session_state.aba3_lote_selecionado is not None:
-            try:
-                seletor_index = options.index(st.session_state.aba3_lote_selecionado)
-            except ValueError:
-                seletor_index = len(options) - 1
-        
-        seletor = st.selectbox("Selecione o lote Top3 para conferir:", 
-                              options, 
-                              index=seletor_index,
-                              key="aba3_seletor")
-        
-        # Atualizar apenas quando o botão for pressionado
-        if st.button("💾 Selecionar Lote", key="aba3_selecionar"):
-            st.session_state.aba3_lote_selecionado = seletor
-            st.success("Lote selecionado!")
-        
-        if st.session_state.aba3_lote_selecionado:
-            idx_selecionado = options.index(st.session_state.aba3_lote_selecionado)
-            lote = top3_salvos[idx_selecionado]
-            
-            st.markdown(f"### Lote selecionado — Envio: **{lote['data_envio']}** às **{lote['hora_envio']}**")
-            
-            col1, col2, col3 = st.columns(3)
+def exibir_partidas_lista_compacta(partidas: List[Dict]):
+    """Exibe partidas em formato de lista compacta"""
+    for i, partida in enumerate(partidas):
+        status_config = get_status_config(partida['status'])
+        with st.expander(f"{status_config['emoji']} {partida['home']} vs {partida['away']} - {partida['placar']}"):
+            col1, col2 = st.columns(2)
             with col1:
-                st.metric("+1.5 Gols", len(lote.get('top_1_5', [])))
+                st.write(f"**Casa:** {partida['home']}")
+                st.write(f"**Visitante:** {partida['away']}")
             with col2:
-                st.metric("+2.5 Gols", len(lote.get('top_2_5', [])))
+                st.write(f"**Status:** {partida['status']}")
+                st.write(f"**Horário:** {partida['hora_formatada']}")
+                st.write(f"**Liga:** {partida['liga']}")
+
+def exibir_partidas_top(partidas: List[Dict], top_n: int):
+    """Exibe apenas as top partidas"""
+    partidas_top = partidas[:top_n]
+    st.markdown(f"### 🎯 Top {top_n} Partidas do Dia")
+    
+    for i, partida in enumerate(partidas_top, 1):
+        # Card especial para top partidas
+        status_config = get_status_config(partida['status'])
+        
+        with st.container():
+            # Header com ranking
+            emoji_ranking = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            st.markdown(f"#### {emoji_ranking} **Partida em Destaque**")
+            
+            col1, col2, col3 = st.columns([3, 2, 3])
+            
+            with col1:
+                st.markdown(f"### {partida['home']}")
+                
+            with col2:
+                placar_style = "font-size: 28px; font-weight: bold; color: #E74C3C; text-align: center;"
+                st.markdown(f"<div style='{placar_style}'>{partida['placar']}</div>", 
+                           unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align: center; color: {status_config['color']};'>"
+                           f"{status_config['emoji']} {partida['status']}</div>", 
+                           unsafe_allow_html=True)
+                
             with col3:
-                st.metric("+3.5 Gols", len(lote.get('top_3_5', [])))
+                st.markdown(f"### {partida['away']}")
+            
+            # Informações adicionais
+            col_info1, col_info2, col_info3 = st.columns(3)
+            with col_info1:
+                st.write(f"**Horário:** {partida['hora_formatada']}")
+            with col_info2:
+                st.write(f"**Liga:** {partida['liga']}")
+            with col_info3:
+                hora_partida = partida['hora']
+                agora = datetime.now()
+                if is_datetime_valid(hora_partida) and safe_datetime_compare(hora_partida, agora):
+                    try:
+                        # Remove timezone info para cálculo seguro
+                        hora_partida_naive = hora_partida.replace(tzinfo=None) if hora_partida.tzinfo else hora_partida
+                        agora_naive = agora.replace(tzinfo=None) if agora.tzinfo else agora
+                        tempo_restante = hora_partida_naive - agora_naive
+                        
+                        horas = int(tempo_restante.total_seconds() // 3600)
+                        minutos = int((tempo_restante.total_seconds() % 3600) // 60)
+                        if horas > 0:
+                            st.write(f"**Inicia em:** {horas}h {minutos}min")
+                        elif minutos > 0:
+                            st.write(f"**Inicia em:** {minutos}min")
+                        else:
+                            st.write("**Inicia em:** Agora!")
+                    except:
+                        st.write("**Inicia em:** --")
+                else:
+                    st.write("**Status:** Em andamento")
             
             st.markdown("---")
 
-            # Botões de ação para a Aba 3
-            if st.button("🔄 Rechecar resultados e enviar conferência", key="aba3_conferir"):
-                with st.spinner("Conferindo resultados via Odds API..."):
-                    def processar_lista_e_mandar(lista_top, threshold_label):
-                        detalhes_local = []
-                        lines_for_msg = []
-                        for j in lista_top:
-                            liga = j.get("liga_key") or j.get("liga_id")
-                            eventos = obter_odds_para_liga(liga, regions=",".join(regions_config), markets="totals")
-                            found = None
-                            for ev in eventos:
-                                ht = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
-                                at = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
-                                if ht == j.get("home") and at == j.get("away"):
-                                    found = ev
-                                    break
-                            if not found:
-                                lines_for_msg.append(f"🏟️ {j.get('home')} x {j.get('away')} — _sem resultado disponível_")
-                                detalhes_local.append({"home": j.get("home"), "away": j.get("away"), "aposta": f"+{threshold_label}", "status": "Não encontrado / sem resultado"})
-                                continue
-                            lines_for_msg.append(f"🏟️ {found.get('home_team')} x {found.get('away_team')} — _Odds confirmadas — sem placar via Odds API_")
-                            detalhes_local.append({"home": found.get("home_team"), "away": found.get("away_team"), "aposta": f"+{threshold_label}", "status": "Odds encontradas — sem placar"})
-                        
-                        header = f"✅ RESULTADOS - CONFERÊNCIA +{threshold_label}\n(Lote: {lote['data_envio']})\n\n"
-                        body = "\n".join(lines_for_msg) if lines_for_msg else "_Nenhum jogo para conferir nesta faixa no lote selecionado._"
-                        msg = header + body
-                        
-                        success = enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID) and enviar_telegram_seguro(msg, TELEGRAM_CHAT_ID_ALT2)
-                        return detalhes_local, success
-
-                    resultados = []
-                    for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
-                        detalhes, success = processar_lista_e_mandar(lista, label)
-                        resultados.append((label, detalhes, success))
-
-                    st.success("✅ Mensagens de conferência processadas!")
-                    for label, detalhes, success in resultados:
-                        st.write(f"**+{label} Gols:** {'✅ Enviado' if success else '❌ Falha'} ({len(detalhes)} jogos)")
-
-            if st.button("🔎 Rechecar odds aqui (sem enviar Telegram)", key="aba3_rechecar"):
-                with st.spinner("Conferindo odds localmente..."):
-                    for label, lista in [("1.5", lote.get("top_1_5", [])), ("2.5", lote.get("top_2_5", [])), ("3.5", lote.get("top_3_5", []))]:
-                        st.write(f"### Conferência +{label}")
-                        if not lista:
-                            st.info("Nenhum jogo nesta faixa")
-                            continue
-                        
-                        for j in lista:
-                            liga = j.get("liga_key") or j.get("liga_id")
-                            eventos = obter_odds_para_liga(liga, regions=",".join(regions_config), markets="totals")
-                            found = None
-                            for ev in eventos:
-                                ht = ev.get("home_team") or (ev.get("teams") and ev.get("teams")[0])
-                                at = ev.get("away_team") or (ev.get("teams") and ev.get("teams")[1])
-                                if ht == j.get("home") and at == j.get("away"):
-                                    found = ev
-                                    break
-                            if not found:
-                                st.warning(f"❌ {j.get('home')} x {j.get('away')} — Odds/Evento não encontrado")
-                                continue
-                            
-                            calc = calcular_estimativas_e_probs_por_jogo_from_odds(found)
-                            st.success(f"✅ {found.get('home_team')} x {found.get('away_team')}")
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                odds_info = f"🎲 {calc.get('odds_1_5', {}).get('over', 'N/A')}" if calc.get('odds_1_5') else "🎲 N/A"
-                                st.write(f"P(+1.5): {calc.get('prob_1_5')}% | {odds_info}")
-                            with col2:
-                                odds_info = f"🎲 {calc.get('odds_2_5', {}).get('over', 'N/A')}" if calc.get('odds_2_5') else "🎲 N/A"
-                                st.write(f"P(+2.5): {calc.get('prob_2_5')}% | {odds_info}")
-                            with col3:
-                                odds_info = f"🎲 {calc.get('odds_3_5', {}).get('over', 'N/A')}" if calc.get('odds_3_5') else "🎲 N/A"
-                                st.write(f"P(+3.5): {calc.get('prob_3_5')}% | {odds_info}")
-
-            if st.button("📥 Exportar lote selecionado (.json)", key="aba3_exportar"):
-                nome_arquivo = f"relatorio_top3_{lote['data_envio']}_{lote['hora_envio'].replace(':','-').replace(' ','_')}.json"
-                try:
-                    with open(nome_arquivo, "w", encoding="utf-8") as f:
-                        json.dump(lote, f, ensure_ascii=False, indent=2)
-                    st.success(f"✅ Lote exportado: {nome_arquivo}")
-                except Exception as e:
-                    st.error(f"❌ Erro ao exportar: {e}")
-
-# ---------- ABA 4: Configurações ----------
-with aba4:
-    st.subheader("🔧 Configurações Avançadas")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Configurações de API**")
-        st.info(f"Odds API Key: {'✅ Configurada' if ODDS_API_KEY else '❌ Não configurada'}")
-        st.info(f"Telegram Token: {'✅ Configurado' if TELEGRAM_TOKEN else '❌ Não configurado'}")
+# =============================
+# Função para buscar jogos ESPN
+# =============================
+def buscar_jogos_espn(liga_slug: str, data: str) -> List[Dict]:
+    """Busca jogos da API da ESPN com tratamento robusto de erros"""
+    try:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_slug}/scoreboard"
         
-        if st.button("🔄 Testar Conexão Odds API", key="aba4_testar"):
-            with st.spinner("Testando conexão..."):
-                test_events = obter_odds_para_liga("soccer_epl", regions="eu", markets="totals")
-                if test_events:
-                    st.success("✅ Conexão com Odds API funcionando!")
-                    st.write(f"Eventos de teste: {len(test_events)}")
-                else:
-                    st.error("❌ Falha na conexão com Odds API")
-    
-    with col2:
-        st.write("**Gerenciamento de Dados**")
+        response = requests.get(url, headers=HEADERS, timeout=15)
         
-        if st.button("🗑️ Limpar Cache de Dados", key="aba4_limpar"):
+        if response.status_code == 400:
+            return []
+        elif response.status_code == 404:
+            return []
+            
+        response.raise_for_status()
+        dados = response.json()
+        
+        if not dados.get('events'):
+            return []
+            
+        partidas = []
+        data_alvo = datetime.strptime(data, "%Y-%m-%d").date()
+
+        for evento in dados.get("events", []):
             try:
-                if os.path.exists(TOP3_PATH):
-                    os.remove(TOP3_PATH)
+                hora = evento.get("date", "")
+                hora_dt = formatar_hora_brasilia(hora)
+                
+                if hora_dt and data != "all":
+                    if hora_dt.date() != data_alvo:
+                        continue
+                
+                hora_format = hora_dt.strftime("%d/%m %H:%M") if hora_dt else "A definir"
+                
+                competicoes = evento.get("competitions", [{}])
+                competicao = competicoes[0] if competicoes else {}
+                times = competicao.get("competitors", [])
+                
+                if len(times) >= 2:
+                    home_team = times[0].get("team", {})
+                    away_team = times[1].get("team", {})
+                    
+                    home = home_team.get("displayName", "Time Casa")
+                    away = away_team.get("displayName", "Time Visitante")
+                    placar_home = times[0].get("score", "0")
+                    placar_away = times[1].get("score", "0")
+                else:
+                    home = "Time Casa"
+                    away = "Time Visitante" 
+                    placar_home = placar_away = "0"
+
+                status_info = evento.get("status", {})
+                status_type = status_info.get("type", {})
+                status_desc = status_type.get("description", "Agendado")
+                
+                liga_nome = competicao.get("league", {}).get("name", liga_slug)
+
+                partidas.append({
+                    "home": home,
+                    "away": away,
+                    "placar": f"{placar_home} - {placar_away}",
+                    "status": status_desc,
+                    "hora": hora_dt,
+                    "hora_formatada": hora_format,
+                    "liga": liga_nome,
+                    "liga_slug": liga_slug
+                })
+                
+            except Exception as e:
+                continue
+                
+        return partidas
+        
+    except Exception as e:
+        return []
+
+def buscar_jogos_hoje(liga_slug: str) -> List[Dict]:
+    """Busca jogos de hoje especificamente"""
+    try:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_slug}/scoreboard"
+        
+        response = requests.get(url, headers=HEADERS, timeout=15)
+        
+        if response.status_code != 200:
+            return []
+            
+        dados = response.json()
+        partidas = []
+        hoje = datetime.now().date()
+
+        for evento in dados.get("events", []):
+            try:
+                hora = evento.get("date", "")
+                hora_dt = formatar_hora_brasilia(hora)
+                
+                if not hora_dt or hora_dt.date() != hoje:
+                    continue
+                
+                hora_format = hora_dt.strftime("%H:%M")
+                
+                competicoes = evento.get("competitions", [{}])
+                competicao = competicoes[0] if competicoes else {}
+                times = competicao.get("competitors", [])
+                
+                if len(times) >= 2:
+                    home_team = times[0].get("team", {})
+                    away_team = times[1].get("team", {})
+                    
+                    home = home_team.get("displayName", "Time Casa")
+                    away = away_team.get("displayName", "Time Visitante")
+                    placar_home = times[0].get("score", "0")
+                    placar_away = times[1].get("score", "0")
+                else:
+                    continue
+
+                status_info = evento.get("status", {})
+                status_type = status_info.get("type", {})
+                status_desc = status_type.get("description", "Agendado")
+                
+                liga_nome = competicao.get("league", {}).get("name", liga_slug)
+
+                partidas.append({
+                    "home": home,
+                    "away": away,
+                    "placar": f"{placar_home} - {placar_away}",
+                    "status": status_desc,
+                    "hora": hora_dt,
+                    "hora_formatada": hora_format,
+                    "liga": liga_nome,
+                    "liga_slug": liga_slug
+                })
+                
+            except Exception:
+                continue
+                
+        return partidas
+        
+    except Exception:
+        return []
+
+# =============================
+# Função principal de processamento
+# =============================
+def processar_jogos(data_str: str, ligas_selecionadas: List[str], top_n: int, buscar_hoje: bool = False):
+    """Processa e exibe jogos com interface melhorada"""
+    
+    progress_container = st.container()
+    
+    with progress_container:
+        if buscar_hoje:
+            st.info("🎯 Buscando jogos de HOJE...")
+        else:
+            st.info(f"⏳ Buscando jogos para {datetime.strptime(data_str, '%Y-%m-%d').strftime('%d/%m/%Y')}...")
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+    
+    # Busca dados
+    todas_partidas = []
+    total_ligas = len(ligas_selecionadas)
+    
+    for i, liga in enumerate(ligas_selecionadas):
+        progress = (i + 1) / total_ligas
+        progress_bar.progress(progress)
+        status_text.info(f"🔍 Buscando {liga}... ({i+1}/{total_ligas})")
+        
+        liga_slug = LIGAS_ESPN[liga]
+        
+        if buscar_hoje:
+            partidas = buscar_jogos_hoje(liga_slug)
+        else:
+            partidas = buscar_jogos_espn(liga_slug, data_str)
+        
+        if partidas:
+            todas_partidas.extend(partidas)
+            status_text.success(f"✅ {liga}: {len(partidas)} jogos")
+        else:
+            status_text.warning(f"⚠️ {liga}: Nenhum jogo encontrado")
+        
+        time.sleep(0.5)
+    
+    if not todas_partidas:
+        status_text.error("❌ Nenhum jogo encontrado para os critérios selecionados.")
+        st.session_state.dados_carregados = False
+        return
+
+    # Ordenar por horário - com tratamento seguro
+    todas_partidas.sort(key=lambda x: x['hora'] if is_datetime_valid(x['hora']) else datetime.max)
+    
+    # Salva os dados no session state
+    st.session_state.todas_partidas = todas_partidas
+    st.session_state.dados_carregados = True
+    st.session_state.ultima_busca = datetime.now()
+    st.session_state.ultimas_ligas = ligas_selecionadas
+    st.session_state.busca_hoje = buscar_hoje
+    st.session_state.data_ultima_busca = data_str
+    st.session_state.top_n = top_n
+    
+    # Limpa a barra de progresso
+    progress_bar.empty()
+    status_text.empty()
+
+    # Exibe os dados
+    exibir_dados_salvos()
+
+def exibir_dados_salvos():
+    """Exibe os dados salvos no session state"""
+    if not st.session_state.dados_carregados:
+        return
+    
+    todas_partidas = st.session_state.todas_partidas
+    top_n = st.session_state.top_n
+    
+    # Exibe estatísticas
+    st.markdown("---")
+    exibir_estatisticas(todas_partidas)
+    
+    # Informações da última busca
+    col_info1, col_info2, col_info3 = st.columns(3)
+    with col_info1:
+        if st.session_state.busca_hoje:
+            st.info("🎯 **Última busca:** Jogos de Hoje")
+        else:
+            st.info(f"📅 **Última busca:** {datetime.strptime(st.session_state.data_ultima_busca, '%Y-%m-%d').strftime('%d/%m/%Y')}")
+    with col_info2:
+        st.info(f"🏆 **Ligas:** {len(st.session_state.ultimas_ligas)} selecionadas")
+    with col_info3:
+        if st.session_state.ultima_busca:
+            tempo_passado = datetime.now() - st.session_state.ultima_busca
+            minutos = int(tempo_passado.total_seconds() // 60)
+            st.info(f"⏰ **Atualizado:** {minutos} min atrás")
+    
+    # Seletor de modo de exibição
+    st.markdown("---")
+    col_view1, col_view2, col_view3 = st.columns(3)
+    with col_view1:
+        if st.button("📊 Visualização por Liga", use_container_width=True):
+            st.session_state.modo_exibicao = "liga"
+    with col_view2:
+        if st.button("📋 Lista Compacta", use_container_width=True):
+            st.session_state.modo_exibicao = "lista"
+    with col_view3:
+        if st.button("🎯 Top Partidas", use_container_width=True):
+            st.session_state.modo_exibicao = "top"
+
+    # Modo de exibição
+    modo = st.session_state.modo_exibicao
+    
+    if modo == "liga":
+        st.markdown("## 🏆 Partidas por Liga")
+        exibir_partidas_por_liga(todas_partidas)
+        
+    elif modo == "lista":
+        st.markdown("## 📋 Todas as Partidas")
+        exibir_partidas_lista_compacta(todas_partidas)
+    
+    elif modo == "top":
+        exibir_partidas_top(todas_partidas, top_n)
+
+    # Botão para enviar para Telegram
+    st.markdown("---")
+    st.subheader("📤 Enviar para Telegram")
+    
+    col_tg1, col_tg2 = st.columns([1, 2])
+    with col_tg1:
+        if st.button(f"🚀 Enviar Top {top_n} para Telegram", type="primary", use_container_width=True):
+            if st.session_state.busca_hoje:
+                top_msg = f"⚽ TOP {top_n} JOGOS DE HOJE - {datetime.now().strftime('%d/%m/%Y')}\n\n"
+            else:
+                top_msg = f"⚽ TOP {top_n} JOGOS - {datetime.strptime(st.session_state.data_ultima_busca, '%Y-%m-%d').strftime('%d/%m/%Y')}\n\n"
+            
+            for i, p in enumerate(todas_partidas[:top_n], 1):
+                emoji = "🔥" if i == 1 else "⭐" if i <= 3 else "⚽"
+                top_msg += f"{emoji} {i}. {p['home']} vs {p['away']}\n"
+                top_msg += f"   📊 {p['placar']} | 🕒 {p['hora_formatada']} | 📍 {p['status']}\n"
+                top_msg += f"   🏆 {p['liga']}\n\n"
+            
+            if enviar_telegram(top_msg, TELEGRAM_CHAT_ID_ALT2):
+                st.success(f"✅ Top {top_n} jogos enviados para o Telegram!")
+            else:
+                st.error("❌ Falha ao enviar para o Telegram!")
+    
+    with col_tg2:
+        st.info("💡 As partidas serão enviadas no formato compacto para o Telegram")
+        
+    # Botão para atualizar dados
+    st.markdown("---")
+    if st.button("🔄 Atualizar Dados", use_container_width=True):
+        st.rerun()
+
+# =============================
+# Interface Streamlit
+# =============================
+def main():
+    st.title("⚽ ESPN Soccer - Elite Master")
+    st.markdown("### Sistema Avançado de Monitoramento de Futebol")
+    st.markdown("---")
+    
+    # Inicializar session state
+    inicializar_session_state()
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("⚙️ Configurações")
+        
+        st.subheader("📊 Exibição")
+        top_n = st.selectbox("Top N Jogos", [3, 5, 10], index=1)
+        st.session_state.top_n = top_n
+        
+        st.subheader("🏆 Ligas")
+        st.markdown("Selecione as ligas para buscar:")
+        
+        ligas_selecionadas = st.multiselect(
+            "Selecione as ligas:",
+            options=list(LIGAS_ESPN.keys()),
+            default=st.session_state.ultimas_ligas if st.session_state.ultimas_ligas else list(LIGAS_ESPN.keys())[:4],
+            label_visibility="collapsed"
+        )
+        
+        st.markdown("---")
+        st.subheader("🛠️ Utilidades")
+        
+        col_util1, col_util2 = st.columns(2)
+        with col_util1:
+            if st.button("🧹 Limpar Cache", use_container_width=True):
+                if os.path.exists(CACHE_JOGOS):
+                    os.remove(CACHE_JOGOS)
                 if os.path.exists(ALERTAS_PATH):
                     os.remove(ALERTAS_PATH)
-                # Limpar session_state também
-                for key in list(st.session_state.keys()):
-                    if key.startswith('aba'):
-                        del st.session_state[key]
-                st.success("✅ Cache limpo com sucesso!")
+                st.success("✅ Cache limpo!")
+                time.sleep(1)
                 st.rerun()
-            except Exception as e:
-                st.error(f"❌ Erro ao limpar cache: {e}")
-        
-        if st.button("📊 Estatísticas do Sistema", key="aba4_stats"):
-            st.write("**Arquivos de Dados:**")
-            st.write(f"- top3.json: {os.path.exists(TOP3_PATH)}")
-            st.write(f"- alertas.json: {os.path.exists(ALERTAS_PATH)}")
-            st.write(f"- app.log: {os.path.exists('app.log')}")
-            
-            if os.path.exists('app.log'):
-                with open('app.log', 'r') as f:
-                    lines = f.readlines()
-                    st.write(f"Linhas no log: {len(lines)}")
-    
-    st.write("---")
-    st.write("**Logs Recentes**")
-    if st.button("📋 Mostrar Últimos Logs", key="aba4_logs"):
-        if os.path.exists('app.log'):
-            with open('app.log', 'r') as f:
-                lines = f.readlines()
-                last_lines = lines[-20:]  # Últimas 20 linhas
-                st.text_area("Logs", "\n".join(last_lines), height=300, key="aba4_logs_area")
-        else:
-            st.info("Arquivo de log não encontrado")
+                
+        with col_util2:
+            if st.button("🔄 Atualizar", use_container_width=True):
+                if st.session_state.dados_carregados:
+                    # Refaz a busca com os mesmos parâmetros
+                    if st.session_state.busca_hoje:
+                        processar_jogos("", st.session_state.ultimas_ligas, st.session_state.top_n, buscar_hoje=True)
+                    else:
+                        processar_jogos(st.session_state.data_ultima_busca, st.session_state.ultimas_ligas, st.session_state.top_n, buscar_hoje=False)
+                else:
+                    st.warning("ℹ️ Nenhum dado para atualizar. Faça uma busca primeiro.")
 
-# Footer
-st.markdown("---")
-st.markdown(
-    "⚽ **Oddstop Alertas** - Desenvolvido com Streamlit e Odds API | "
-    "[The Odds API](https://the-odds-api.com/)"
-)
+    # Conteúdo principal
+    st.subheader("🎯 Buscar Jogos")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        data_selecionada = st.date_input(
+            "Selecione a data:", 
+            value=datetime.today(),
+            max_value=datetime.today() + timedelta(days=7)
+        )
+    
+    with col2:
+        st.markdown("### ")
+        btn_buscar = st.button("🔍 Buscar por Data", type="primary", use_container_width=True)
+    
+    with col3:
+        st.markdown("### ")
+        btn_hoje = st.button("🎯 Jogos de Hoje", use_container_width=True, 
+                           help="Busca apenas jogos acontecendo hoje")
+
+    data_str = data_selecionada.strftime("%Y-%m-%d")
+
+    # Processar ações de busca
+    if btn_buscar:
+        if not ligas_selecionadas:
+            st.warning("⚠️ Selecione pelo menos uma liga.")
+        else:
+            processar_jogos(data_str, ligas_selecionadas, top_n, buscar_hoje=False)
+
+    if btn_hoje:
+        if not ligas_selecionadas:
+            st.warning("⚠️ Selecione pelo menos uma liga.")
+        else:
+            processar_jogos("", ligas_selecionadas, top_n, buscar_hoje=True)
+
+    # Exibir dados salvos se existirem
+    if st.session_state.dados_carregados:
+        exibir_dados_salvos()
+    else:
+        # Mostrar mensagem inicial
+        st.info("""
+        🎯 **Bem-vindo ao ESPN Soccer Elite Master!**
+        
+        Para começar:
+        1. **Selecione as ligas** que deseja monitorar no menu lateral
+        2. **Escolha uma data** ou clique em **"Jogos de Hoje"**
+        3. **Clique em buscar** para carregar as partidas
+        
+        ⚡ **Dica:** Os dados ficarão salvos até você fechar a página!
+        """)
+
+    # Informações de ajuda
+    with st.expander("🎮 Guia Rápido", expanded=False):
+        col_help1, col_help2 = st.columns(2)
+        
+        with col_help1:
+            st.markdown("""
+            **📊 Modos de Visualização:**
+            - **Por Liga**: Partidas agrupadas por campeonato
+            - **Lista Compacta**: Todas em lista expansível  
+            - **Top Partidas**: Apenas as mais relevantes
+            
+            **🎯 Funcionalidades:**
+            - Filtros por status e time
+            - Estatísticas em tempo real
+            - Cards visuais coloridos
+            - Envio para Telegram
+            """)
+        
+        with col_help2:
+            st.markdown("""
+            **🔧 Dicas:**
+            - Use **Jogos de Hoje** para resultados atuais
+            - Clique em **Top 3** para ver os principais de cada liga
+            - Filtre por time para encontrar partidas específicas
+            - Monitore jogos **ao vivo** com o status colorido
+            - Os **filtros são mantidos** entre as interações
+            """)
+
+if __name__ == "__main__":
+    main()
