@@ -14,6 +14,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 import time
 from typing import List, Dict, Optional
 import re
+import uuid  # ADICIONADO: para gerar keys únicas
 
 # =============================
 # Configurações e Constantes
@@ -329,7 +330,8 @@ def exibir_partidas_por_liga(partidas: List[Dict]):
                 st.session_state.filtros_liga[liga_key]['time'] = novo_time
             
             with col_filtro3:
-                if st.button(f"🎯 Top 3 - {liga}", key=f"btn_top3_{safe}"):
+                # Tornar a key única para evitar duplicação caso o mesmo botão seja renderizado múltiplas vezes
+                if st.button(f"🎯 Top 3 - {liga}", key=f"btn_top3_{safe}_{uuid.uuid4()}"):
                     partidas_liga = partidas_liga[:3]
             
             # Aplica filtros
@@ -712,14 +714,15 @@ def exibir_dados_salvos():
     # Seletor de modo de exibição
     st.markdown("---")
     col_view1, col_view2, col_view3 = st.columns(3)
+    # ADICIONADO uuid nas keys para evitar duplicação se o mesmo bloco for renderizado 2x
     with col_view1:
-        if st.button("📊 Visualização por Liga", use_container_width=True, key="btn_view_liga"):
+        if st.button("📊 Visualização por Liga", use_container_width=True, key=f"btn_view_liga_{uuid.uuid4()}"):
             st.session_state.modo_exibicao = "liga"
     with col_view2:
-        if st.button("📋 Lista Compacta", use_container_width=True, key="btn_view_lista"):
+        if st.button("📋 Lista Compacta", use_container_width=True, key=f"btn_view_lista_{uuid.uuid4()}"):
             st.session_state.modo_exibicao = "lista"
     with col_view3:
-        if st.button("🎯 Top Partidas", use_container_width=True, key="btn_view_top"):
+        if st.button("🎯 Top Partidas", use_container_width=True, key=f"btn_view_top_{uuid.uuid4()}"):
             st.session_state.modo_exibicao = "top"
 
     # Modo de exibição
@@ -742,7 +745,7 @@ def exibir_dados_salvos():
     
     col_tg1, col_tg2 = st.columns([1, 2])
     with col_tg1:
-        if st.button(f"🚀 Enviar Top {top_n} para Telegram", type="primary", use_container_width=True, key="btn_send_top"):
+        if st.button(f"🚀 Enviar Top {top_n} para Telegram", type="primary", use_container_width=True, key=f"btn_send_top_{uuid.uuid4()}"):
             if st.session_state.busca_hoje:
                 top_msg = f"⚽ TOP {top_n} JOGOS DE HOJE - {datetime.now().strftime('%d/%m/%Y')}\n\n"
             else:
@@ -764,7 +767,7 @@ def exibir_dados_salvos():
         
     # Botão para atualizar dados
     st.markdown("---")
-    if st.button("🔄 Atualizar Dados", use_container_width=True, key="btn_rerun_main"):
+    if st.button("🔄 Atualizar Dados", use_container_width=True, key=f"btn_rerun_main_{uuid.uuid4()}"):
         st.rerun()
 
 # =============================
@@ -802,7 +805,7 @@ def main():
         
         col_util1, col_util2 = st.columns(2)
         with col_util1:
-            if st.button("🧹 Limpar Cache", use_container_width=True, key="btn_clear_cache"):
+            if st.button("🧹 Limpar Cache", use_container_width=True, key=f"btn_clear_cache_{uuid.uuid4()}"):
                 if os.path.exists(CACHE_JOGOS):
                     os.remove(CACHE_JOGOS)
                 if os.path.exists(ALERTAS_PATH):
@@ -812,7 +815,7 @@ def main():
                 st.rerun()
                 
         with col_util2:
-            if st.button("🔄 Atualizar", use_container_width=True, key="btn_update_sidebar"):
+            if st.button("🔄 Atualizar", use_container_width=True, key=f"btn_update_sidebar_{uuid.uuid4()}"):
                 if st.session_state.dados_carregados:
                     # Refaz a busca com os mesmos parâmetros
                     if st.session_state.busca_hoje:
@@ -837,13 +840,13 @@ def main():
     
     with col2:
         st.markdown("### ")
-        btn_buscar = st.button("🔍 Buscar por Data", type="primary", use_container_width=True, key="btn_buscar_data")
+        btn_buscar = st.button("🔍 Buscar por Data", type="primary", use_container_width=True, key=f"btn_buscar_data_{uuid.uuid4()}")
     
     with col3:
         st.markdown("### ")
         btn_hoje = st.button("🎯 Jogos de Hoje", use_container_width=True, 
                            help="Busca apenas jogos acontecendo hoje",
-                           key="btn_hoje")
+                           key=f"btn_hoje_{uuid.uuid4()}")
     
     data_str = data_selecionada.strftime("%Y-%m-%d")
 
