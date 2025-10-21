@@ -1,5 +1,5 @@
 # ================================================
-# ⚽ ESPN Soccer - Elite Master - VERSÃO CORRIGIDA
+# ⚽ ESPN Soccer - Elite Master - VERSÃO FINAL CORRIGIDA
 # ================================================
 import streamlit as st
 import requests
@@ -125,7 +125,7 @@ def is_valid_datetime(dt):
     return dt is not None and isinstance(dt, datetime)
 
 # =============================
-# Componentes de UI - CORRIGIDOS
+# Componentes de UI
 # =============================
 def criar_card_partida(partida: Dict):
     """Cria um card visual para cada partida"""
@@ -222,7 +222,7 @@ def exibir_estatisticas(partidas: List[Dict]):
     # Partidas ao vivo
     partidas_ao_vivo = len([p for p in partidas if any(x in p['status'].lower() for x in ['vivo', 'live', 'andamento', 'halftime'])])
     
-    # CORREÇÃO: Próximas partidas (nas próximas 3 horas) - com verificação de None
+    # Próximas partidas (nas próximas 3 horas) - com verificação de None
     agora = datetime.now()
     limite_3h = agora + timedelta(hours=3)
     proximas_3h = []
