@@ -34,7 +34,11 @@ CACHE_TIMEOUT = 3600  # 1 hora em segundos
 LIGAS_ESPN = {
     "UEFA Champions League": "uefa.champions",
     "Copa Libertadores": "conmebol.libertadores",
-    "Copa Sul-Americana": "conmebol.sudamericana"
+    "Copa Sul-Americana": "conmebol.sudamericana",
+    "MLS": "usa.1",
+    "Liga MX": "mex.1",
+    "Saudi Pro League": "ksa.1",
+    "Argentina": "arg.1"
 }
 
 # =============================
@@ -49,13 +53,12 @@ def carregar_json(caminho: str) -> dict:
             # Se for cache global e tiver timestamp de arquivo, checar idade do arquivo
             if caminho in [CACHE_JOGOS, CACHE_CLASSIFICACAO]:
                 agora = datetime.now().timestamp()
-                # se dados tiverem chaves com _timestamp, remover entradas antigas
+                # Se houver timestamp global
+                if isinstance(dados, dict) and '_timestamp' in dados:
+                    if agora - dados['_timestamp'] > CACHE_TIMEOUT:
+                        return {}
+                # Remover entradas individuais antigas (se existirem)
                 if isinstance(dados, dict):
-                    # Se o arquivo inteiro possuir apenas um _timestamp, checar modificação do arquivo
-                    if '_timestamp' in dados:
-                        if agora - dados['_timestamp'] > CACHE_TIMEOUT:
-                            return {}
-                    # Também checar cada entrada que seja dict e tenha _timestamp
                     for key in list(dados.keys()):
                         if key == '_timestamp':
                             continue
@@ -73,7 +76,6 @@ def salvar_json(caminho: str, dados: dict):
     try:
         # Adicionar timestamp para caches temporais
         if caminho in [CACHE_JOGOS, CACHE_CLASSIFICACAO]:
-            # Se for cache por chave, já pode ter sido fornecido; caso contrário, colocamos timestamp geral
             if isinstance(dados, dict):
                 dados['_timestamp'] = datetime.now().timestamp()
         with open(caminho, "w", encoding='utf-8') as f:
@@ -146,11 +148,9 @@ def buscar_jogos_espn(liga_slug: str, data_str: str = None) -> list:
     data_str: "YYYY-MM-DD" (opcional) - a ESPN aceita param 'dates' no formato YYYYMMDD em alguns endpoints
     """
     try:
-        # Monta URL (scoreboard)
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_slug}/scoreboard"
         params = {}
         if data_str:
-            # ESPN costuma aceitar dates no formato YYYYMMDD
             try:
                 d = datetime.strptime(data_str, "%Y-%m-%d")
                 params['dates'] = d.strftime("%Y%m%d")
@@ -162,16 +162,13 @@ def buscar_jogos_espn(liga_slug: str, data_str: str = None) -> list:
         partidas = []
 
         for evento in dados.get("events", []):
-            # Extrair dados principais
             evt_id = evento.get("id") or hashlib.sha1(json.dumps(evento, sort_keys=True).encode()).hexdigest()
-            hora_iso = evento.get("date")  # já em ISO
-            # Pegar competição (pode vir em competitions[0])
+            hora_iso = evento.get("date")
             comp = evento.get("competitions", [])
             comp0 = comp[0] if comp else {}
             league_name = comp0.get("league", {}).get("name") or evento.get("league", {}).get("name") or liga_slug
 
             competitors = comp0.get("competitors", [])
-            # ESPN geralmente coloca home como competitor com 'homeAway' == 'home'
             home_name = away_name = None
             home_score = away_score = None
             for c in competitors:
@@ -181,7 +178,6 @@ def buscar_jogos_espn(liga_slug: str, data_str: str = None) -> list:
                 elif c.get("homeAway") == "away":
                     away_name = c.get("team", {}).get("displayName")
                     away_score = c.get("score")
-            # fallback: se len == 2 e não setados por homeAway
             if not home_name or not away_name:
                 if len(competitors) >= 2:
                     home_name = competitors[0].get("team", {}).get("displayName")
@@ -193,7 +189,6 @@ def buscar_jogos_espn(liga_slug: str, data_str: str = None) -> list:
             status_state = evento.get("status", {}).get("type", {}).get("state") or "SCHEDULED"
 
             partidas.append({
-                # Normalizar formato para o resto do app
                 "id": evt_id,
                 "utcDate": hora_iso,
                 "competition": {"name": league_name},
@@ -217,17 +212,151 @@ def buscar_jogos_espn(liga_slug: str, data_str: str = None) -> list:
         return []
 
 # =============================
-# Funções que substituem obter_jogos / obter_classificacao
+# Extração de classificação (standings) - ESPN
 # =============================
 def obter_classificacao(liga_slug: str) -> dict:
     """
-    Por enquanto retorna um dicionário vazio (placeholder).
-    Mantive a interface para compatibilidade com calcular_tendencia.
-    Se quiser, depois posso implementar scraping/extração de ranking da ESPN.
+    Busca classificações na ESPN (/standings) e extrai dict:
+    { "Team Name": {"scored": X, "against": Y, "played": Z}, ... }
+    Usa cache para reduzir requisições.
     """
-    # Poderíamos carregar um cache local se já tivéssemos estatísticas por time.
-    return {}
+    cache = carregar_cache_classificacao()
+    key = liga_slug
 
+    agora = datetime.now().timestamp()
+    # retornar cache se existente e válida
+    if key in cache:
+        entry = cache[key]
+        if isinstance(entry, dict) and '_timestamp' in entry:
+            if agora - entry['_timestamp'] <= CACHE_TIMEOUT:
+                return entry.get('standings', {})
+
+    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_slug}/standings"
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException:
+        # salvar vazio para evitar futuros hits imediatos
+        cache[key] = {"standings": {}, "_timestamp": agora}
+        salvar_cache_classificacao(cache)
+        return {}
+
+    standings_map = {}
+
+    # Tentar múltiplos caminhos possíveis no JSON da ESPN
+    # 1) estrutura comum: data.get('standings') -> list -> each 'table'
+    try:
+        for s in data.get("standings", []) or []:
+            for row in s.get("table", []) or []:
+                team_name = row.get("team", {}).get("name") or row.get("team", {}).get("displayName")
+                goals_for = row.get("goalsFor") or row.get("for") or row.get("goals", {}).get("for") if isinstance(row.get("goals", {}), dict) else None
+                goals_against = row.get("goalsAgainst") or row.get("against") or row.get("goals", {}).get("against") if isinstance(row.get("goals", {}), dict) else None
+                played = row.get("played") or row.get("matchesPlayed") or row.get("gamesPlayed") or row.get("playedGames")
+                # Normalizar números
+                try:
+                    goals_for = int(goals_for) if goals_for is not None else 0
+                except Exception:
+                    goals_for = 0
+                try:
+                    goals_against = int(goals_against) if goals_against is not None else 0
+                except Exception:
+                    goals_against = 0
+                try:
+                    played = int(played) if played is not None else 0
+                except Exception:
+                    played = 0
+
+                if team_name:
+                    standings_map[team_name] = {"scored": goals_for, "against": goals_against, "played": max(played, 1)}
+    except Exception:
+        pass
+
+    # 2) alternativa: data.get('children') -> find 'standings' child -> entries with 'team' and 'stats'
+    if not standings_map:
+        try:
+            children = data.get("children") or []
+            for child in children:
+                if child.get("type") and "standings" in child.get("type", "").lower():
+                    for entry in child.get("standings", []) or []:
+                        for row in entry.get("entries", []) or []:
+                            team = row.get("team", {})
+                            team_name = team.get("displayName") or team.get("name")
+                            # stats é lista de dicts: look for 'goalsFor' 'goalsAgainst' 'gamesPlayed'
+                            stats = {}
+                            for s in row.get("stats", []) or []:
+                                key = s.get("name") or s.get("statId") or s.get("type")
+                                val = s.get("value", None)
+                                if key:
+                                    stats[key.lower()] = val
+                            goals_for = stats.get("goalsfor") or stats.get("gf") or stats.get("goals_for") or stats.get("goalsforhome") or 0
+                            goals_against = stats.get("goalsagainst") or stats.get("ga") or stats.get("goals_against") or 0
+                            played = stats.get("matchesplayed") or stats.get("gamesplayed") or stats.get("played") or stats.get("matches") or 0
+                            try:
+                                goals_for = int(goals_for) if goals_for is not None else 0
+                            except Exception:
+                                goals_for = 0
+                            try:
+                                goals_against = int(goals_against) if goals_against is not None else 0
+                            except Exception:
+                                goals_against = 0
+                            try:
+                                played = int(played) if played is not None else 0
+                            except Exception:
+                                played = 0
+
+                            if team_name:
+                                standings_map[team_name] = {"scored": goals_for, "against": goals_against, "played": max(played, 1)}
+            # Se não encontrou em 'children', checar raiz 'tables' ou 'entries'
+            if not standings_map:
+                # procurar por qualquer 'entries' no JSON
+                def scan_for_entries(obj):
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if k.lower() in ("entries", "table", "standings"):
+                                return v
+                            res = scan_for_entries(v)
+                            if res:
+                                return res
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            res = scan_for_entries(item)
+                            if res:
+                                return res
+                    return None
+                entries = scan_for_entries(data) or []
+                for row in entries:
+                    team = row.get("team", {})
+                    team_name = team.get("displayName") or team.get("name")
+                    # tentativa de extrair campos
+                    goals_for = row.get("goalsFor") or row.get("for") or 0
+                    goals_against = row.get("goalsAgainst") or row.get("against") or 0
+                    played = row.get("played") or row.get("matchesPlayed") or 0
+                    try:
+                        goals_for = int(goals_for)
+                    except Exception:
+                        goals_for = 0
+                    try:
+                        goals_against = int(goals_against)
+                    except Exception:
+                        goals_against = 0
+                    try:
+                        played = int(played)
+                    except Exception:
+                        played = 0
+                    if team_name:
+                        standings_map[team_name] = {"scored": goals_for, "against": goals_against, "played": max(played, 1)}
+        except Exception:
+            pass
+
+    # Salvar no cache (mesmo formato usado para cache_jogos)
+    cache[key] = {"standings": standings_map, "_timestamp": agora}
+    salvar_cache_classificacao(cache)
+    return standings_map
+
+# =============================
+# Funções que substituem obter_jogos (usa cache) 
+# =============================
 def obter_jogos(liga_slug: str, data: str) -> list:
     """
     Retorna lista de matches no formato esperado pelo app, usando ESPN.
@@ -240,21 +369,14 @@ def obter_jogos(liga_slug: str, data: str) -> list:
     # Se cache existe e não expirou, devolver
     if key in cache:
         entry = cache[key]
-        # cada entrada pode ter '_timestamp'
         if isinstance(entry, dict) and '_timestamp' in entry:
             if agora - entry['_timestamp'] <= CACHE_TIMEOUT:
                 return entry.get('matches', [])
         else:
-            # fallback: se for lista, assumimos válido
             return entry
 
-    # Buscar na ESPN
     partidos = buscar_jogos_espn(liga_slug, data)
-    # Salvar no cache com timestamp
-    cache[key] = {
-        "matches": partidos,
-        "_timestamp": agora
-    }
+    cache[key] = {"matches": partidos, "_timestamp": agora}
     salvar_cache_jogos(cache)
     return partidos
 
@@ -263,7 +385,6 @@ def obter_jogos(liga_slug: str, data: str) -> list:
 # =============================
 def calcular_tendencia(home: str, away: str, classificacao: dict) -> tuple[float, float, str]:
     """Calcula tendência de gols baseada em estatísticas históricas (se houver)."""
-    # Se não houver classificação ou times, usar valores default
     dados_home = classificacao.get(home, {"scored": 0, "against": 0, "played": 1})
     dados_away = classificacao.get(away, {"scored": 0, "against": 0, "played": 1})
 
@@ -280,7 +401,7 @@ def calcular_tendencia(home: str, away: str, classificacao: dict) -> tuple[float
 
     # Se estimativa zero (sem dados), usar heurística simples:
     if estimativa == 0:
-        # heurística simples: 2.5 média
+        # heurística simples padrão
         estimativa = 2.2
 
     # Determinar tendência e confiança
@@ -333,7 +454,6 @@ def verificar_enviar_alerta(fixture: dict, tendencia: str, estimativa: float, co
     alertas = carregar_alertas()
     fixture_id = str(fixture["id"])
 
-    # Se não existe, criar e enviar
     if fixture_id not in alertas:
         alertas[fixture_id] = {
             "tendencia": tendencia,
@@ -345,7 +465,6 @@ def verificar_enviar_alerta(fixture: dict, tendencia: str, estimativa: float, co
         enviar_alerta_telegram(fixture, tendencia, estimativa, confianca)
         salvar_alertas(alertas)
     else:
-        # Evitar reenvio: se já enviado nas últimas 3 horas, não reenviar
         last = alertas[fixture_id].get("last_sent", 0)
         if time.time() - last > 3 * 3600:
             alertas[fixture_id].update({
@@ -386,7 +505,6 @@ def gerar_relatorio_pdf(jogos_conferidos: list) -> io.BytesIO:
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
     ])
 
-    # Alternar cores das linhas
     for i in range(1, len(data)):
         bg_color = colors.HexColor("#E0E0E0") if i % 2 == 0 else colors.HexColor("#F5F5F5")
         style.add('BACKGROUND', (0,i), (-1,i), bg_color)
@@ -407,52 +525,35 @@ def main():
     with st.sidebar:
         st.header("Configurações")
         top_n = st.selectbox("📊 Jogos no Top", [3, 5, 10], index=0)
-        st.info("Busca apenas: Champions, Libertadores e Sul-Americana (ESPN)")
+        st.info("Busca: Champions, Libertadores, Sul-Americana, MLS, Liga MX, Saudi e Argentina (ESPN)")
 
-    # Controles principais
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        data_selecionada = st.date_input(
-            "📅 Data para análise:",
-            value=datetime.today()
-        )
+        data_selecionada = st.date_input("📅 Data para análise:", value=datetime.today())
 
     with col2:
-        todas_ligas = st.checkbox(
-            "🌍 Todas as ligas (as 3 selecionadas)",
-            value=True,
-            help="Buscar jogos das 3 competições configuradas"
-        )
+        todas_ligas = st.checkbox("🌍 Todas as ligas (selecionadas acima)", value=True)
 
     liga_selecionada = None
     if not todas_ligas:
-        liga_selecionada = st.selectbox(
-            "📌 Liga específica:",
-            list(LIGAS_ESPN.keys())
-        )
+        liga_selecionada = st.selectbox("📌 Liga específica:", list(LIGAS_ESPN.keys()))
 
-    # Processamento de jogos
     if st.button("🔍 Buscar Partidas", type="primary"):
         processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n)
 
-    # Botões de ação
     col1b, col2b, col3b = st.columns(3)
-
     with col1b:
         if st.button("🔄 Atualizar Status"):
             atualizar_status_partidas()
-
     with col2b:
         if st.button("📊 Conferir Resultados"):
             conferir_resultados()
-
     with col3b:
         if st.button("🧹 Limpar Cache"):
             limpar_caches()
 
 def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n):
-    """Processa e analisa os jogos do dia (usando ESPN)."""
     hoje = data_selecionada.strftime("%Y-%m-%d")
     if todas_ligas:
         ligas_busca = list(LIGAS_ESPN.values())
@@ -475,7 +576,6 @@ def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n):
 
             verificar_enviar_alerta(match, tendencia, estimativa, confianca)
 
-            # normalizar hora para objeto datetime (p/ exibição)
             hora_dt = None
             try:
                 hora_dt = datetime.fromisoformat(match["utcDate"].replace("Z", "+00:00")) - timedelta(hours=3)
@@ -496,7 +596,6 @@ def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n):
 
         progress_bar.progress((i + 1) / total_ligas)
 
-    # Enviar top jogos
     if top_jogos:
         enviar_top_jogos(top_jogos, top_n)
         st.success(f"✅ Análise concluída! {len(top_jogos)} jogos processados.")
@@ -504,7 +603,6 @@ def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n):
         st.warning("⚠️ Nenhum jogo encontrado para a data selecionada.")
 
 def enviar_top_jogos(jogos: list, top_n: int):
-    """Envia os top N jogos para o Telegram (somente jogos não finalizados)."""
     jogos_filtrados = [j for j in jogos if j["status"] not in ["FINISHED", "IN_PLAY", "POSTPONED", "SUSPENDED"]]
 
     if not jogos_filtrados:
@@ -523,29 +621,22 @@ def enviar_top_jogos(jogos: list, top_n: int):
             f"💯 Confiança: {j['confianca']:.0f}%\n\n"
         )
 
-    # Envio ao Telegram (canal alternativo por padrão)
     if enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2):
         st.success(f"🚀 Top {top_n} jogos (sem finalizados) enviados para o canal!")
     else:
         st.error("❌ Erro ao enviar top jogos para o Telegram")
 
 def atualizar_status_partidas():
-    """Atualiza o status das partidas em cache (re-busca cada chave)."""
     cache_jogos = carregar_cache_jogos()
     mudou = False
 
     for key in list(cache_jogos.keys()):
         if key == "_timestamp":
             continue
-
         try:
             liga_id, data = key.split("_", 1)
-            # Re-buscar via ESPN
             partidas = buscar_jogos_espn(liga_id, data)
-            cache_jogos[key] = {
-                "matches": partidas,
-                "_timestamp": datetime.now().timestamp()
-            }
+            cache_jogos[key] = {"matches": partidas, "_timestamp": datetime.now().timestamp()}
             mudou = True
         except Exception as e:
             st.error(f"Erro ao atualizar liga {key}: {e}")
@@ -560,7 +651,6 @@ def atualizar_status_partidas():
 # Conferência de resultados
 # =============================
 def conferir_resultados():
-    """Conferência de resultados dos jogos alertados."""
     alertas = carregar_alertas()
     jogos_cache = carregar_cache_jogos()
 
@@ -575,7 +665,6 @@ def conferir_resultados():
         if info.get("conferido"):
             continue
 
-        # Encontrar jogo no cache
         jogo_dado = None
         for key, entry in jogos_cache.items():
             if key == "_timestamp":
@@ -591,29 +680,24 @@ def conferir_resultados():
         if not jogo_dado:
             continue
 
-        # Processar resultado
         resultado_info = processar_resultado_jogo(jogo_dado, info)
         if resultado_info:
             exibir_resultado_streamlit(resultado_info)
-
             if resultado_info["status"] == "FINISHED":
                 enviar_resultado_telegram(resultado_info)
                 info["conferido"] = True
                 mudou = True
 
-        # Coletar dados para PDF
         jogos_conferidos.append(preparar_dados_pdf(jogo_dado, info, resultado_info))
 
     if mudou:
         salvar_alertas(alertas)
         st.success("✅ Resultados conferidos e atualizados!")
 
-    # Gerar PDF se houver jogos
     if jogos_conferidos:
         gerar_pdf_jogos(jogos_conferidos)
 
 def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
-    """Processa o resultado de um jogo."""
     home = jogo["homeTeam"]["name"]
     away = jogo["awayTeam"]["name"]
     status = jogo.get("status", "DESCONHECIDO")
@@ -623,7 +707,6 @@ def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
     placar = f"{gols_home} x {gols_away}" if gols_home is not None and gols_away is not None else "-"
     total_gols = (gols_home or 0) + (gols_away or 0)
 
-    # Determinar resultado da aposta
     resultado = "⏳ Aguardando"
     if status == "FINISHED":
         tendencia = info["tendencia"]
@@ -649,10 +732,7 @@ def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
     }
 
 def exibir_resultado_streamlit(resultado: dict):
-    """Exibe resultado formatado no Streamlit."""
-    bg_color = "#1e4620" if resultado["resultado"] == "🟢 GREEN" else \
-               "#5a1e1e" if resultado["resultado"] == "🔴 RED" else "#2c2c2c"
-
+    bg_color = "#1e4620" if resultado["resultado"] == "🟢 GREEN" else "#5a1e1e" if resultado["resultado"] == "🔴 RED" else "#2c2c2c"
     st.markdown(f"""
     <div style="border:1px solid #444; border-radius:10px; padding:12px; margin-bottom:10px;
                 background-color:{bg_color}; font-size:15px; color:#f1f1f1;">
@@ -665,7 +745,6 @@ def exibir_resultado_streamlit(resultado: dict):
     """, unsafe_allow_html=True)
 
 def enviar_resultado_telegram(resultado: dict):
-    """Envia resultado para o Telegram."""
     msg = (
         f"📊 <b>Resultado Conferido</b>\n"
         f"🏟️ {resultado['home']} vs {resultado['away']}\n"
@@ -676,7 +755,6 @@ def enviar_resultado_telegram(resultado: dict):
     enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2)
 
 def preparar_dados_pdf(jogo: dict, info: dict, resultado: dict) -> list:
-    """Prepara dados para geração do PDF."""
     home = abreviar_nome(jogo["homeTeam"]["name"])
     away = abreviar_nome(jogo["awayTeam"]["name"])
     hora = None
@@ -697,7 +775,6 @@ def preparar_dados_pdf(jogo: dict, info: dict, resultado: dict) -> list:
     ]
 
 def gerar_pdf_jogos(jogos_conferidos: list):
-    """Gera e disponibiliza PDF dos jogos conferidos."""
     df_conferidos = pd.DataFrame(jogos_conferidos, columns=[
         "Jogo", "Tendência", "Estimativa", "Confiança",
         "Placar", "Status", "Resultado", "Hora"
@@ -713,7 +790,6 @@ def gerar_pdf_jogos(jogos_conferidos: list):
     )
 
 def limpar_caches():
-    """Limpa todos os caches do sistema."""
     try:
         for cache_file in [CACHE_JOGOS, CACHE_CLASSIFICACAO, ALERTAS_PATH]:
             if os.path.exists(cache_file):
