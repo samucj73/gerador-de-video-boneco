@@ -1,5 +1,5 @@
 # ================================================
-# ⚽ ESPN Soccer - Elite Master - VERSÃO SIMPLIFICADA
+# ⚽ ESPN Soccer - Elite Master - VERSÃO CORRIGIDA
 # ================================================
 import streamlit as st
 import requests
@@ -120,8 +120,12 @@ def get_status_config(status: str) -> Dict:
             return config
     return {"emoji": "⚫", "color": "#95A5A6"}
 
+def is_valid_datetime(dt):
+    """Verifica se é um datetime válido e não None"""
+    return dt is not None and isinstance(dt, datetime)
+
 # =============================
-# Componentes de UI - SIMPLIFICADOS
+# Componentes de UI - CORRIGIDOS
 # =============================
 def criar_card_partida(partida: Dict):
     """Cria um card visual para cada partida"""
@@ -164,7 +168,7 @@ def criar_card_partida(partida: Dict):
         with col_info3:
             hora_partida = partida['hora']
             agora = datetime.now()
-            if hora_partida and hora_partida > agora:
+            if is_valid_datetime(hora_partida) and hora_partida > agora:
                 tempo_restante = hora_partida - agora
                 horas = int(tempo_restante.total_seconds() // 3600)
                 minutos = int((tempo_restante.total_seconds() % 3600) // 60)
@@ -218,6 +222,16 @@ def exibir_estatisticas(partidas: List[Dict]):
     # Partidas ao vivo
     partidas_ao_vivo = len([p for p in partidas if any(x in p['status'].lower() for x in ['vivo', 'live', 'andamento', 'halftime'])])
     
+    # CORREÇÃO: Próximas partidas (nas próximas 3 horas) - com verificação de None
+    agora = datetime.now()
+    limite_3h = agora + timedelta(hours=3)
+    proximas_3h = []
+    
+    for p in partidas:
+        if is_valid_datetime(p['hora']):
+            if agora <= p['hora'] <= limite_3h:
+                proximas_3h.append(p)
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -230,10 +244,6 @@ def exibir_estatisticas(partidas: List[Dict]):
         st.metric("🔴 Ao Vivo", partidas_ao_vivo)
     
     with col4:
-        # Próximas partidas (nas próximas 3 horas)
-        agora = datetime.now()
-        limite_3h = agora + timedelta(hours=3)
-        proximas_3h = [p for p in partidas if p['hora'] and agora <= p['hora'] <= limite_3h]
         st.metric("⏰ Próximas 3h", len(proximas_3h))
 
 def exibir_partidas_lista_compacta(partidas: List[Dict]):
@@ -281,7 +291,7 @@ def exibir_partidas_top(partidas: List[Dict], top_n: int):
             with col3:
                 st.markdown(f"### {partida['away']}")
             
-            # Informações adicionais
+            # Informações adicionais - CORRIGIDO: verificação de datetime válido
             col_info1, col_info2, col_info3 = st.columns(3)
             with col_info1:
                 st.write(f"**Horário:** {partida['hora_formatada']}")
@@ -290,7 +300,7 @@ def exibir_partidas_top(partidas: List[Dict], top_n: int):
             with col_info3:
                 hora_partida = partida['hora']
                 agora = datetime.now()
-                if hora_partida and hora_partida > agora:
+                if is_valid_datetime(hora_partida) and hora_partida > agora:
                     tempo_restante = hora_partida - agora
                     horas = int(tempo_restante.total_seconds() // 3600)
                     minutos = int((tempo_restante.total_seconds() % 3600) // 60)
@@ -486,8 +496,8 @@ def processar_jogos(data_str: str, ligas_selecionadas: List[str], top_n: int, bu
         st.session_state.dados_carregados = False
         return
 
-    # Ordenar por horário
-    todas_partidas.sort(key=lambda x: x['hora'] if x['hora'] else datetime.max)
+    # Ordenar por horário - CORREÇÃO: tratamento seguro para None
+    todas_partidas.sort(key=lambda x: x['hora'] if is_valid_datetime(x['hora']) else datetime.max)
     
     # Salva os dados no session state
     st.session_state.todas_partidas = todas_partidas
@@ -584,7 +594,7 @@ def exibir_dados_salvos():
             st.error("❌ Falha ao enviar para o Telegram!")
 
 # =============================
-# Interface Streamlit - SIMPLIFICADA
+# Interface Streamlit - CORRIGIDA
 # =============================
 def main():
     st.title("⚽ ESPN Soccer - Elite Master")
@@ -693,11 +703,10 @@ def main():
         st.markdown("""
         **📊 Modos de Visualização:**
         - **Por Liga**: Partidas agrupadas por campeonato
-        - **Lista Compacta**: Todas em lista expansível  
+        - **Lista Compacta**: Todas em lista  
         - **Top Partidas**: Apenas as mais relevantes
         
         **🎯 Funcionalidades:**
-        - Filtros por status e time
         - Estatísticas em tempo real
         - Cards visuais coloridos
         - Envio para Telegram
@@ -707,9 +716,9 @@ def main():
         st.markdown("""
         **🔧 Dicas:**
         - Use **Jogos de Hoje** para resultados atuais
-        - Filtre por time para encontrar partidas específicas
         - Monitore jogos **ao vivo** com o status colorido
-        - Os **filtros são mantidos** entre as interações
+        - Atualize os dados periodicamente
+        - Envie os melhores jogos para o Telegram
         """)
 
 if __name__ == "__main__":
