@@ -1,5 +1,5 @@
 # ================================================
-# ⚽ ESPN Soccer - Elite Master - CORRIGIDO
+# ⚽ ESPN Soccer - Elite Master - VERSÃO SIMPLIFICADA
 # ================================================
 import streamlit as st
 import requests
@@ -8,9 +8,6 @@ import os
 import io
 from datetime import datetime, timedelta
 import pandas as pd
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 import time
 from typing import List, Dict, Optional
 import re
@@ -24,10 +21,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003073115320")
 TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2", "-1002754276285")
 BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-ALERTAS_PATH = "alertas.json"
-CACHE_JOGOS = "cache_jogos.json"
-CACHE_TIMEOUT = 3600
 
 # =============================
 # Principais ligas (ESPN)
@@ -67,65 +60,30 @@ HEADERS = {
 }
 
 # =============================
-# Helper para criar keys seguras - CORRIGIDO
-# =============================
-def safe_key(text: str, suffix: str = "") -> str:
-    """Gera uma chave segura para widgets"""
-    # Remove caracteres especiais e espaços
-    base_key = re.sub(r'[^a-zA-Z0-9]', '_', str(text)).strip('_')
-    # Limita o tamanho para evitar keys muito longas
-    if len(base_key) > 50:
-        base_key = base_key[:50]
-    # Adiciona suffix se fornecido
-    if suffix:
-        return f"{base_key}_{suffix}"
-    return base_key
-
-# =============================
-# Inicialização do Session State - SIMPLIFICADO
+# Inicialização do Session State
 # =============================
 def inicializar_session_state():
     """Inicializa todas as variáveis do session state"""
-    defaults = {
-        'dados_carregados': False,
-        'todas_partidas': [],
-        'modo_exibicao': "liga",
-        'ultima_busca': None,
-        'ultimas_ligas': list(LIGAS_ESPN.keys())[:4],
-        'busca_hoje': False,
-        'data_ultima_busca': datetime.now().strftime("%Y-%m-%d"),
-        'filtros_liga': {},
-        'top_n': 5,
-        'widget_counter': 0  # Contador global para widgets
-    }
-    
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+    if 'dados_carregados' not in st.session_state:
+        st.session_state.dados_carregados = False
+    if 'todas_partidas' not in st.session_state:
+        st.session_state.todas_partidas = []
+    if 'modo_exibicao' not in st.session_state:
+        st.session_state.modo_exibicao = "liga"
+    if 'ultima_busca' not in st.session_state:
+        st.session_state.ultima_busca = None
+    if 'ultimas_ligas' not in st.session_state:
+        st.session_state.ultimas_ligas = list(LIGAS_ESPN.keys())[:4]
+    if 'busca_hoje' not in st.session_state:
+        st.session_state.busca_hoje = False
+    if 'data_ultima_busca' not in st.session_state:
+        st.session_state.data_ultima_busca = datetime.now().strftime("%Y-%m-%d")
+    if 'top_n' not in st.session_state:
+        st.session_state.top_n = 5
 
 # =============================
 # Funções utilitárias
 # =============================
-def carregar_json(caminho: str) -> dict:
-    """Carrega dados de arquivo JSON com tratamento de erros"""
-    try:
-        if os.path.exists(caminho):
-            with open(caminho, "r", encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        st.warning(f"⚠️ Erro ao carregar {caminho}: {str(e)}")
-    return {}
-
-def salvar_json(caminho: str, dados: dict):
-    """Salva dados em arquivo JSON"""
-    try:
-        with open(caminho, "w", encoding='utf-8') as f:
-            json.dump(dados, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar {caminho}: {str(e)}")
-        return False
-
 def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID):
     """Envia mensagem para o Telegram"""
     try:
@@ -163,9 +121,9 @@ def get_status_config(status: str) -> Dict:
     return {"emoji": "⚫", "color": "#95A5A6"}
 
 # =============================
-# Componentes de UI - CORRIGIDOS
+# Componentes de UI - SIMPLIFICADOS
 # =============================
-def criar_card_partida(partida: Dict, index: int):
+def criar_card_partida(partida: Dict):
     """Cria um card visual para cada partida"""
     status_config = get_status_config(partida['status'])
     
@@ -233,62 +191,16 @@ def exibir_partidas_por_liga(partidas: List[Dict]):
     ligas_ordenadas = sorted(partidas_por_liga.keys(), 
                            key=lambda x: len(partidas_por_liga[x]), reverse=True)
     
-    for liga_index, liga in enumerate(ligas_ordenadas):
+    for liga in ligas_ordenadas:
         partidas_liga = partidas_por_liga[liga]
         
         with st.container():
             st.markdown(f"### 🏆 {liga}")
             st.markdown(f"**{len(partidas_liga)} partida(s) encontrada(s)**")
             
-            # Inicializar filtros para esta liga
-            liga_key = safe_key(liga)
-            if liga_key not in st.session_state.filtros_liga:
-                st.session_state.filtros_liga[liga_key] = {
-                    'status': "Todos",
-                    'time': ""
-                }
-            
-            # Filtros para a liga - COM KEYS ÚNICAS
-            col_filtro1, col_filtro2 = st.columns(2)
-            
-            with col_filtro1:
-                novo_status = st.selectbox(
-                    "Status",
-                    ["Todos", "Agendado", "Ao Vivo", "Finalizado"],
-                    index=["Todos", "Agendado", "Ao Vivo", "Finalizado"].index(
-                        st.session_state.filtros_liga[liga_key]['status']
-                    ),
-                    key=f"status_{liga_key}"  # Key única baseada na liga
-                )
-                st.session_state.filtros_liga[liga_key]['status'] = novo_status
-            
-            with col_filtro2:
-                novo_time = st.text_input(
-                    "Buscar time", 
-                    value=st.session_state.filtros_liga[liga_key]['time'],
-                    key=f"time_{liga_key}"  # Key única baseada na liga
-                )
-                st.session_state.filtros_liga[liga_key]['time'] = novo_time
-            
-            # Aplica filtros
-            partidas_filtradas = partidas_liga.copy()
-            filtro_atual = st.session_state.filtros_liga[liga_key]
-            
-            if filtro_atual['status'] != "Todos":
-                partidas_filtradas = [p for p in partidas_filtradas 
-                                    if filtro_atual['status'].lower() in p['status'].lower()]
-            
-            if filtro_atual['time']:
-                partidas_filtradas = [p for p in partidas_filtradas 
-                               if filtro_atual['time'].lower() in p['home'].lower() 
-                               or filtro_atual['time'].lower() in p['away'].lower()]
-            
-            # Exibe partidas
-            if partidas_filtradas:
-                for idx, partida in enumerate(partidas_filtradas):
-                    criar_card_partida(partida, idx)
-            else:
-                st.info(f"ℹ️ Nenhuma partida encontrada para os filtros em {liga}")
+            # Exibe partidas sem filtros complexos
+            for partida in partidas_liga:
+                criar_card_partida(partida)
             
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -306,11 +218,6 @@ def exibir_estatisticas(partidas: List[Dict]):
     # Partidas ao vivo
     partidas_ao_vivo = len([p for p in partidas if any(x in p['status'].lower() for x in ['vivo', 'live', 'andamento', 'halftime'])])
     
-    # Próximas partidas (nas próximas 3 horas)
-    agora = datetime.now()
-    limite_3h = agora + timedelta(hours=3)
-    proximas_3h = [p for p in partidas if p['hora'] and agora <= p['hora'] <= limite_3h]
-    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -323,20 +230,19 @@ def exibir_estatisticas(partidas: List[Dict]):
         st.metric("🔴 Ao Vivo", partidas_ao_vivo)
     
     with col4:
+        # Próximas partidas (nas próximas 3 horas)
+        agora = datetime.now()
+        limite_3h = agora + timedelta(hours=3)
+        proximas_3h = [p for p in partidas if p['hora'] and agora <= p['hora'] <= limite_3h]
         st.metric("⏰ Próximas 3h", len(proximas_3h))
-    
-    # Gráfico de status simples
-    if status_count:
-        st.markdown("### 📈 Distribuição por Status")
-        status_df = pd.DataFrame(list(status_count.items()), columns=['Status', 'Quantidade'])
-        st.bar_chart(status_df.set_index('Status'))
 
 def exibir_partidas_lista_compacta(partidas: List[Dict]):
     """Exibe partidas em formato de lista compacta"""
     for i, partida in enumerate(partidas):
         status_config = get_status_config(partida['status'])
-        with st.expander(f"{status_config['emoji']} {partida['home']} vs {partida['away']} - {partida['placar']}", 
-                        key=f"exp_{i}_{safe_key(partida['home'])}"):
+        # Usando container em vez de expander para evitar problemas de key
+        with st.container():
+            st.markdown(f"**{status_config['emoji']} {partida['home']} vs {partida['away']} - {partida['placar']}**")
             col1, col2 = st.columns(2)
             with col1:
                 st.write(f"**Casa:** {partida['home']}")
@@ -345,6 +251,7 @@ def exibir_partidas_lista_compacta(partidas: List[Dict]):
                 st.write(f"**Status:** {partida['status']}")
                 st.write(f"**Horário:** {partida['hora_formatada']}")
                 st.write(f"**Liga:** {partida['liga']}")
+            st.markdown("---")
 
 def exibir_partidas_top(partidas: List[Dict], top_n: int):
     """Exibe apenas as top partidas"""
@@ -625,7 +532,7 @@ def exibir_dados_salvos():
             minutos = int(tempo_passado.total_seconds() // 60)
             st.info(f"⏰ **Atualizado:** {minutos} min atrás")
     
-    # Seletor de modo de exibição - COM KEYS FIXAS
+    # Seletor de modo de exibição - KEYS SIMPLES
     st.markdown("---")
     col_view1, col_view2, col_view3 = st.columns(3)
     
@@ -659,30 +566,25 @@ def exibir_dados_salvos():
     st.markdown("---")
     st.subheader("📤 Enviar para Telegram")
     
-    col_tg1, col_tg2 = st.columns([1, 2])
-    with col_tg1:
-        if st.button(f"🚀 Enviar Top {top_n} para Telegram", type="primary", use_container_width=True, key="send_telegram"):
-            if st.session_state.busca_hoje:
-                top_msg = f"⚽ TOP {top_n} JOGOS DE HOJE - {datetime.now().strftime('%d/%m/%Y')}\n\n"
-            else:
-                top_msg = f"⚽ TOP {top_n} JOGOS - {datetime.strptime(st.session_state.data_ultima_busca, '%Y-%m-%d').strftime('%d/%m/%Y')}\n\n"
-            
-            for i, p in enumerate(todas_partidas[:top_n], 1):
-                emoji = "🔥" if i == 1 else "⭐" if i <= 3 else "⚽"
-                top_msg += f"{emoji} {i}. {p['home']} vs {p['away']}\n"
-                top_msg += f"   📊 {p['placar']} | 🕒 {p['hora_formatada']} | 📍 {p['status']}\n"
-                top_msg += f"   🏆 {p['liga']}\n\n"
-            
-            if enviar_telegram(top_msg, TELEGRAM_CHAT_ID_ALT2):
-                st.success(f"✅ Top {top_n} jogos enviados para o Telegram!")
-            else:
-                st.error("❌ Falha ao enviar para o Telegram!")
-    
-    with col_tg2:
-        st.info("💡 As partidas serão enviadas no formato compacto para o Telegram")
+    if st.button(f"🚀 Enviar Top {top_n} para Telegram", type="primary", use_container_width=True, key="send_telegram"):
+        if st.session_state.busca_hoje:
+            top_msg = f"⚽ TOP {top_n} JOGOS DE HOJE - {datetime.now().strftime('%d/%m/%Y')}\n\n"
+        else:
+            top_msg = f"⚽ TOP {top_n} JOGOS - {datetime.strptime(st.session_state.data_ultima_busca, '%Y-%m-%d').strftime('%d/%m/%Y')}\n\n"
+        
+        for i, p in enumerate(todas_partidas[:top_n], 1):
+            emoji = "🔥" if i == 1 else "⭐" if i <= 3 else "⚽"
+            top_msg += f"{emoji} {i}. {p['home']} vs {p['away']}\n"
+            top_msg += f"   📊 {p['placar']} | 🕒 {p['hora_formatada']} | 📍 {p['status']}\n"
+            top_msg += f"   🏆 {p['liga']}\n\n"
+        
+        if enviar_telegram(top_msg, TELEGRAM_CHAT_ID_ALT2):
+            st.success(f"✅ Top {top_n} jogos enviados para o Telegram!")
+        else:
+            st.error("❌ Falha ao enviar para o Telegram!")
 
 # =============================
-# Interface Streamlit - CORRIGIDA
+# Interface Streamlit - SIMPLIFICADA
 # =============================
 def main():
     st.title("⚽ ESPN Soccer - Elite Master")
@@ -692,7 +594,7 @@ def main():
     # Inicializar session state
     inicializar_session_state()
     
-    # Sidebar
+    # Sidebar SIMPLIFICADA
     with st.sidebar:
         st.header("⚙️ Configurações")
         
@@ -714,27 +616,15 @@ def main():
         st.markdown("---")
         st.subheader("🛠️ Utilidades")
         
-        col_util1, col_util2 = st.columns(2)
-        with col_util1:
-            if st.button("🧹 Limpar Cache", use_container_width=True, key="clear_cache"):
-                if os.path.exists(CACHE_JOGOS):
-                    os.remove(CACHE_JOGOS)
-                if os.path.exists(ALERTAS_PATH):
-                    os.remove(ALERTAS_PATH)
-                st.success("✅ Cache limpo!")
-                time.sleep(1)
-                st.rerun()
-                
-        with col_util2:
-            if st.button("🔄 Atualizar", use_container_width=True, key="sidebar_update"):
-                if st.session_state.dados_carregados:
-                    # Refaz a busca com os mesmos parâmetros
-                    if st.session_state.busca_hoje:
-                        processar_jogos("", st.session_state.ultimas_ligas, st.session_state.top_n, buscar_hoje=True)
-                    else:
-                        processar_jogos(st.session_state.data_ultima_busca, st.session_state.ultimas_ligas, st.session_state.top_n, buscar_hoje=False)
+        if st.button("🔄 Atualizar Dados", use_container_width=True, key="sidebar_update"):
+            if st.session_state.dados_carregados:
+                # Refaz a busca com os mesmos parâmetros
+                if st.session_state.busca_hoje:
+                    processar_jogos("", st.session_state.ultimas_ligas, st.session_state.top_n, buscar_hoje=True)
                 else:
-                    st.warning("ℹ️ Nenhum dado para atualizar. Faça uma busca primeiro.")
+                    processar_jogos(st.session_state.data_ultima_busca, st.session_state.ultimas_ligas, st.session_state.top_n, buscar_hoje=False)
+            else:
+                st.warning("ℹ️ Nenhum dado para atualizar. Faça uma busca primeiro.")
 
     # Conteúdo principal
     st.subheader("🎯 Buscar Jogos")
@@ -793,32 +683,34 @@ def main():
         ⚡ **Dica:** Os dados ficarão salvos até você fechar a página!
         """)
 
-    # Informações de ajuda - CORRIGIDO: Adicionada key única para o expander
-    with st.expander("🎮 Guia Rápido", expanded=False, key="guia_rapido_expander"):
-        col_help1, col_help2 = st.columns(2)
+    # Informações de ajuda - USANDO CONTAINER EM VEZ DE EXPANDER
+    st.markdown("---")
+    st.subheader("🎮 Guia Rápido")
+    
+    col_help1, col_help2 = st.columns(2)
+    
+    with col_help1:
+        st.markdown("""
+        **📊 Modos de Visualização:**
+        - **Por Liga**: Partidas agrupadas por campeonato
+        - **Lista Compacta**: Todas em lista expansível  
+        - **Top Partidas**: Apenas as mais relevantes
         
-        with col_help1:
-            st.markdown("""
-            **📊 Modos de Visualização:**
-            - **Por Liga**: Partidas agrupadas por campeonato
-            - **Lista Compacta**: Todas em lista expansível  
-            - **Top Partidas**: Apenas as mais relevantes
-            
-            **🎯 Funcionalidades:**
-            - Filtros por status e time
-            - Estatísticas em tempo real
-            - Cards visuais coloridos
-            - Envio para Telegram
-            """)
-        
-        with col_help2:
-            st.markdown("""
-            **🔧 Dicas:**
-            - Use **Jogos de Hoje** para resultados atuais
-            - Filtre por time para encontrar partidas específicas
-            - Monitore jogos **ao vivo** com o status colorido
-            - Os **filtros são mantidos** entre as interações
-            """)
+        **🎯 Funcionalidades:**
+        - Filtros por status e time
+        - Estatísticas em tempo real
+        - Cards visuais coloridos
+        - Envio para Telegram
+        """)
+    
+    with col_help2:
+        st.markdown("""
+        **🔧 Dicas:**
+        - Use **Jogos de Hoje** para resultados atuais
+        - Filtre por time para encontrar partidas específicas
+        - Monitore jogos **ao vivo** com o status colorido
+        - Os **filtros são mantidos** entre as interações
+        """)
 
 if __name__ == "__main__":
     main()
