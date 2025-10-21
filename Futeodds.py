@@ -1,5 +1,5 @@
 # ================================================
-# ⚽ ESPN Soccer - Elite Master - VERSÃO FINAL CORRIGIDA
+# ⚽ ESPN Soccer - Elite Master - VERSÃO COM API FUNCIONAL
 # ================================================
 import streamlit as st
 import requests
@@ -23,18 +23,18 @@ TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2", "-1002754276285")
 BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 # =============================
-# Principais ligas (ESPN)
+# Principais ligas (ESPN) - ATUALIZADO
 # =============================
 LIGAS_ESPN = {
-    "Premier League (Inglaterra)": "eng.1",
-    "La Liga (Espanha)": "esp.1", 
-    "Serie A (Itália)": "ita.1",
-    "Bundesliga (Alemanha)": "ger.1",
-    "Ligue 1 (França)": "fra.1",
-    "MLS (Estados Unidos)": "usa.1",
+    "Premier League": "eng.1",
+    "La Liga": "esp.1", 
+    "Serie A": "ita.1",
+    "Bundesliga": "ger.1",
+    "Ligue 1": "fra.1",
+    "MLS": "usa.1",
     "Brasileirão Série A": "bra.1",
     "Brasileirão Série B": "bra.2",
-    "Liga MX (México)": "mex.1",
+    "Liga MX": "mex.1",
     "Copa Libertadores": "ccm",
     "Champions League": "uefa.champions",
     "Europa League": "uefa.europa"
@@ -50,13 +50,18 @@ STATUS_CONFIG = {
     "Cancelado": {"emoji": "❌", "color": "#7F8C8D"}
 }
 
-# Headers para simular navegador
+# Headers melhorados para simular navegador
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
     'Referer': 'https://www.espn.com.br/',
-    'Origin': 'https://www.espn.com.br'
+    'Origin': 'https://www.espn.com.br',
+    'Connection': 'keep-alive',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
 }
 
 # =============================
@@ -104,12 +109,18 @@ def formatar_hora_brasilia(hora_utc: str) -> Optional[datetime]:
         if not hora_utc:
             return None
         
+        # Remove o Z do final se existir
         if hora_utc.endswith('Z'):
-            hora_utc = hora_utc[:-1] + '+00:00'
+            hora_utc = hora_utc[:-1]
+        
+        # Adiciona o timezone se não tiver
+        if '+' not in hora_utc:
+            hora_utc += '+00:00'
         
         hora_dt = datetime.fromisoformat(hora_utc)
         return hora_dt - timedelta(hours=3)
-    except Exception:
+    except Exception as e:
+        st.warning(f"Erro ao formatar hora: {hora_utc} - {e}")
         return None
 
 def get_status_config(status: str) -> Dict:
@@ -183,6 +194,10 @@ def criar_card_partida(partida: Dict):
 
 def exibir_partidas_por_liga(partidas: List[Dict]):
     """Exibe partidas agrupadas por liga"""
+    if not partidas:
+        st.warning("Nenhuma partida encontrada para exibir.")
+        return
+        
     # Agrupa partidas por liga
     partidas_por_liga = {}
     for partida in partidas:
@@ -202,7 +217,7 @@ def exibir_partidas_por_liga(partidas: List[Dict]):
             st.markdown(f"### 🏆 {liga}")
             st.markdown(f"**{len(partidas_liga)} partida(s) encontrada(s)**")
             
-            # Exibe partidas sem filtros complexos
+            # Exibe partidas
             for partida in partidas_liga:
                 criar_card_partida(partida)
             
@@ -210,6 +225,10 @@ def exibir_partidas_por_liga(partidas: List[Dict]):
 
 def exibir_estatisticas(partidas: List[Dict]):
     """Exibe estatísticas visuais das partidas"""
+    if not partidas:
+        st.warning("Nenhuma partida para exibir estatísticas.")
+        return
+        
     total_partidas = len(partidas)
     ligas_unicas = len(set(p['liga'] for p in partidas))
     
@@ -248,9 +267,12 @@ def exibir_estatisticas(partidas: List[Dict]):
 
 def exibir_partidas_lista_compacta(partidas: List[Dict]):
     """Exibe partidas em formato de lista compacta"""
+    if not partidas:
+        st.warning("Nenhuma partida encontrada para exibir.")
+        return
+        
     for i, partida in enumerate(partidas):
         status_config = get_status_config(partida['status'])
-        # Usando container em vez de expander para evitar problemas de key
         with st.container():
             st.markdown(f"**{status_config['emoji']} {partida['home']} vs {partida['away']} - {partida['placar']}**")
             col1, col2 = st.columns(2)
@@ -265,6 +287,10 @@ def exibir_partidas_lista_compacta(partidas: List[Dict]):
 
 def exibir_partidas_top(partidas: List[Dict], top_n: int):
     """Exibe apenas as top partidas"""
+    if not partidas:
+        st.warning("Nenhuma partida encontrada para exibir.")
+        return
+        
     partidas_top = partidas[:top_n]
     st.markdown(f"### 🎯 Top {top_n} Partidas do Dia")
     
@@ -291,7 +317,7 @@ def exibir_partidas_top(partidas: List[Dict], top_n: int):
             with col3:
                 st.markdown(f"### {partida['away']}")
             
-            # Informações adicionais - CORRIGIDO: verificação de datetime válido
+            # Informações adicionais
             col_info1, col_info2, col_info3 = st.columns(3)
             with col_info1:
                 st.write(f"**Horário:** {partida['hora_formatada']}")
@@ -316,141 +342,129 @@ def exibir_partidas_top(partidas: List[Dict], top_n: int):
             st.markdown("---")
 
 # =============================
-# Funções para buscar jogos ESPN
+# Funções para buscar jogos ESPN - CORRIGIDAS
 # =============================
 def buscar_jogos_espn(liga_slug: str, data: str) -> List[Dict]:
-    """Busca jogos da API da ESPN"""
+    """Busca jogos da API da ESPN com tratamento robusto de erros"""
     try:
+        # URL corrigida para a API da ESPN
         url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_slug}/scoreboard"
-        response = requests.get(url, headers=HEADERS, timeout=15)
         
-        if response.status_code in [400, 404]:
+        # Adiciona parâmetros para a data se necessário
+        params = {}
+        if data and data != "all":
+            try:
+                # Converte a data para o formato esperado pela ESPN (YYYYMMDD)
+                data_obj = datetime.strptime(data, "%Y-%m-%d")
+                params = {'dates': data_obj.strftime("%Y%m%d")}
+            except Exception as e:
+                st.warning(f"Erro ao formatar data {data}: {e}")
+        
+        st.write(f"🔍 Buscando: {liga_slug} - {data}")
+        st.write(f"📡 URL: {url}")
+        
+        response = requests.get(url, headers=HEADERS, params=params, timeout=20)
+        st.write(f"📊 Status Code: {response.status_code}")
+        
+        if response.status_code != 200:
+            st.warning(f"⚠️ Erro na requisição: {response.status_code}")
             return []
             
-        response.raise_for_status()
         dados = response.json()
         
-        if not dados.get('events'):
+        # Debug: mostra a estrutura da resposta
+        st.write(f"📦 Estrutura da resposta: {list(dados.keys())}")
+        
+        if 'events' not in dados:
+            st.warning("❌ Nenhum evento encontrado na resposta")
             return []
             
+        eventos = dados.get('events', [])
+        st.write(f"🎯 Eventos encontrados: {len(eventos)}")
+        
         partidas = []
-        data_alvo = datetime.strptime(data, "%Y-%m-%d").date()
+        data_alvo = datetime.strptime(data, "%Y-%m-%d").date() if data != "all" else None
 
-        for evento in dados.get("events", []):
+        for evento in eventos:
             try:
-                hora = evento.get("date", "")
-                hora_dt = formatar_hora_brasilia(hora)
+                # Extrai informações do evento
+                hora_utc = evento.get("date", "")
+                st.write(f"⏰ Hora UTC: {hora_utc}")
                 
-                if hora_dt and data != "all":
+                hora_dt = formatar_hora_brasilia(hora_utc)
+                
+                # Filtra por data se necessário
+                if data_alvo and hora_dt:
                     if hora_dt.date() != data_alvo:
                         continue
                 
                 hora_format = hora_dt.strftime("%d/%m %H:%M") if hora_dt else "A definir"
                 
-                competicoes = evento.get("competitions", [{}])
-                competicao = competicoes[0] if competicoes else {}
-                times = competicao.get("competitors", [])
+                # Extrai informações das equipes
+                competitions = evento.get("competitions", [])
+                if not competitions:
+                    continue
+                    
+                competition = competitions[0]
+                competitors = competition.get("competitors", [])
                 
-                if len(times) >= 2:
-                    home_team = times[0].get("team", {})
-                    away_team = times[1].get("team", {})
+                if len(competitors) >= 2:
+                    home_team = competitors[0].get("team", {})
+                    away_team = competitors[1].get("team", {})
                     
                     home = home_team.get("displayName", "Time Casa")
                     away = away_team.get("displayName", "Time Visitante")
-                    placar_home = times[0].get("score", "0")
-                    placar_away = times[1].get("score", "0")
+                    
+                    # Tenta obter o placar
+                    home_score = competitors[0].get("score", "0")
+                    away_score = competitors[1].get("score", "0")
                 else:
                     home = "Time Casa"
-                    away = "Time Visitante" 
-                    placar_home = placar_away = "0"
+                    away = "Time Visitante"
+                    home_score = away_score = "0"
 
+                # Status do jogo
                 status_info = evento.get("status", {})
                 status_type = status_info.get("type", {})
                 status_desc = status_type.get("description", "Agendado")
                 
-                liga_nome = competicao.get("league", {}).get("name", liga_slug)
+                # Nome da liga
+                liga_nome = competition.get("league", {}).get("name", liga_slug)
+                if not liga_nome or liga_nome == liga_slug:
+                    liga_nome = liga_slug.replace('.', ' ').title()
 
-                partidas.append({
+                partida = {
                     "home": home,
                     "away": away,
-                    "placar": f"{placar_home} - {placar_away}",
+                    "placar": f"{home_score} - {away_score}",
                     "status": status_desc,
                     "hora": hora_dt,
                     "hora_formatada": hora_format,
                     "liga": liga_nome,
                     "liga_slug": liga_slug
-                })
+                }
                 
-            except Exception:
+                partidas.append(partida)
+                st.write(f"✅ Partida adicionada: {home} vs {away}")
+                
+            except Exception as e:
+                st.warning(f"⚠️ Erro ao processar evento: {e}")
                 continue
                 
+        st.success(f"🎉 {len(partidas)} partidas processadas para {liga_slug}")
         return partidas
         
-    except Exception:
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Erro de rede ao buscar {liga_slug}: {e}")
+        return []
+    except Exception as e:
+        st.error(f"❌ Erro inesperado ao buscar {liga_slug}: {e}")
         return []
 
 def buscar_jogos_hoje(liga_slug: str) -> List[Dict]:
-    """Busca jogos de hoje especificamente"""
-    try:
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga_slug}/scoreboard"
-        response = requests.get(url, headers=HEADERS, timeout=15)
-        
-        if response.status_code != 200:
-            return []
-            
-        dados = response.json()
-        partidas = []
-        hoje = datetime.now().date()
-
-        for evento in dados.get("events", []):
-            try:
-                hora = evento.get("date", "")
-                hora_dt = formatar_hora_brasilia(hora)
-                
-                if not hora_dt or hora_dt.date() != hoje:
-                    continue
-                
-                hora_format = hora_dt.strftime("%H:%M")
-                
-                competicoes = evento.get("competitions", [{}])
-                competicao = competicoes[0] if competicoes else {}
-                times = competicao.get("competitors", [])
-                
-                if len(times) >= 2:
-                    home_team = times[0].get("team", {})
-                    away_team = times[1].get("team", {})
-                    
-                    home = home_team.get("displayName", "Time Casa")
-                    away = away_team.get("displayName", "Time Visitante")
-                    placar_home = times[0].get("score", "0")
-                    placar_away = times[1].get("score", "0")
-                else:
-                    continue
-
-                status_info = evento.get("status", {})
-                status_type = status_info.get("type", {})
-                status_desc = status_type.get("description", "Agendado")
-                
-                liga_nome = competicao.get("league", {}).get("name", liga_slug)
-
-                partidas.append({
-                    "home": home,
-                    "away": away,
-                    "placar": f"{placar_home} - {placar_away}",
-                    "status": status_desc,
-                    "hora": hora_dt,
-                    "hora_formatada": hora_format,
-                    "liga": liga_nome,
-                    "liga_slug": liga_slug
-                })
-                
-            except Exception:
-                continue
-                
-        return partidas
-        
-    except Exception:
-        return []
+    """Busca jogos de hoje usando a função principal"""
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    return buscar_jogos_espn(liga_slug, hoje)
 
 # =============================
 # Função principal de processamento
@@ -458,7 +472,10 @@ def buscar_jogos_hoje(liga_slug: str) -> List[Dict]:
 def processar_jogos(data_str: str, ligas_selecionadas: List[str], top_n: int, buscar_hoje: bool = False):
     """Processa e exibe jogos com interface melhorada"""
     
-    with st.container():
+    # Container de progresso
+    progress_container = st.container()
+    
+    with progress_container:
         if buscar_hoje:
             st.info("🎯 Buscando jogos de HOJE...")
         else:
@@ -485,18 +502,23 @@ def processar_jogos(data_str: str, ligas_selecionadas: List[str], top_n: int, bu
         
         if partidas:
             todas_partidas.extend(partidas)
-            status_text.success(f"✅ {liga}: {len(partidas)} jogos")
+            status_text.success(f"✅ {liga}: {len(partidas)} jogos encontrados")
         else:
             status_text.warning(f"⚠️ {liga}: Nenhum jogo encontrado")
         
-        time.sleep(0.3)
+        # Pequena pausa para não sobrecarregar a API
+        time.sleep(1)
+    
+    # Limpa a barra de progresso
+    progress_bar.empty()
+    status_text.empty()
     
     if not todas_partidas:
-        status_text.error("❌ Nenhum jogo encontrado para os critérios selecionados.")
+        st.error("❌ Nenhum jogo encontrado para os critérios selecionados.")
         st.session_state.dados_carregados = False
         return
 
-    # Ordenar por horário - CORREÇÃO: tratamento seguro para None
+    # Ordenar por horário
     todas_partidas.sort(key=lambda x: x['hora'] if is_valid_datetime(x['hora']) else datetime.max)
     
     # Salva os dados no session state
@@ -507,10 +529,6 @@ def processar_jogos(data_str: str, ligas_selecionadas: List[str], top_n: int, bu
     st.session_state.busca_hoje = buscar_hoje
     st.session_state.data_ultima_busca = data_str
     st.session_state.top_n = top_n
-    
-    # Limpa a barra de progresso
-    progress_bar.empty()
-    status_text.empty()
 
     # Exibe os dados
     exibir_dados_salvos()
@@ -542,7 +560,7 @@ def exibir_dados_salvos():
             minutos = int(tempo_passado.total_seconds() // 60)
             st.info(f"⏰ **Atualizado:** {minutos} min atrás")
     
-    # Seletor de modo de exibição - KEYS SIMPLES
+    # Seletor de modo de exibição
     st.markdown("---")
     col_view1, col_view2, col_view3 = st.columns(3)
     
@@ -594,7 +612,7 @@ def exibir_dados_salvos():
             st.error("❌ Falha ao enviar para o Telegram!")
 
 # =============================
-# Interface Streamlit - CORRIGIDA
+# Interface Streamlit
 # =============================
 def main():
     st.title("⚽ ESPN Soccer - Elite Master")
@@ -604,7 +622,7 @@ def main():
     # Inicializar session state
     inicializar_session_state()
     
-    # Sidebar SIMPLIFICADA
+    # Sidebar
     with st.sidebar:
         st.header("⚙️ Configurações")
         
@@ -690,10 +708,10 @@ def main():
         2. **Escolha uma data** ou clique em **"Jogos de Hoje"**
         3. **Clique em buscar** para carregar as partidas
         
-        ⚡ **Dica:** Os dados ficarão salvos até você fechar a página!
+        ⚡ **Dica:** Comece com ligas populares como Premier League ou Champions League
         """)
 
-    # Informações de ajuda - USANDO CONTAINER EM VEZ DE EXPANDER
+    # Informações de ajuda
     st.markdown("---")
     st.subheader("🎮 Guia Rápido")
     
