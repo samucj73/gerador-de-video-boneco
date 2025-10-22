@@ -701,8 +701,8 @@ def exibir_aba_analise():
     
     with st.sidebar:
         st.subheader("Controles de Análise")
-        top_n = st.slider("Número de jogos para analisar", 1, 10, 5)
-        janela = st.slider("Jogos recentes para análise", 8, 20, 15)
+        top_n = st.slider("Número de jogos para analisar", 1, 15, 5)
+        janela = st.slider("Jogos recentes para análise", 2, 20, 15)
         enviar_auto = st.checkbox("Enviar alertas automaticamente para Telegram", value=True)
         
         st.markdown("---")
