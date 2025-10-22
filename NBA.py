@@ -6,10 +6,11 @@ import json
 import os
 import io
 import pandas as pd
+import math
+import time
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
-import time
 
 # =============================
 # CONFIGURAÇÕES E SEGURANÇA
@@ -21,10 +22,13 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003073115320")
 TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2", "-1002754276285")
 BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-ALERTAS_PATH = "alertas_nba.json"
+# Arquivos de cache/estado
+ALERTAS_PATH = "alertas_nba.json"            # alertas salvos (predictions)
+SENT_ALERTS_PATH = "alerts_sent_nba.json"    # dedupe: mensagens enviadas (hashes)
 CACHE_GAMES = "cache_games_nba.json"
 CACHE_TEAMS = "cache_teams_nba.json"
 CACHE_STATS = "cache_stats_nba.json"
+CACHE_PLAYERS = "cache_players_nba.json"
 CACHE_TIMEOUT = 3600  # 1h
 
 HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
@@ -36,11 +40,7 @@ def carregar_json(caminho: str) -> dict:
     try:
         if os.path.exists(caminho):
             with open(caminho, "r", encoding="utf-8") as f:
-                dados = json.load(f)
-            # invalida cache antigo por tempo
-            if datetime.now().timestamp() - os.path.getmtime(caminho) > CACHE_TIMEOUT:
-                return {}
-            return dados
+                return json.load(f)
     except Exception as e:
         st.error(f"Erro ao carregar {caminho}: {e}")
     return {}
@@ -57,6 +57,12 @@ def carregar_alertas():
 
 def salvar_alertas(dados):
     salvar_json(ALERTAS_PATH, dados)
+
+def carregar_sent_alerts():
+    return carregar_json(SENT_ALERTS_PATH) or {}
+
+def salvar_sent_alerts(dados):
+    salvar_json(SENT_ALERTS_PATH, dados)
 
 def carregar_cache_games():
     return carregar_json(CACHE_GAMES) or {}
@@ -76,14 +82,19 @@ def carregar_cache_stats():
 def salvar_cache_stats(dados):
     salvar_json(CACHE_STATS, dados)
 
+def carregar_cache_players():
+    return carregar_json(CACHE_PLAYERS) or {}
+
+def salvar_cache_players(dados):
+    salvar_json(CACHE_PLAYERS, dados)
+
 # =============================
-# FORMATAÇÃO E UTILS
+# HELPERS e FORMATAÇÃO
 # =============================
 def formatar_data_brt(date_iso: str) -> tuple[str, str]:
+    if not date_iso:
+        return "Data inválida", "Hora inválida"
     try:
-        if not date_iso:
-            return "Data inválida", "Hora inválida"
-        # BallDontLie pode ter 'datetime' ou 'date' em diferentes formatos
         dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")) - timedelta(hours=3)
         return dt.strftime("%d/%m/%Y"), dt.strftime("%H:%M")
     except Exception:
@@ -93,6 +104,12 @@ def abreviar(nome: str, l=20):
     if not nome:
         return ""
     return nome if len(nome) <= l else nome[:l-3] + "..."
+
+def safe_float(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return default
 
 # =============================
 # REQUISIÇÕES À BALLDONTLIE
@@ -108,7 +125,7 @@ def balldontlie_get(path: str, params: dict | None = None, timeout: int = 10) ->
         return None
 
 # =============================
-# TIMES (cache)
+# TEAMS & PLAYERS (cache)
 # =============================
 def obter_times():
     cache = carregar_cache_teams()
@@ -121,6 +138,54 @@ def obter_times():
     cache["teams"] = teams
     salvar_cache_teams(cache)
     return teams
+
+def obter_players_por_time(team_id: int, per_page=100):
+    cache = carregar_cache_players()
+    key = f"team_{team_id}"
+    if key in cache:
+        return cache[key]
+
+    players = []
+    page = 1
+    while True:
+        params = {"team_ids[]": team_id, "per_page": per_page, "page": page}
+        data = balldontlie_get("players", params=params)
+        if not data or "data" not in data:
+            break
+        players.extend(data.get("data", []))
+        meta = data.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
+            break
+        page += 1
+        time.sleep(0.05)
+    cache[key] = players
+    salvar_cache_players(cache)
+    return players
+
+def obter_season_averages_for_players(player_ids: list[int], season: int = None):
+    """
+    Chama endpoint season_averages para uma lista de player_ids — retorna dict player_id -> averages dict
+    """
+    if not player_ids:
+        return {}
+    season = season or datetime.today().year - 1  # fallback para temporada atual/última
+    averages = {}
+    # ballDontLie supports multiple player_ids by passing player_ids[]=id...
+    # mas limite por request — faremos batches de 50
+    batch_size = 50
+    for i in range(0, len(player_ids), batch_size):
+        batch = player_ids[i:i+batch_size]
+        params = {"season": season}
+        for pid in batch:
+            params.setdefault("player_ids[]", []).append(pid)
+        resp = balldontlie_get("season_averages", params=params)
+        if not resp:
+            continue
+        for item in resp.get("data", []):
+            pid = item.get("player", {}).get("id") or item.get("player")
+            averages[pid] = item
+    return averages
 
 # =============================
 # GAMES: obter jogos por data (cache)
@@ -140,8 +205,9 @@ def obter_jogos_data(data_str: str) -> list:
         if not resp or "data" not in resp:
             break
         jogos.extend(resp["data"])
-        meta = resp.get("meta")
-        if not meta or page >= meta.get("total_pages", 1):
+        meta = resp.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
             break
         page += 1
         time.sleep(0.05)
@@ -163,7 +229,7 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
     per_page = 100
     page = 1
     games = []
-    while len(games) < window_games:
+    while len(games) < max(window_games, 10):
         params = {
             "team_ids[]": team_id,
             "per_page": per_page,
@@ -175,8 +241,9 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         if not resp or "data" not in resp:
             break
         games.extend(resp["data"])
-        meta = resp.get("meta")
-        if not meta or page >= meta.get("total_pages", 1):
+        meta = resp.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
             break
         page += 1
         time.sleep(0.05)
@@ -191,7 +258,7 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
     games_sorted = sorted(games, key=_gdate, reverse=True)[:window_games]
 
     if not games_sorted:
-        stats = {"pts_for_avg": 0.0, "pts_against_avg": 0.0, "games": 0, "pts_diff_avg": 0.0, "first_half_avg": 0.0}
+        stats = {"pts_for_avg": 0.0, "pts_against_avg": 0.0, "games": 0, "pts_diff_avg": 0.0, "first_half_avg": 0.0, "totals": []}
         cache[key] = stats
         salvar_cache_stats(cache)
         return stats
@@ -200,6 +267,7 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
     pts_against = 0
     first_half_total = 0
     count = 0
+    totals = []
     seen_game_ids = set()
 
     for g in games_sorted:
@@ -213,6 +281,9 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         visitor_score = g.get("visitor_team_score")
         if home_score is None or visitor_score is None:
             continue
+
+        total = (home_score or 0) + (visitor_score or 0)
+        totals.append(total)
 
         if home_id == team_id:
             pts_for += home_score
@@ -231,14 +302,15 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         count += 1
 
     if count == 0:
-        stats = {"pts_for_avg": 0.0, "pts_against_avg": 0.0, "games": 0, "pts_diff_avg": 0.0, "first_half_avg": 0.0}
+        stats = {"pts_for_avg": 0.0, "pts_against_avg": 0.0, "games": 0, "pts_diff_avg": 0.0, "first_half_avg": 0.0, "totals": totals}
     else:
         stats = {
             "pts_for_avg": pts_for / count,
             "pts_against_avg": pts_against / count,
             "games": count,
             "pts_diff_avg": (pts_for - pts_against) / count,
-            "first_half_avg": first_half_total / count
+            "first_half_avg": first_half_total / count,
+            "totals": totals
         }
 
     cache[key] = stats
@@ -246,29 +318,85 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
     return stats
 
 # =============================
-# LÓGICA DE PREVISÃO — 4 MODALIDADES
+# CALIBRAÇÃO DE THRESHOLDS (AUTOMÁTICA)
 # =============================
-def prever_total_points(home_id: int, away_id: int, window_games: int = 20) -> tuple[float, float, str]:
+def calibrar_thresholds(home_id: int, away_id: int, window_games: int = 30) -> dict:
+    """
+    Gera thresholds calibrados para Over/Under a partir do histórico de jogos recentes
+    de ambos os times: calcula média dos totais e desvio padrão.
+    Retorna dict com thresholds para lines (mean, mean+std, mean+1.5*std).
+    """
+    # pegar estatísticas recentes de ambos
+    h_stats = obter_estatisticas_recentes_time(home_id, window_games)
+    a_stats = obter_estatisticas_recentes_time(away_id, window_games)
+
+    # juntar listas de totais (cada time traz os totais das suas partidas)
+    totals = []
+    totals.extend(h_stats.get("totals", []) or [])
+    totals.extend(a_stats.get("totals", []) or [])
+
+    # se não houver dados suficientes, usar heurística padrão (215 +/-)
+    if not totals:
+        mean = 215.0
+        std = 8.0
+    else:
+        mean = sum(totals) / len(totals)
+        # cálculo de std populacional
+        var = sum((x - mean) ** 2 for x in totals) / len(totals)
+        std = math.sqrt(var)
+
+    thresholds = {
+        "mean": round(mean, 1),
+        "std": round(std, 2),
+        "line_mean": f"{round(mean,1)}",
+        "line_plus_std": f"{round(mean + std, 1)}",
+        "line_plus_1_5std": f"{round(mean + 1.5 * std, 1)}"
+    }
+    # recomendações (mapear para linhas de apostas comuns .5)
+    def to_05(x):
+        # converte para nearest .5 e adiciona .5 to represent typical sportsbook format
+        return f"{round(x - 0.5 if (x - math.floor(x)) < 0.5 else math.floor(x)+0.5, 1)}"
+    thresholds["recommended_lines"] = {
+        "conservative": to_05(mean + std),
+        "balanced": to_05(mean),
+        "aggressive": to_05(mean + 1.5*std)
+    }
+    return thresholds
+
+# =============================
+# LÓGICA DE PREVISÃO — 4 MODALIDADES (usando calibração)
+# =============================
+def prever_total_points(home_id: int, away_id: int, window_games: int = 20, calibrate: bool = True) -> tuple[float, float, str]:
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
     if home_stats["games"] == 0 or away_stats["games"] == 0:
+        # fallback neutro
         return 215.0, 55.0, "Mais 215.5"
+
+    # estimativa direta: soma das médias de pontos por time
     estimativa = home_stats["pts_for_avg"] + away_stats["pts_for_avg"]
+
+    # confiança baseada em número de jogos e proximidade das médias
     jogos = min(home_stats["games"], away_stats["games"])
     conf = 45 + min(30, jogos)
     diff = abs(home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"])
     conf -= max(0, min(10, diff))
     conf = max(35.0, min(95.0, conf))
-    if estimativa >= 235:
-        tendencia = "Mais 235.5"
-    elif estimativa >= 225:
-        tendencia = "Mais 225.5"
-    elif estimativa >= 215:
-        tendencia = "Mais 215.5"
-    elif estimativa >= 210:
-        tendencia = "Mais 210.5"
+
+    # usar calibração de thresholds se desejado
+    if calibrate:
+        cal = calibrar_thresholds(home_id, away_id, window_games)
+        mean = safe_float(cal.get("mean", 215.0))
     else:
-        tendencia = "Menos 210.5"
+        mean = 215.0
+
+    # selecionar tendência linha mais próxima
+    # linhas predefinidas comuns
+    lines = [205.5, 210.5, 215.5, 220.5, 225.5, 230.5, 235.5]
+    # escolher a linha cuja diferença absoluta para estimativa é mínima OR prefer mean
+    candidate = min(lines, key=lambda x: abs(x - estimativa))
+    tendencia = f"Mais {candidate:.1f}" if estimativa >= candidate else f"Menos {candidate:.1f}"
+
     return round(estimativa, 1), round(conf, 1), tendencia
 
 def prever_moneyline(home_id: int, away_id: int, window_games: int = 20) -> tuple[str, float]:
@@ -321,18 +449,57 @@ def prever_first_half(home_id: int, away_id: int, window_games: int = 20) -> tup
     return round(estimativa, 1), round(conf, 1), tendencia
 
 # =============================
-# ALERTAS / FORMATAÇÃO / TELEGRAM
+# TELEGRAM: dedupe + backoff seguro
 # =============================
-def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
-    try:
-        resp = requests.get(BASE_URL_TG, params={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}, timeout=10)
-        return resp.status_code == 200
-    except requests.RequestException as e:
-        st.error(f"Erro enviar Telegram: {e}")
-        return False
+def send_telegram_with_backoff(msg: str, chat_id: str = TELEGRAM_CHAT_ID_ALT2, max_retries: int = 4) -> bool:
+    """
+    Envia mensagem para telegram usando retries exponenciais e dedupe (via hash).
+    Salva mensagem enviada em SENT_ALERTS_PATH para dedupe.
+    """
+    # dedupe: hash simples (home+away+msg trimmed)
+    key = str(abs(hash(msg)))  # not cryptographic but good enough for dedupe
+    sent = carregar_sent_alerts()
 
+    # se já enviado recentemente (24h), evitar reenviar
+    if key in sent:
+        ts = sent[key].get("ts")
+        try:
+            sent_time = datetime.fromisoformat(ts)
+            if (datetime.now() - sent_time).total_seconds() < 60 * 60 * 24:
+                return True  # já enviado recentemente
+        except Exception:
+            pass
+
+    url = BASE_URL_TG
+    params = {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}
+    backoff = 1.0
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code == 200:
+                # salvar dedupe info
+                sent[key] = {"ts": datetime.now().isoformat(), "status_code": 200}
+                salvar_sent_alerts(sent)
+                return True
+            else:
+                # registrar tentativa
+                sent[key] = {"last_status": resp.status_code, "last_text": resp.text, "ts": datetime.now().isoformat()}
+                salvar_sent_alerts(sent)
+                # retry with backoff
+                time.sleep(backoff)
+                backoff *= 2
+        except requests.RequestException as e:
+            # salvar erro e tentar novamente com backoff
+            sent[key] = {"error": str(e), "ts": datetime.now().isoformat()}
+            salvar_sent_alerts(sent)
+            time.sleep(backoff)
+            backoff *= 2
+    return False
+
+# =============================
+# ALERTAS / FORMATAÇÃO / STREAMLIT
+# =============================
 def formatar_msg_alerta(game: dict, predictions: dict) -> str:
-    """Formata mensagem de alerta com proteção contra dados faltantes."""
     try:
         home = game.get("home_team", {}).get("full_name", "Casa")
         away = game.get("visitor_team", {}).get("full_name", "Visitante")
@@ -346,30 +513,37 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
         # Total
         t = predictions.get("total", {})
         if t:
-            estim_t = t.get("estimativa", 0)
-            conf_t = t.get("confianca", 0)
+            estim_t = safe_float(t.get("estimativa", 0))
+            conf_t = safe_float(t.get("confianca", 0))
             tend_t = t.get("tendencia", "Mais 215.5")
             msg += f"📈 <b>Total</b>: {tend_t} | Estimativa: <b>{estim_t:.1f}</b> | Conf: {conf_t:.0f}%\n"
+
         # Moneyline
         ml = predictions.get("moneyline", None)
-        if ml:
+        if ml and isinstance(ml, (list, tuple)):
             try:
                 msg += f"🎯 <b>Moneyline</b>: {ml[0]} ({ml[1]:.0f}%)\n"
             except Exception:
-                msg += f"🎯 <b>Moneyline</b>: Dados insuficientes\n"
+                msg += "🎯 <b>Moneyline</b>: Dados insuficientes\n"
+
         # Handicap
         h = predictions.get("handicap", None)
         if isinstance(h, dict):
-            msg += f"📐 <b>Handicap</b>: Spread sugerido {h.get('spread','-')} | Margem: {h.get('margem',0):.1f} | Prob cover casa: {h.get('prob_cover_home',0):.0f}%\n"
+            msg += f"📐 <b>Handicap</b>: Spread {h.get('spread','-')} | Margem: {h.get('margem',0):.1f} | Prob cover casa: {h.get('prob_cover_home',0):.0f}%\n"
+
         # First Half
         fh = predictions.get("first_half", {})
         if fh:
-            # fh should be tuple/list: (estim, conf, tendencia)
             try:
-                estim_fh = fh.get("estimativa") if isinstance(fh, dict) else fh[0]
-                conf_fh = fh.get("confianca") if isinstance(fh, dict) else fh[1]
-                tend_fh = fh.get("tendencia") if isinstance(fh, dict) else fh[2]
-                msg += f"⏱️ <b>1º Tempo</b>: {tend_fh} | Estimativa: <b>{float(estim_fh):.1f}</b> | Conf: {float(conf_fh):.0f}%\n"
+                if isinstance(fh, dict):
+                    estim_fh = safe_float(fh.get("estimativa", 0))
+                    conf_fh = safe_float(fh.get("confianca", 0))
+                    tend_fh = fh.get("tendencia", "")
+                else:
+                    estim_fh = safe_float(fh[0])
+                    conf_fh = safe_float(fh[1])
+                    tend_fh = fh[2] if len(fh) > 2 else ""
+                msg += f"⏱️ <b>1º Tempo</b>: {tend_fh} | Estimativa: <b>{estim_fh:.1f}</b> | Conf: {conf_fh:.0f}%\n"
             except Exception:
                 msg += "⏱️ <b>1º Tempo</b>: Dados indisponíveis\n"
 
@@ -390,11 +564,15 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
         }
         salvar_alertas(alertas)
         msg = formatar_msg_alerta(game, predictions)
-        # Streamlit: mostrar alerta no app
+        # Mostrar no Streamlit
         st.info(msg)
-        # Envio opcional ao Telegram
+        # enviar de forma segura (dedupe+backoff) se habilitado
         if send_to_telegram:
-            enviar_telegram(msg)
+            ok = send_telegram_with_backoff(msg, TELEGRAM_CHAT_ID_ALT2)
+            if ok:
+                st.success("Alerta enviado ao Telegram.")
+            else:
+                st.warning("Falha ao enviar alerta ao Telegram (ver logs).")
 
 # =============================
 # RESULTADOS & CONFERÊNCIA
@@ -425,9 +603,9 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
         fh_pred = pred.get("first_half", {})
         try:
             if isinstance(fh_pred, dict):
-                th_fh = float(fh_pred.get("tendencia", "105.5").split()[-1])
+                th_fh = float(str(fh_pred.get("tendencia","105.5")).split()[-1])
             else:
-                th_fh = float(str(fh_pred[2]).split()[-1])
+                th_fh = float(str(fh_pred[2]).split()[-1]) if fh_pred and len(fh_pred) > 2 else 105.5
         except Exception:
             th_fh = 105.5
 
@@ -436,7 +614,7 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
         vis_q1 = game.get("visitor_q1") or 0
         vis_q2 = game.get("visitor_q2") or 0
         first_half_total = home_q1 + home_q2 + vis_q1 + vis_q2
-        if "Mais" in (fh_pred.get("tendencia", "") if isinstance(fh_pred, dict) else str(fh_pred[2]) if fh_pred else ""):
+        if "Mais" in (fh_pred.get("tendencia", "") if isinstance(fh_pred, dict) else (str(fh_pred[2]) if fh_pred and len(fh_pred)>2 else "")):
             fh_res = "🟢 GREEN" if first_half_total > th_fh else "🔴 RED"
         else:
             fh_res = "🟢 GREEN" if first_half_total < th_fh else "🔴 RED"
@@ -472,7 +650,7 @@ def enviar_resultado_telegram_nba(resultado: dict):
         f"🏀 Total: {resultado['total']} -> {resultado['total_result']}\n"
         f"⏱️ 1º Tempo: {resultado.get('first_half_total')} -> {resultado.get('first_half_result')}"
     )
-    enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2)
+    send_telegram_with_backoff(msg, TELEGRAM_CHAT_ID_ALT2)
 
 # =============================
 # PDF (mantendo estilo)
@@ -500,18 +678,21 @@ def gerar_relatorio_pdf(rows: list) -> io.BytesIO:
     return buffer
 
 # =============================
-# STREAMLIT UI & FLUXO
+# UI STREAMLIT - Fluxo principal
 # =============================
 def main():
     st.set_page_config(page_title="🏀 Elite Master - NBA Alerts", layout="wide")
     st.title("🏀 Elite Master — Sistema de Alertas Automáticos (NBA)")
 
+    # Sidebar
     with st.sidebar:
         st.header("Configurações")
-        top_n = st.selectbox("📊 Top jogos a enviar", [3,5,10], index=0)
-        janela = st.slider("Janela (nº jogos recentes p/ médias)", min_value=5, max_value=40, value=20)
+        top_n = st.selectbox("📊 Top jogos a enviar / exibir", [3,5,10], index=0)
+        janela = st.slider("Janela (nº jogos recentes p/ médias)", min_value=5, max_value=60, value=20)
         enviar_auto = st.checkbox("📤 Enviar alertas ao Telegram (opcional)", value=False)
-        st.markdown("API: BallDontLie. Guarde sua chave em BALLDONTLIE_API_KEY se desejar.")
+        calibrar_check = st.checkbox("🔧 Calibrar thresholds automaticamente", value=True)
+        st.markdown("Guarde sua chave em BALLDONTLIE_API_KEY (recomendado).")
+        st.markdown("Obs: envio Telegram usa dedupe e backoff.")
 
     col1, col2 = st.columns([2,1])
     with col1:
@@ -519,7 +700,7 @@ def main():
     with col2:
         st.write(" ")
         if st.button("🔍 Buscar & Analisar (NBA)"):
-            processar_dia_nba(data_sel, top_n, janela, enviar_auto)
+            processar_dia_nba(data_sel, top_n, janela, enviar_auto, calibrar_check)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -538,7 +719,16 @@ def main():
             except Exception as e:
                 st.error(f"Erro limpar alertas: {e}")
 
-def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
+    # Player metrics quick tool
+    st.markdown("---")
+    st.subheader("🔎 Métricas de Jogadores (Season Averages)")
+    team_input = st.text_input("Time (abreviação ou nome) — ex: GSW, Lakers (deixe vazio para pular)")
+    season_input = st.number_input("Season (ano inicial) — ex: 2024", min_value=2000, max_value=2100, value=datetime.today().year - 1)
+    if st.button("📈 Buscar métricas do time"):
+        if team_input:
+            show_player_metrics(team_input, season_input)
+
+def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool, calibrar_check: bool):
     data_str = data_sel.strftime("%Y-%m-%d")
     st.info(f"Buscando jogos NBA para {data_sel.strftime('%d/%m/%Y')} ...")
     games = obter_jogos_data(data_str)
@@ -550,10 +740,12 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
     progress = st.progress(0)
     total = len(games)
     for i, g in enumerate(games):
-        home_id = g["home_team"]["id"]
-        away_id = g["visitor_team"]["id"]
+        # ids
+        home_id = g.get("home_team", {}).get("id")
+        away_id = g.get("visitor_team", {}).get("id")
 
-        estim_total, conf_total, tend_total = prever_total_points(home_id, away_id, window_games=janela)
+        # previsões — se calibrar_check, passe calibrate=True
+        estim_total, conf_total, tend_total = prever_total_points(home_id, away_id, window_games=janela, calibrate=calibrar_check)
         ml_pred = prever_moneyline(home_id, away_id, window_games=janela)
         handicap_pred = prever_handicap(home_id, away_id, window_games=janela)
         fh_estim, fh_conf, fh_tend = prever_first_half(home_id, away_id, window_games=janela)
@@ -569,7 +761,6 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
         verificar_e_enviar_alerta(g, predictions, send_to_telegram=enviar_auto)
 
         # linha para PDF
-        hora = None
         try:
             hora = datetime.fromisoformat((g.get("datetime") or g.get("date")).replace("Z", "+00:00")) - timedelta(hours=3)
             hora_str = hora.strftime("%d/%m %H:%M")
@@ -577,7 +768,7 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
             hora_str = "-"
 
         rows_for_pdf.append([
-            f"{abreviar(g['home_team']['full_name'])} vs {abreviar(g['visitor_team']['full_name'])}",
+            f"{abreviar(g.get('home_team', {}).get('full_name','Casa'))} vs {abreviar(g.get('visitor_team', {}).get('full_name','Visitante'))}",
             "Total",
             f"{predictions['total']['estimativa']:.1f}",
             f"{predictions['total']['confianca']:.0f}%",
@@ -585,18 +776,27 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
         ])
         progress.progress((i+1)/total)
 
-    # top N (pelas confidências do total)
+    # top N exibição
     alertas = carregar_alertas()
     jogos_list = []
     for fid, info in alertas.items():
         g = balldontlie_get(f"games/{fid}")
-        if not g:
+        if not g or "data" in g and isinstance(g["data"], dict) and "id" not in g["data"]:
+            # some endpoints return direct object or wrapped; try both shapes
+            pass
+        # g may be a dict with 'data' wrapper when fetching a single game
+        if isinstance(g, dict) and "data" in g:
+            g_data = g["data"]
+        else:
+            g_data = g
+
+        if not g_data:
             continue
         pred = info.get("predictions", {})
         jogos_list.append({
             "id": fid,
-            "home": g.get("home_team", {}).get("full_name"),
-            "away": g.get("visitor_team", {}).get("full_name"),
+            "home": g_data.get("home_team", {}).get("full_name"),
+            "away": g_data.get("visitor_team", {}).get("full_name"),
             "estimativa": pred.get("total", {}).get("estimativa", 0),
             "confianca": pred.get("total", {}).get("confianca", 0),
             "tendencia": pred.get("total", {}).get("tendencia", "")
@@ -624,9 +824,13 @@ def conferir_resultados_nba():
     mudou = False
     for fid, info in list(alertas.items()):
         g = balldontlie_get(f"games/{fid}")
-        if not g:
+        if isinstance(g, dict) and "data" in g:
+            g_data = g["data"]
+        else:
+            g_data = g
+        if not g_data:
             continue
-        res = processar_resultado_nba(g, info)
+        res = processar_resultado_nba(g_data, info)
         exibir_resultado_streamlit(res)
         if res["status"] in ("FINAL", "FINALIZED"):
             enviar_resultado_telegram_nba(res)
@@ -662,12 +866,68 @@ def exibir_resultado_streamlit(res: dict):
     """, unsafe_allow_html=True)
 
 def limpar_caches():
-    for f in [CACHE_GAMES, CACHE_TEAMS, CACHE_STATS]:
+    for f in [CACHE_GAMES, CACHE_TEAMS, CACHE_STATS, CACHE_PLAYERS]:
         try:
             if os.path.exists(f):
                 os.remove(f)
         except Exception:
             pass
 
+# =============================
+# PLAYER METRICS DISPLAY
+# =============================
+def show_player_metrics(team_input: str, season: int):
+    """
+    Busca jogadores do time e exibe season averages (quando disponível).
+    Aceita abreviação ou parte do nome.
+    """
+    st.info(f"Buscando jogadores e season averages para time '{team_input}' (season {season})...")
+    teams = obter_times()
+    # tentar encontrar team pela abreviação ou pelo nome
+    matched = None
+    for tid, t in teams.items():
+        if team_input.lower() in (t.get("abbreviation","").lower(), t.get("full_name","").lower(), t.get("name","").lower()):
+            matched = t
+            break
+    if not matched:
+        st.warning("Time não encontrado localmente — buscando lista completa...")
+        # fallback listar times
+        df = pd.DataFrame([{"id": k, **v} for k,v in teams.items()])
+        st.dataframe(df[["id","full_name","abbreviation","city"]])
+        return
+
+    st.success(f"Time encontrado: {matched.get('full_name')} ({matched.get('abbreviation')})")
+    players = obter_players_por_time(matched.get("id"))
+    if not players:
+        st.warning("Nenhum jogador encontrado para o time.")
+        return
+
+    # coletar ids e buscar season averages
+    player_ids = [p.get("id") for p in players if p.get("id")]
+    avgs = obter_season_averages_for_players(player_ids, season=season)
+
+    rows = []
+    for p in players:
+        pid = p.get("id")
+        avg = avgs.get(pid, {})
+        stats = avg.get("stats") if isinstance(avg, dict) else None
+        pts = stats.get("pts") if stats else None
+        reb = stats.get("reb") if stats else None
+        ast = stats.get("ast") if stats else None
+        rows.append({
+            "player_id": pid,
+            "name": f"{p.get('first_name','')} {p.get('last_name','')}",
+            "position": p.get("position"),
+            "pts_avg": round(pts,1) if pts is not None else "-",
+            "reb_avg": round(reb,1) if reb is not None else "-",
+            "ast_avg": round(ast,1) if ast is not None else "-"
+        })
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df.sort_values(by="pts_avg", ascending=False).reset_index(drop=True))
+
+# =============================
+# Entrypoint
+# =============================
 if __name__ == "__main__":
     main()
