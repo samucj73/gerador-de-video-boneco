@@ -11,22 +11,17 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 import time
 
-# # =============================
-# CONFIGURAÇÕES E SEGURANÇA
 # =============================
-# ✅ CORREÇÃO: Remover chaves hardcoded - usar apenas variáveis de ambiente
-BALLDONTLIE_API_KEY = os.getenv("BALLDONTLIE_API_KEY")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2")
+# CONFIGURAÇÕES - VERSÃO TESTE
+# =============================
+# ✅ CHAVES DIRETAS NO CÓDIGO (APENAS PARA TESTE)
+BALLDONTLIE_API_KEY = "7da89f74-317a-45a0-88f9-57cccfef5a00"
+TELEGRAM_TOKEN = "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY"
+TELEGRAM_CHAT_ID = "-1003073115320"
+TELEGRAM_CHAT_ID_ALT2 = "-1002754276285"
 
-# ✅ Validação das chaves obrigatórias
-if not BALLDONTLIE_API_KEY:
-    st.error("❌ BALLDONTLIE_API_KEY não encontrada. Configure a variável de ambiente.")
-    st.stop()
-
-BALLDONTLIE_BASE = os.getenv("BALLDONTLIE_BASE", "https://api.balldontlie.io/v1")
-BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage" if TELEGRAM_TOKEN else None
+BALLDONTLIE_BASE = "https://api.balldontlie.io/v1"
+BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 ALERTAS_PATH = "alertas_nba.json"
 CACHE_GAMES = "cache_games_nba.json"
@@ -36,16 +31,10 @@ CACHE_TIMEOUT = 3600  # 1h
 
 HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
 
-# ✅ Adicionar configuração de timeout global
+# ✅ Rate Limiting
 REQUEST_TIMEOUT = 15
-HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
-
-# ✅ Adicionar configuração de timeout global
-REQUEST_TIMEOUT = 15
-
-# ✅ Rate Limiting - BallDontLie tem limite de 60 requests/minuto
 LAST_REQUEST_TIME = 0
-MIN_REQUEST_INTERVAL = 1.1  # 1.1 segundo entre requests (≈54/minuto)
+MIN_REQUEST_INTERVAL = 1.1  # 1.1 segundo entre requests
 
 # =============================
 # UTILITÁRIOS DE CACHE E IO
@@ -55,7 +44,6 @@ def carregar_json(caminho: str) -> dict:
         if os.path.exists(caminho):
             with open(caminho, "r", encoding="utf-8") as f:
                 dados = json.load(f)
-            # invalida cache antigo por tempo
             if datetime.now().timestamp() - os.path.getmtime(caminho) > CACHE_TIMEOUT:
                 return {}
             return dados
@@ -101,7 +89,6 @@ def formatar_data_brt(date_iso: str) -> tuple[str, str]:
     try:
         if not date_iso:
             return "Data inválida", "Hora inválida"
-        # BallDontLie pode ter 'datetime' ou 'date' em diferentes formatos
         dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")) - timedelta(hours=3)
         return dt.strftime("%d/%m/%Y"), dt.strftime("%H:%M")
     except Exception:
@@ -129,14 +116,11 @@ def balldontlie_get(path: str, params: dict | None = None, timeout: int = REQUES
         url = BALLDONTLIE_BASE.rstrip("/") + "/" + path.lstrip("/")
         resp = requests.get(url, headers=HEADERS_BDL, params=params, timeout=timeout)
         
-        # ✅ Atualizar último tempo de requisição
         LAST_REQUEST_TIME = time.time()
         
-        # ✅ Verificar rate limit
         if resp.status_code == 429:
             st.warning("⚠️ Rate limit atingido. Aguardando 60 segundos...")
             time.sleep(60)
-            # Tentar novamente após espera
             resp = requests.get(url, headers=HEADERS_BDL, params=params, timeout=timeout)
             LAST_REQUEST_TIME = time.time()
         
@@ -173,8 +157,6 @@ def obter_jogos_data(data_str: str) -> list:
     jogos = []
     per_page = 100
     page = 1
-    
-    # ✅ Limitar número de páginas para evitar muitas requisições
     max_pages = 3
     
     while page <= max_pages:
@@ -184,13 +166,12 @@ def obter_jogos_data(data_str: str) -> list:
             break
             
         data_chunk = resp["data"]
-        if not data_chunk:  # Sem mais dados
+        if not data_chunk:
             break
             
         jogos.extend(data_chunk)
         meta = resp.get("meta", {})
         
-        # ✅ Verificar se chegamos na última página
         current_page = meta.get("current_page", page)
         total_pages = meta.get("total_pages", 1)
         
@@ -212,18 +193,16 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
     
     if key in cache:
         cached_data = cache[key]
-        # ✅ Verificar se os dados em cache não estão vazios
         if cached_data.get("games", 0) > 0:
             return cached_data
 
-    # ✅ Buscar jogos finalizados apenas
-    end = date.today() - timedelta(days=1)  # Não incluir jogos de hoje
-    start = end - timedelta(days=90)  # Reduzir para 90 dias (dados mais recentes)
+    end = date.today() - timedelta(days=1)
+    start = end - timedelta(days=90)
     
     per_page = 100
     page = 1
     games = []
-    max_pages = 2  # ✅ Limitar páginas para evitar rate limiting
+    max_pages = 2
     
     while len(games) < window_games * 2 and page <= max_pages:
         params = {
@@ -249,7 +228,6 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         except Exception:
             return datetime.min
 
-    # ✅ Filtrar apenas jogos finalizados e ordenar por data
     games_finalizados = [g for g in games if g.get("status", "").upper() in ("FINAL", "FINAL/OT")]
     games_sorted = sorted(games_finalizados, key=_gdate, reverse=True)[:window_games]
 
@@ -318,20 +296,16 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 20) -> t
     if home_stats["games"] == 0 or away_stats["games"] == 0:
         return 215.0, 50.0, "Dados Insuficientes"
     
-    # ✅ Cálculo mais conservador
     estimativa = (home_stats["pts_for_avg"] + away_stats["pts_for_avg"]) * 0.98
     
-    # ✅ Confiança mais realista
     jogos_minimos = min(home_stats["games"], away_stats["games"])
     conf_base = 40 + min(25, jogos_minimos)
     
-    # ✅ Ajuste por qualidade dos dados
     diff_qualidade = abs(home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"])
     conf_ajustada = conf_base - min(15, diff_qualidade * 2)
     
     confianca = max(30.0, min(85.0, conf_ajustada))
     
-    # ✅ Tendência mais conservadora
     if estimativa >= 230:
         tendencia = "Mais 230.5"
     elif estimativa >= 220:
@@ -398,9 +372,6 @@ def prever_first_half(home_id: int, away_id: int, window_games: int = 20) -> tup
 # ALERTAS / FORMATAÇÃO / TELEGRAM
 # =============================
 def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
-    if not TELEGRAM_TOKEN or not chat_id:
-        st.warning("Telegram não configurado - token ou chat_id faltando")
-        return False
     try:
         resp = requests.get(BASE_URL_TG, params={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}, timeout=10)
         return resp.status_code == 200
@@ -409,7 +380,6 @@ def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
         return False
 
 def formatar_msg_alerta(game: dict, predictions: dict) -> str:
-    """Formata mensagem de alerta com proteção contra dados faltantes."""
     try:
         home = game.get("home_team", {}).get("full_name", "Casa")
         away = game.get("visitor_team", {}).get("full_name", "Visitante")
@@ -420,25 +390,24 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
         msg += f"🏟️ {home} vs {away}\n"
         msg += f"📌 Status: {status}\n\n"
 
-        # Total
         t = predictions.get("total", {})
         if t:
             estim_t = t.get("estimativa", 0)
             conf_t = t.get("confianca", 0)
             tend_t = t.get("tendencia", "Mais 215.5")
             msg += f"📈 <b>Total</b>: {tend_t} | Estimativa: <b>{estim_t:.1f}</b> | Conf: {conf_t:.0f}%\n"
-        # Moneyline
+        
         ml = predictions.get("moneyline", None)
         if ml:
             try:
                 msg += f"🎯 <b>Moneyline</b>: {ml[0]} ({ml[1]:.0f}%)\n"
             except Exception:
                 msg += f"🎯 <b>Moneyline</b>: Dados insuficientes\n"
-        # Handicap
+        
         h = predictions.get("handicap", None)
         if isinstance(h, dict):
             msg += f"📐 <b>Handicap</b>: Spread sugerido {h.get('spread','-')} | Margem: {h.get('margem',0):.1f} | Prob cover casa: {h.get('prob_cover_home',0):.0f}%\n"
-        # First Half
+        
         fh = predictions.get("first_half", {})
         if fh:
             try:
@@ -466,9 +435,7 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
         }
         salvar_alertas(alertas)
         msg = formatar_msg_alerta(game, predictions)
-        # Streamlit: mostrar alerta no app
         st.info(msg)
-        # Envio opcional ao Telegram
         if send_to_telegram:
             enviar_telegram(msg)
 
@@ -562,10 +529,6 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
         }
 
 def enviar_resultado_telegram_nba(resultado: dict):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID_ALT2:
-        st.warning("Telegram não configurado para resultados")
-        return
-        
     msg = (
         f"📊 <b>Resultado Conferido (NBA)</b>\n"
         f"🏟️ {resultado['home']} vs {resultado['away']}\n"
@@ -577,7 +540,7 @@ def enviar_resultado_telegram_nba(resultado: dict):
     enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2)
 
 # =============================
-# PDF (mantendo estilo)
+# PDF
 # =============================
 def gerar_relatorio_pdf(rows: list) -> io.BytesIO:
     buffer = io.BytesIO()
@@ -607,37 +570,22 @@ def gerar_relatorio_pdf(rows: list) -> io.BytesIO:
 def main():
     st.set_page_config(page_title="🏀 Elite Master - NBA Alerts", layout="wide")
     st.title("🏀 Elite Master — Sistema de Alertas Automáticos (NBA)")
-
-    if not BALLDONTLIE_API_KEY:
-        st.error("""
-        ❌ **Configuração necessária:**
-        
-        Configure a variável de ambiente `BALLDONTLIE_API_KEY` com sua chave da API BallDontLie.
-        
-        Para desenvolvimento local, crie um arquivo `.env` com:
-        ```
-        BALLDONTLIE_API_KEY=sua_chave_aqui
-        TELEGRAM_TOKEN=seu_token_aqui (opcional)
-        TELEGRAM_CHAT_ID=seu_chat_id (opcional)
-        TELEGRAM_CHAT_ID_ALT2=seu_chat_id_alt (opcional)
-        ```
-        """)
-        return
-
+    
+    # Status das configurações
+    st.sidebar.header("🔧 Configurações")
+    st.sidebar.success("✅ BallDontLie API: Configurada")
+    st.sidebar.success("✅ Telegram: Configurado")
+    
     with st.sidebar:
-        st.header("Configurações")
+        st.header("Configurações de Análise")
         top_n = st.selectbox("📊 Top jogos a enviar", [3,5,10], index=0)
         janela = st.slider("Janela (nº jogos recentes p/ médias)", min_value=5, max_value=40, value=20)
-        enviar_auto = st.checkbox("📤 Enviar alertas ao Telegram (opcional)", value=False)
+        enviar_auto = st.checkbox("📤 Enviar alertas ao Telegram", value=False)
         
-        if not TELEGRAM_TOKEN and enviar_auto:
-            st.warning("Telegram não configurado - configure TELEGRAM_TOKEN")
-            enviar_auto = False
-            
         st.markdown("---")
         st.markdown("**API:** BallDontLie (60 req/min)")
         st.markdown("**Rate Limiting:** Ativo")
-        st.markdown("**Desenvolvido por:** Elite Master Team")
+        st.markdown("**Modo:** Teste")
 
     col1, col2 = st.columns([2,1])
     with col1:
@@ -649,11 +597,11 @@ def main():
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🔄 Atualizar Cache / Forçar Re-fetch"):
+        if st.button("🔄 Atualizar Cache"):
             limpar_caches()
             st.success("Cache limpo.")
     with col2:
-        if st.button("📊 Conferir Resultados (salvos)"):
+        if st.button("📊 Conferir Resultados"):
             conferir_resultados_nba()
     with col3:
         if st.button("🧹 Limpar Alertas"):
@@ -667,9 +615,7 @@ def main():
 def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
     data_str = data_sel.strftime("%Y-%m-%d")
     st.info(f"Buscando jogos NBA para {data_sel.strftime('%d/%m/%Y')} ...")
-    
-    # ✅ Mostrar informações de rate limiting
-    st.warning("⚠️ Rate Limiting ativo: ~1 requisição/segundo para respeitar limites da API")
+    st.warning("⚠️ Rate Limiting ativo: ~1 requisição/segundo")
     
     games = obter_jogos_data(data_str)
     if not games:
@@ -679,9 +625,6 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
     rows_for_pdf = []
     progress = st.progress(0)
     total = len(games)
-    
-    # ✅ Obter times uma vez para cache
-    times = obter_times()
     
     for i, g in enumerate(games):
         home_id = g["home_team"]["id"]
@@ -699,16 +642,14 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
             "first_half": {"estimativa": fh_estim, "confianca": fh_conf, "tendencia": fh_tend}
         }
 
-        # salvar alerta e (opcional) enviar telegram
         verificar_e_enviar_alerta(g, predictions, send_to_telegram=enviar_auto)
 
-        # linha para PDF
-        hora = None
+        hora_str = "-"
         try:
             hora = datetime.fromisoformat((g.get("datetime") or g.get("date")).replace("Z", "+00:00")) - timedelta(hours=3)
             hora_str = hora.strftime("%d/%m %H:%M")
         except Exception:
-            hora_str = "-"
+            pass
 
         rows_for_pdf.append([
             f"{abreviar(g['home_team']['full_name'])} vs {abreviar(g['visitor_team']['full_name'])}",
@@ -719,11 +660,9 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
         ])
         progress.progress((i+1)/total)
 
-    # top N (pelas confidências do total)
     alertas = carregar_alertas()
     jogos_list = []
     for fid, info in alertas.items():
-        # ✅ Usar cache em vez de fazer nova requisição
         cache_games = carregar_cache_games()
         g_cached = None
         for data_key, games_in_cache in cache_games.items():
@@ -762,7 +701,7 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
         buffer = gerar_relatorio_pdf(rows_for_pdf)
         st.download_button("📄 Baixar Relatório PDF", data=buffer, file_name=f"jogos_nba_{data_str}.pdf", mime="application/pdf")
 
-    st.success("Análise concluída.")
+    st.success("Análise concluída!")
 
 def conferir_resultados_nba():
     alertas = carregar_alertas()
@@ -772,11 +711,9 @@ def conferir_resultados_nba():
     rows_pdf = []
     mudou = False
     
-    # ✅ Mostrar informações de rate limiting
     st.warning("⚠️ Conferindo resultados com rate limiting ativo...")
     
     for fid, info in list(alertas.items()):
-        # ✅ Tentar usar cache primeiro
         cache_games = carregar_cache_games()
         g_cached = None
         for data_key, games_in_cache in cache_games.items():
@@ -797,8 +734,7 @@ def conferir_resultados_nba():
         res = processar_resultado_nba(g, info)
         exibir_resultado_streamlit(res)
         if res["status"] in ("FINAL", "FINAL/OT") and not info.get("conferido", False):
-            if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID_ALT2:
-                enviar_resultado_telegram_nba(res)
+            enviar_resultado_telegram_nba(res)
             alertas[fid]["conferido"] = True
             mudou = True
         rows_pdf.append([
