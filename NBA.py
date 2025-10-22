@@ -14,23 +14,19 @@ import time
 # =============================
 # CONFIGURAÇÕES E SEGURANÇA
 # =============================
-# Coloque sua API key do BallDontLie em BALLDONTLIE_API_KEY (ou será usado o default abaixo)
 BALLDONTLIE_API_KEY = os.getenv("BALLDONTLIE_API_KEY", "7da89f74-317a-45a0-88f9-57cccfef5a00")
-BALLDONTLIE_BASE = os.getenv("BALLDONTLIE_BASE", "https://api.balldontlie.io/v1")  # v1 compatível
-# Telegram (mantive os defaults que você tinha)
+BALLDONTLIE_BASE = os.getenv("BALLDONTLIE_BASE", "https://api.balldontlie.io/v1")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003073115320")
 TELEGRAM_CHAT_ID_ALT2 = os.getenv("TELEGRAM_CHAT_ID_ALT2", "-1002754276285")
 BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-# Arquivos de cache/estado
 ALERTAS_PATH = "alertas_nba.json"
 CACHE_GAMES = "cache_games_nba.json"
 CACHE_TEAMS = "cache_teams_nba.json"
 CACHE_STATS = "cache_stats_nba.json"
 CACHE_TIMEOUT = 3600  # 1h
 
-# Headers com auth
 HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
 
 # =============================
@@ -85,9 +81,9 @@ def salvar_cache_stats(dados):
 # =============================
 def formatar_data_brt(date_iso: str) -> tuple[str, str]:
     try:
-        # BallDontLie may provide "datetime" or "date" fields; handle both
         if not date_iso:
             return "Data inválida", "Hora inválida"
+        # BallDontLie pode ter 'datetime' ou 'date' em diferentes formatos
         dt = datetime.fromisoformat(date_iso.replace("Z", "+00:00")) - timedelta(hours=3)
         return dt.strftime("%d/%m/%Y"), dt.strftime("%H:%M")
     except Exception:
@@ -112,7 +108,7 @@ def balldontlie_get(path: str, params: dict | None = None, timeout: int = 10) ->
         return None
 
 # =============================
-# TEAMS (cache)
+# TIMES (cache)
 # =============================
 def obter_times():
     cache = carregar_cache_teams()
@@ -125,13 +121,6 @@ def obter_times():
     cache["teams"] = teams
     salvar_cache_teams(cache)
     return teams
-
-def encontrar_time_por_abrev(abbr: str):
-    teams = obter_times()
-    for tid, t in teams.items():
-        if t.get("abbreviation", "").upper() == abbr.upper() or t.get("full_name", "").lower() == abbr.lower():
-            return t
-    return None
 
 # =============================
 # GAMES: obter jogos por data (cache)
@@ -164,18 +153,13 @@ def obter_jogos_data(data_str: str) -> list:
 # ESTATÍSTICAS RECENTES DO TIME
 # =============================
 def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> dict:
-    """
-    Usa endpoint /games para agregar últimos jogos do time e retornar:
-    pts_for_avg, pts_against_avg, games_count, first_half_avg (home_q1+home_q2 or visitor_q1+visitor_q2)
-    """
     cache = carregar_cache_stats()
     key = f"team_{team_id}_{window_games}"
     if key in cache:
         return cache[key]
 
-    # buscar jogos recentes: usar start_date = hoje - 120 dias (suficiente) e filtrar por team_id
     end = date.today()
-    start = end - timedelta(days=365)  # pegar até 1 ano para garantir window
+    start = end - timedelta(days=365)
     per_page = 100
     page = 1
     games = []
@@ -190,7 +174,6 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         resp = balldontlie_get("games", params=params)
         if not resp or "data" not in resp:
             break
-        # ordenar por date desc - BallDontLie doesn't guarantee order; we will append then sort
         games.extend(resp["data"])
         meta = resp.get("meta")
         if not meta or page >= meta.get("total_pages", 1):
@@ -198,13 +181,13 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         page += 1
         time.sleep(0.05)
 
-    # ordenar por data desc
     def _gdate(g):
         d = g.get("datetime") or g.get("date") or g.get("game_date")
         try:
             return datetime.fromisoformat((d or "").replace("Z", "+00:00"))
         except Exception:
             return datetime.min
+
     games_sorted = sorted(games, key=_gdate, reverse=True)[:window_games]
 
     if not games_sorted:
@@ -224,20 +207,16 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         if not gid or gid in seen_game_ids:
             continue
         seen_game_ids.add(gid)
-        # identificar se team_id jogou em casa ou fora
         home_id = g.get("home_team", {}).get("id")
         visitor_id = g.get("visitor_team", {}).get("id")
         home_score = g.get("home_team_score")
         visitor_score = g.get("visitor_team_score")
-
-        # ignorar jogos sem placar
         if home_score is None or visitor_score is None:
             continue
 
         if home_id == team_id:
             pts_for += home_score
             pts_against += visitor_score
-            # first half: home_q1 + home_q2 if present
             q1 = g.get("home_q1") or 0
             q2 = g.get("home_q2") or 0
             fh = q1 + q2
@@ -270,27 +249,16 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
 # LÓGICA DE PREVISÃO — 4 MODALIDADES
 # =============================
 def prever_total_points(home_id: int, away_id: int, window_games: int = 20) -> tuple[float, float, str]:
-    """
-    Estima o total combinado e decide tendência (Over/Under thresholds).
-    Retorna: (estimativa_total, confianca_percent, tendencia_str)
-    """
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
-
-    # fallback neutro
     if home_stats["games"] == 0 or away_stats["games"] == 0:
         return 215.0, 55.0, "Mais 215.5"
-
     estimativa = home_stats["pts_for_avg"] + away_stats["pts_for_avg"]
-    # confiança baseada em quantidade de jogos e balanceamento
     jogos = min(home_stats["games"], away_stats["games"])
-    conf = 45 + min(30, jogos)  # base 45 + até 30
-    # penalizar quando a diferença de ritmo é grande (less confident)
+    conf = 45 + min(30, jogos)
     diff = abs(home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"])
-    conf -= max(0, min(10, diff))  # reduce confidence up to 10 points
+    conf -= max(0, min(10, diff))
     conf = max(35.0, min(95.0, conf))
-
-    # thresholds típicos da NBA (ajustáveis)
     if estimativa >= 235:
         tendencia = "Mais 235.5"
     elif estimativa >= 225:
@@ -301,24 +269,16 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 20) -> t
         tendencia = "Mais 210.5"
     else:
         tendencia = "Menos 210.5"
-
     return round(estimativa, 1), round(conf, 1), tendencia
 
 def prever_moneyline(home_id: int, away_id: int, window_games: int = 20) -> tuple[str, float]:
-    """
-    Estima favorito (home advantage considered) e retorna (favorito_str, confianca%).
-    """
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
-
     if home_stats["games"] == 0 and away_stats["games"] == 0:
         return "Empate", 50.0
-
     diff = home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"]
-    # adicionar pequeno bônus de casa
     home_bonus = 1.5
     diff += home_bonus
-
     if abs(diff) < 2.5:
         return "Empate", 50.0
     elif diff > 0:
@@ -329,53 +289,39 @@ def prever_moneyline(home_id: int, away_id: int, window_games: int = 20) -> tupl
         return "Fora vencer", round(max(50.0, conf), 1)
 
 def prever_handicap(home_id: int, away_id: int, window_games: int = 20) -> dict:
-    """
-    Estima margem esperada (home_margin = home_pts_avg - away_pts_avg) e sugere um spread.
-    Retorna dict com margem_estimada, spread_sugerido, prob_cover_home approximada.
-    """
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
-
     if home_stats["games"] == 0 or away_stats["games"] == 0:
         return {"margem": 0.0, "spread": "0.5", "prob_cover_home": 50.0}
-
-    margem = (home_stats["pts_for_avg"] - away_stats["pts_for_avg"]) + 1.5  # incluir vantagem casa
-    # sugerir spread arredondado para .5
+    margem = (home_stats["pts_for_avg"] - away_stats["pts_for_avg"]) + 1.5
     spread = round(margem)
     if spread >= 0:
-        spread_str = f"-{abs(spread)}.5"  # casa favorita
+        spread_str = f"-{abs(spread)}.5"
     else:
-        spread_str = f"+{abs(spread)}.5"  # visitante favorito
-    # probabilidade aproximada de cobrir (simples sigmoidal approx)
-    prob = 50 + (margem * 3)  # escala arbitrária
+        spread_str = f"+{abs(spread)}.5"
+    prob = 50 + (margem * 3)
     prob = max(10.0, min(95.0, prob))
     return {"margem": round(margem, 1), "spread": spread_str, "prob_cover_home": round(prob, 1)}
 
 def prever_first_half(home_id: int, away_id: int, window_games: int = 20) -> tuple[float, float, str]:
-    """
-    Estima total combinado do 1º tempo e tendência (Over/Under First Half).
-    Usa first_half_avg das estatísticas recentes.
-    """
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
-
     if home_stats["games"] == 0 or away_stats["games"] == 0:
-        return 105.0, 50.0, "Mais 105.5"
-
+        return 105.0, 50.0, "Mais 105.5 (1H)"
     estimativa = home_stats["first_half_avg"] + away_stats["first_half_avg"]
     jogos = min(home_stats["games"], away_stats["games"])
     conf = 45 + min(30, jogos)
     conf = max(35.0, min(95.0, conf))
     if estimativa >= 115:
-        tendencia = "Mais 115.5 (1º tempo)"
+        tendencia = "Mais 115.5 (1H)"
     elif estimativa >= 110:
-        tendencia = "Mais 110.5 (1º tempo)"
+        tendencia = "Mais 110.5 (1H)"
     else:
-        tendencia = "Menos 105.5 (1º tempo)"
+        tendencia = "Menos 105.5 (1H)"
     return round(estimativa, 1), round(conf, 1), tendencia
 
 # =============================
-# ALERTAS / TELEGRAM
+# ALERTAS / FORMATAÇÃO / TELEGRAM
 # =============================
 def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
     try:
@@ -386,36 +332,56 @@ def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
         return False
 
 def formatar_msg_alerta(game: dict, predictions: dict) -> str:
-    home = game["home_team"]["full_name"]
-    away = game["visitor_team"]["full_name"]
-    data_str, hora_str = formatar_data_brt(game.get("datetime") or game.get("date"))
-    status = game.get("status", "SCHEDULED")
+    """Formata mensagem de alerta com proteção contra dados faltantes."""
+    try:
+        home = game.get("home_team", {}).get("full_name", "Casa")
+        away = game.get("visitor_team", {}).get("full_name", "Visitante")
+        data_str, hora_str = formatar_data_brt(game.get("datetime") or game.get("date") or "")
+        status = game.get("status", "SCHEDULED")
 
-    msg = f"🏀 <b>Alerta NBA - {data_str} {hora_str} (BRT)</b>\n"
-    msg += f"🏟️ {home} vs {away}\n"
-    msg += f"📌 Status: {status}\n\n"
+        msg = f"🏀 <b>Alerta NBA - {data_str} {hora_str} (BRT)</b>\n"
+        msg += f"🏟️ {home} vs {away}\n"
+        msg += f"📌 Status: {status}\n\n"
 
-    # Total
-    t = predictions["total"]
-    msg += f"📈 <b>Total</b>: {t['tendencia']} | Estimativa: <b>{t['estimativa']:.1f}</b> | Conf: {t['confianca']:.0f}%\n"
-    # Moneyline
-    ml = predictions["moneyline"]
-    msg += f"🎯 <b>Moneyline</b>: {ml[0]} ({ml[1]:.0f}%)\n"
-    # Handicap
-    h = predictions["handicap"]
-    msg += f"📐 <b>Handicap</b>: Spread sugerido {h['spread']} | Margem estimada: {h['margem']:.1f} | Prob cover casa: {h['prob_cover_home']:.0f}%\n"
-    # First Half
-    fh = predictions["first_half"]
-   # msg += f"⏱️ <b>1º Tempo</b>: {fh[2]} | Estimativa: <b>{fh[0'] if False else fh[0]:.1f}</b> | Conf: {fh[1]:.0f}%\n"
-    msg += f"⏱️ <b>1º Tempo</b>: {fh[2]} | Estimativa: <b>{fh[0]:.1f}</b> | Conf: {fh[1]:.0f}%\n"                                                     
+        # Total
+        t = predictions.get("total", {})
+        if t:
+            estim_t = t.get("estimativa", 0)
+            conf_t = t.get("confianca", 0)
+            tend_t = t.get("tendencia", "Mais 215.5")
+            msg += f"📈 <b>Total</b>: {tend_t} | Estimativa: <b>{estim_t:.1f}</b> | Conf: {conf_t:.0f}%\n"
+        # Moneyline
+        ml = predictions.get("moneyline", None)
+        if ml:
+            try:
+                msg += f"🎯 <b>Moneyline</b>: {ml[0]} ({ml[1]:.0f}%)\n"
+            except Exception:
+                msg += f"🎯 <b>Moneyline</b>: Dados insuficientes\n"
+        # Handicap
+        h = predictions.get("handicap", None)
+        if isinstance(h, dict):
+            msg += f"📐 <b>Handicap</b>: Spread sugerido {h.get('spread','-')} | Margem: {h.get('margem',0):.1f} | Prob cover casa: {h.get('prob_cover_home',0):.0f}%\n"
+        # First Half
+        fh = predictions.get("first_half", {})
+        if fh:
+            # fh should be tuple/list: (estim, conf, tendencia)
+            try:
+                estim_fh = fh.get("estimativa") if isinstance(fh, dict) else fh[0]
+                conf_fh = fh.get("confianca") if isinstance(fh, dict) else fh[1]
+                tend_fh = fh.get("tendencia") if isinstance(fh, dict) else fh[2]
+                msg += f"⏱️ <b>1º Tempo</b>: {tend_fh} | Estimativa: <b>{float(estim_fh):.1f}</b> | Conf: {float(conf_fh):.0f}%\n"
+            except Exception:
+                msg += "⏱️ <b>1º Tempo</b>: Dados indisponíveis\n"
 
-    return msg
+        msg += "\n🏆 <b>Elite Master</b> - Análise Automática NBA"
+        return msg
+    except Exception as e:
+        return f"⚠️ Erro ao formatar alerta: {e}"
 
-def verificar_e_enviar_alerta(game: dict, predictions: dict):
+def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: bool = False):
     alertas = carregar_alertas()
     fid = str(game.get("id"))
     if fid not in alertas:
-        # salvar previsão
         alertas[fid] = {
             "game_id": fid,
             "predictions": predictions,
@@ -424,36 +390,31 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict):
         }
         salvar_alertas(alertas)
         msg = formatar_msg_alerta(game, predictions)
-        enviar_telegram(msg)
+        # Streamlit: mostrar alerta no app
+        st.info(msg)
+        # Envio opcional ao Telegram
+        if send_to_telegram:
+            enviar_telegram(msg)
 
 # =============================
 # RESULTADOS & CONFERÊNCIA
 # =============================
 def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
-    """
-    Recebe um jogo (possivelmente final) e a previsão salva e retorna info de conferência.
-    """
-    home = game["home_team"]["full_name"]
-    away = game["visitor_team"]["full_name"]
-    status = game.get("status", "").upper()
+    home = game.get("home_team", {}).get("full_name", "Casa")
+    away = game.get("visitor_team", {}).get("full_name", "Visitante")
+    status = (game.get("status") or "").upper()
     home_score = game.get("home_team_score")
     vis_score = game.get("visitor_team_score")
     total = (home_score or 0) + (vis_score or 0)
-    resultado = "⏳ Aguardando"
-
     pred = alerta_info.get("predictions", {})
 
-    # checar finalizado
     if status in ("FINAL", "FINALIZED"):
-        # Total
         t = pred.get("total", {})
         tendencia = t.get("tendencia", "")
-        # extrair threshold numérico do tendencia (último token)
         try:
             th = float(tendencia.split()[-1])
         except Exception:
             th = 215.5
-        # se "Mais" in tendencia
         if "Mais" in tendencia:
             total_res = "🟢 GREEN" if total > th else "🔴 RED"
         elif "Menos" in tendencia:
@@ -461,24 +422,26 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
         else:
             total_res = "⚪ INDEFINIDO"
 
-        # Primeiro tempo (se disponível)
         fh_pred = pred.get("first_half", {})
         try:
-            th_fh = float(fh_pred.get("tendencia", "105.5").split()[-1])
+            if isinstance(fh_pred, dict):
+                th_fh = float(fh_pred.get("tendencia", "105.5").split()[-1])
+            else:
+                th_fh = float(str(fh_pred[2]).split()[-1])
         except Exception:
             th_fh = 105.5
-        # attempt to read first half actual points from game fields
+
         home_q1 = game.get("home_q1") or 0
         home_q2 = game.get("home_q2") or 0
         vis_q1 = game.get("visitor_q1") or 0
         vis_q2 = game.get("visitor_q2") or 0
         first_half_total = home_q1 + home_q2 + vis_q1 + vis_q2
-        if "Mais" in fh_pred.get("tendencia", ""):
+        if "Mais" in (fh_pred.get("tendencia", "") if isinstance(fh_pred, dict) else str(fh_pred[2]) if fh_pred else ""):
             fh_res = "🟢 GREEN" if first_half_total > th_fh else "🔴 RED"
         else:
             fh_res = "🟢 GREEN" if first_half_total < th_fh else "🔴 RED"
 
-        result = {
+        return {
             "home": home,
             "away": away,
             "status": status,
@@ -488,13 +451,12 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
             "first_half_total": first_half_total,
             "first_half_result": fh_res
         }
-        return result
     else:
         return {
             "home": home,
             "away": away,
             "status": status,
-            "placar": "-" ,
+            "placar": "-",
             "total": total,
             "total_result": "⏳ Aguardando",
             "first_half_total": None,
@@ -548,8 +510,8 @@ def main():
         st.header("Configurações")
         top_n = st.selectbox("📊 Top jogos a enviar", [3,5,10], index=0)
         janela = st.slider("Janela (nº jogos recentes p/ médias)", min_value=5, max_value=40, value=20)
-        enviar_auto = st.checkbox("📤 Enviar Top automaticamente ao Telegram", value=False)
-        st.markdown("API: BallDontLie (com chave). Ajuste se necessário nos env vars.")
+        enviar_auto = st.checkbox("📤 Enviar alertas ao Telegram (opcional)", value=False)
+        st.markdown("API: BallDontLie. Guarde sua chave em BALLDONTLIE_API_KEY se desejar.")
 
     col1, col2 = st.columns([2,1])
     with col1:
@@ -588,44 +550,46 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
     progress = st.progress(0)
     total = len(games)
     for i, g in enumerate(games):
-        # previsões
         home_id = g["home_team"]["id"]
         away_id = g["visitor_team"]["id"]
 
-        total_pred = {}
-        total_pred_values = prever_total_points(home_id, away_id, window_games=janela)
-        total_pred["estimativa"], total_pred["confianca"], total_pred["tendencia"] = total_pred_values
-
-        moneyline_pred = prever_moneyline(home_id, away_id, window_games=janela)
+        estim_total, conf_total, tend_total = prever_total_points(home_id, away_id, window_games=janela)
+        ml_pred = prever_moneyline(home_id, away_id, window_games=janela)
         handicap_pred = prever_handicap(home_id, away_id, window_games=janela)
-        fh_pred_values = prever_first_half(home_id, away_id, window_games=janela)
+        fh_estim, fh_conf, fh_tend = prever_first_half(home_id, away_id, window_games=janela)
 
         predictions = {
-            "total": {"estimativa": total_pred["estimativa"], "confianca": total_pred["confianca"], "tendencia": total_pred["tendencia"]},
-            "moneyline": moneyline_pred,
+            "total": {"estimativa": estim_total, "confianca": conf_total, "tendencia": tend_total},
+            "moneyline": ml_pred,
             "handicap": handicap_pred,
-            "first_half": {"estimativa": fh_pred_values[0], "confianca": fh_pred_values[1], "tendencia": fh_pred_values[2]}
+            "first_half": {"estimativa": fh_estim, "confianca": fh_conf, "tendencia": fh_tend}
         }
 
-        verificar_e_enviar_alerta(g, predictions)
+        # salvar alerta e (opcional) enviar telegram
+        verificar_e_enviar_alerta(g, predictions, send_to_telegram=enviar_auto)
 
-        hora = datetime.fromisoformat((g.get("datetime") or g.get("date")).replace("Z", "+00:00")) - timedelta(hours=3)
+        # linha para PDF
+        hora = None
+        try:
+            hora = datetime.fromisoformat((g.get("datetime") or g.get("date")).replace("Z", "+00:00")) - timedelta(hours=3)
+            hora_str = hora.strftime("%d/%m %H:%M")
+        except Exception:
+            hora_str = "-"
+
         rows_for_pdf.append([
             f"{abreviar(g['home_team']['full_name'])} vs {abreviar(g['visitor_team']['full_name'])}",
             "Total",
             f"{predictions['total']['estimativa']:.1f}",
             f"{predictions['total']['confianca']:.0f}%",
-            "-", g.get("status", "SCHEDULED"), "-", hora.strftime("%d/%m %H:%M")
+            "-", g.get("status", "SCHEDULED"), "-", hora_str
         ])
         progress.progress((i+1)/total)
 
-    # montar Top N para envio/visualização
+    # top N (pelas confidências do total)
     alertas = carregar_alertas()
     jogos_list = []
     for fid, info in alertas.items():
-        # recuperar jogo via API para infos atuais
         g = balldontlie_get(f"games/{fid}")
-        # se não existir no cache, pular
         if not g:
             continue
         pred = info.get("predictions", {})
@@ -644,12 +608,7 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
         msg_top += (f"🏟️ {j['home']} vs {j['away']}\n"
                     f"📈 {j['tendencia']} | Estim: {j['estimativa']:.1f} | Conf: {j['confianca']:.0f}%\n\n")
 
-    if enviar_auto:
-        enviar_telegram(msg_top, TELEGRAM_CHAT_ID_ALT2)
-        st.success("Top jogos enviados ao Telegram.")
-    else:
-        st.code(msg_top)
-
+    st.code(msg_top)
     if rows_for_pdf:
         buffer = gerar_relatorio_pdf(rows_for_pdf)
         st.download_button("📄 Baixar Relatório PDF", data=buffer, file_name=f"jogos_nba_{data_str}.pdf", mime="application/pdf")
@@ -664,7 +623,6 @@ def conferir_resultados_nba():
     rows_pdf = []
     mudou = False
     for fid, info in list(alertas.items()):
-        # get latest game state
         g = balldontlie_get(f"games/{fid}")
         if not g:
             continue
