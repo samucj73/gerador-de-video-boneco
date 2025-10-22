@@ -11,7 +11,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 import time
 
-# =============================
+# # =============================
 # CONFIGURAÇÕES E SEGURANÇA
 # =============================
 # ✅ CORREÇÃO: Remover chaves hardcoded - usar apenas variáveis de ambiente
@@ -34,6 +34,10 @@ CACHE_TEAMS = "cache_teams_nba.json"
 CACHE_STATS = "cache_stats_nba.json"
 CACHE_TIMEOUT = 3600  # 1h
 
+HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
+
+# ✅ Adicionar configuração de timeout global
+REQUEST_TIMEOUT = 15
 HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
 
 # ✅ Adicionar configuração de timeout global
