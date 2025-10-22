@@ -128,7 +128,7 @@ def obter_times():
     return teams
 
 # =============================
-# BUSCA DE JOGOS
+# BUSCA DE JOGOS REAIS
 # =============================
 def obter_jogos_data(data_str: str) -> list:
     cache = carregar_cache_games()
@@ -140,12 +140,12 @@ def obter_jogos_data(data_str: str) -> list:
     st.info(f"📥 Buscando jogos para {data_str}...")
     jogos = []
     page = 1
-    max_pages = 1
+    max_pages = 2  # Aumentado para buscar mais jogos
     
     while page <= max_pages:
         params = {
             "dates[]": data_str, 
-            "per_page": 25,
+            "per_page": 50,
             "page": page
         }
         
@@ -171,31 +171,36 @@ def obter_jogos_data(data_str: str) -> list:
     return jogos
 
 # =============================
-# ESTATÍSTICAS SIMPLIFICADAS
+# ESTATÍSTICAS REAIS COM DADOS PASSADOS
 # =============================
-def obter_estatisticas_simples_time(team_id: int, window_games: int = 6) -> dict:
+def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_games: int = 15) -> dict:
+    """Busca estatísticas reais de temporadas passadas"""
     cache = carregar_cache_stats()
-    key = f"team_{team_id}_simple"
+    key = f"team_{team_id}_season_{season}"
     
     if key in cache:
         cached_data = cache[key]
         if cached_data.get("games", 0) > 0:
             return cached_data
 
-    end_date = date.today()
-    start_date = end_date - timedelta(days=30)
+    # Busca jogos da temporada atual e anterior
+    start_date = f"{season-1}-10-01"  # Início da temporada anterior (outubro)
+    end_date = f"{season}-06-30"      # Fim da temporada atual (junho)
     
     games = []
     page = 1
-    max_pages = 1
+    max_pages = 3  # Busca mais páginas para ter dados suficientes
+    
+    st.info(f"📊 Buscando estatísticas do time {team_id}...")
     
     while page <= max_pages:
         params = {
             "team_ids[]": team_id,
-            "per_page": 15,
+            "per_page": 25,
             "page": page,
-            "start_date": start_date.strftime("%Y-%m-%d"),
-            "end_date": end_date.strftime("%Y-%m-%d")
+            "start_date": start_date,
+            "end_date": end_date,
+            "seasons[]": season
         }
         
         resp = balldontlie_get("games", params=params)
@@ -203,8 +208,15 @@ def obter_estatisticas_simples_time(team_id: int, window_games: int = 6) -> dict
             break
             
         games.extend(resp["data"])
+        
+        meta = resp.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
+            break
+            
         page += 1
 
+    # Filtra apenas jogos finalizados com placar válido
     games_validos = []
     for game in games:
         try:
@@ -214,28 +226,37 @@ def obter_estatisticas_simples_time(team_id: int, window_games: int = 6) -> dict
             
             if (status in ("FINAL", "FINAL/OT") and 
                 home_score is not None and 
-                visitor_score is not None):
+                visitor_score is not None and
+                home_score > 0 and visitor_score > 0):  # Garante placares válidos
                 games_validos.append(game)
         except Exception:
             continue
 
+    # Ordena por data (mais recentes primeiro) e limita pela janela
     try:
         games_validos.sort(key=lambda x: x.get("date", ""), reverse=True)
         games_validos = games_validos[:window_games]
     except Exception:
         games_validos = games_validos[:window_games]
 
+    # Se não encontrou jogos válidos, tenta buscar da temporada anterior
+    if not games_validos and season > 2020:
+        return obter_estatisticas_time_completo(team_id, season-1, window_games)
+
+    # Calcula estatísticas
     if not games_validos:
         stats = {
-            "pts_for_avg": 110.0,
+            "pts_for_avg": 110.0,  # Fallback para média da NBA
             "pts_against_avg": 110.0,
             "games": 0,
-            "pts_diff_avg": 0.0
+            "pts_diff_avg": 0.0,
+            "win_rate": 0.5
         }
     else:
         pts_for = 0
         pts_against = 0
-        count = 0
+        wins = 0
+        count = len(games_validos)
 
         for game in games_validos:
             try:
@@ -246,11 +267,14 @@ def obter_estatisticas_simples_time(team_id: int, window_games: int = 6) -> dict
                 if home_id == team_id:
                     pts_for += home_score
                     pts_against += visitor_score
+                    if home_score > visitor_score:
+                        wins += 1
                 else:
                     pts_for += visitor_score
                     pts_against += home_score
-                
-                count += 1
+                    if visitor_score > home_score:
+                        wins += 1
+                        
             except Exception:
                 continue
 
@@ -259,14 +283,16 @@ def obter_estatisticas_simples_time(team_id: int, window_games: int = 6) -> dict
                 "pts_for_avg": pts_for / count,
                 "pts_against_avg": pts_against / count,
                 "games": count,
-                "pts_diff_avg": (pts_for - pts_against) / count
+                "pts_diff_avg": (pts_for - pts_against) / count,
+                "win_rate": wins / count
             }
         else:
             stats = {
                 "pts_for_avg": 110.0,
                 "pts_against_avg": 110.0,
                 "games": 0,
-                "pts_diff_avg": 0.0
+                "pts_diff_avg": 0.0,
+                "win_rate": 0.5
             }
 
     cache[key] = stats
@@ -274,21 +300,45 @@ def obter_estatisticas_simples_time(team_id: int, window_games: int = 6) -> dict
     return stats
 
 # =============================
-# PREVISÕES - 2 MODALIDADES
+# PREVISÕES COM DADOS REAIS
 # =============================
-def prever_total_points(home_id: int, away_id: int, window_games: int = 6) -> tuple[float, float, str]:
-    home_stats = obter_estatisticas_simples_time(home_id, window_games)
-    away_stats = obter_estatisticas_simples_time(away_id, window_games)
+def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
+    """Previsão baseada em dados reais de temporadas passadas"""
+    home_stats = obter_estatisticas_time_completo(home_id, 2024, window_games)
+    away_stats = obter_estatisticas_time_completo(away_id, 2024, window_games)
     
-    if home_stats["games"] == 0 or away_stats["games"] == 0:
-        return 215.0, 50.0, "Dados Insuficientes"
+    # Usa dados reais ou fallback se não houver dados suficientes
+    home_avg = home_stats["pts_for_avg"]
+    away_avg = away_stats["pts_for_avg"]
     
-    estimativa = (home_stats["pts_for_avg"] + away_stats["pts_for_avg"])
+    # Ajuste para vantagem de casa
+    home_advantage = 2.5
+    estimativa = home_avg + away_avg + home_advantage
     
-    jogos_minimos = min(home_stats["games"], away_stats["games"])
-    confianca = max(40.0, min(85.0, 50 + jogos_minimos * 5))
+    # Calcula confiança baseada na quantidade de dados
+    home_games = home_stats["games"]
+    away_games = away_stats["games"]
+    min_games = min(home_games, away_games)
     
-    if estimativa >= 230:
+    if min_games >= 10:
+        confianca = 75.0
+    elif min_games >= 5:
+        confianca = 65.0
+    elif min_games > 0:
+        confianca = 55.0
+    else:
+        confianca = 45.0  # Dados insuficientes
+    
+    # Ajusta confiança baseado na consistência dos times
+    home_consistency = min(10, home_stats.get("pts_diff_avg", 0) * 0.5)
+    away_consistency = min(10, away_stats.get("pts_diff_avg", 0) * 0.5)
+    confianca += (home_consistency + away_consistency)
+    confianca = min(85.0, max(40.0, confianca))
+    
+    # Determina tendência baseada em dados reais
+    if estimativa >= 235:
+        tendencia = "Mais 235.5"
+    elif estimativa >= 230:
         tendencia = "Mais 230.5"
     elif estimativa >= 225:
         tendencia = "Mais 225.5"
@@ -296,32 +346,60 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 6) -> tu
         tendencia = "Mais 220.5"
     elif estimativa >= 215:
         tendencia = "Mais 215.5"
+    elif estimativa >= 210:
+        tendencia = "Mais 210.5"
     else:
-        tendencia = "Menos 215.5"
+        tendencia = "Menos 210.5"
         
     return round(estimativa, 1), round(confianca, 1), tendencia
 
-def prever_vencedor(home_id: int, away_id: int, window_games: int = 6) -> tuple[str, float, str]:
-    home_stats = obter_estatisticas_simples_time(home_id, window_games)
-    away_stats = obter_estatisticas_simples_time(away_id, window_games)
+def prever_vencedor(home_id: int, away_id: int, window_games: int = 15) -> tuple[str, float, str]:
+    """Previsão de vencedor baseada em dados reais"""
+    home_stats = obter_estatisticas_time_completo(home_id, 2024, window_games)
+    away_stats = obter_estatisticas_time_completo(away_id, 2024, window_games)
     
-    if home_stats["games"] == 0 or away_stats["games"] == 0:
-        return "Dados Insuficientes", 50.0, "Empate"
+    # Calcula vantagem baseada em performance histórica
+    home_win_rate = home_stats["win_rate"]
+    away_win_rate = away_stats["win_rate"]
+    home_pts_diff = home_stats["pts_diff_avg"]
+    away_pts_diff = away_stats["pts_diff_avg"]
     
-    diff = home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"] + 3.0
+    # Vantagem de jogar em casa (NBA: ~3-4 pontos)
+    home_advantage = 0.1  # ~10% de aumento na win rate
     
-    if abs(diff) < 2.0:
+    # Calcula probabilidade
+    home_strength = home_win_rate + home_pts_diff * 0.01
+    away_strength = away_win_rate + away_pts_diff * 0.01
+    
+    home_prob = home_strength / (home_strength + away_strength) + home_advantage
+    away_prob = 1 - home_prob
+    
+    # Determina vencedor e confiança
+    if home_prob > 0.6:
+        vencedor = "Casa"
+        confianca = min(85.0, home_prob * 100)
+        detalhe = f"Forte vantagem da casa ({home_win_rate:.1%} win rate)"
+    elif away_prob > 0.6:
+        vencedor = "Visitante"
+        confianca = min(85.0, away_prob * 100)
+        detalhe = f"Visitante favorito ({away_win_rate:.1%} win rate)"
+    elif home_prob > away_prob:
+        vencedor = "Casa"
+        confianca = home_prob * 100
+        detalhe = f"Ligeira vantagem da casa"
+    elif away_prob > home_prob:
+        vencedor = "Visitante"
+        confianca = away_prob * 100
+        detalhe = f"Ligeira vantagem do visitante"
+    else:
         vencedor = "Empate"
         confianca = 50.0
         detalhe = "Jogo muito equilibrado"
-    elif diff > 0:
-        vencedor = "Casa"
-        confianca = min(85.0, 55 + diff * 3)
-        detalhe = f"Vantagem de {abs(diff):.1f} pontos"
-    else:
-        vencedor = "Visitante"
-        confianca = min(85.0, 55 + abs(diff) * 3)
-        detalhe = f"Vantagem de {abs(diff):.1f} pontos"
+    
+    # Ajusta confiança baseada na quantidade de dados
+    min_games = min(home_stats["games"], away_stats["games"])
+    if min_games < 5:
+        confianca = max(40.0, confianca * 0.8)
     
     return vencedor, round(confianca, 1), detalhe
 
@@ -365,7 +443,7 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
             msg += f"🎯 <b>Vencedor</b>: {vencedor_pred.get('vencedor', 'N/A')}\n"
             msg += f"   💪 Confiança: {vencedor_pred.get('confianca', 0):.0f}% | {vencedor_pred.get('detalhe', '')}\n"
 
-        msg += "\n🏆 <b>Elite Master</b> - Análise Automática"
+        msg += "\n🏆 <b>Elite Master</b> - Análise com Dados Reais"
         return msg
     except Exception as e:
         return f"⚠️ Erro ao formatar: {e}"
@@ -399,6 +477,65 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
     return False
 
 # =============================
+# EXIBIÇÃO DOS JOGOS ANALISADOS
+# =============================
+def exibir_jogos_analisados():
+    st.header("📈 Jogos Analisados")
+    
+    alertas = carregar_alertas()
+    if not alertas:
+        st.info("Nenhum jogo analisado ainda.")
+        return
+    
+    alertas_ordenados = sorted(
+        alertas.items(), 
+        key=lambda x: x[1].get("timestamp", ""), 
+        reverse=True
+    )
+    
+    st.subheader(f"🎯 {len(alertas_ordenados)} Jogos Analisados")
+    
+    for alerta_id, alerta in alertas_ordenados:
+        game_data = alerta.get("game_data", {})
+        predictions = alerta.get("predictions", {})
+        
+        home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+        away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+        status = game_data.get("status", "SCHEDULED")
+        
+        total_pred = predictions.get("total", {})
+        vencedor_pred = predictions.get("vencedor", {})
+        
+        # Card do jogo
+        with st.expander(f"🏀 {home_team} vs {away_team} - {status}", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**📊 Total de Pontos**")
+                st.write(f"Tendência: {total_pred.get('tendencia', 'N/A')}")
+                st.write(f"Estimativa: {total_pred.get('estimativa', 0):.1f}")
+                st.write(f"Confiança: {total_pred.get('confianca', 0):.0f}%")
+            
+            with col2:
+                st.write("**🎯 Vencedor**")
+                st.write(f"Previsão: {vencedor_pred.get('vencedor', 'N/A')}")
+                st.write(f"Confiança: {vencedor_pred.get('confianca', 0):.0f}%")
+                st.write(f"Detalhe: {vencedor_pred.get('detalhe', '')}")
+            
+            if alerta.get("enviado_telegram", False):
+                st.success("📤 Enviado para Telegram")
+            else:
+                st.info("📝 Salvo localmente")
+            
+            timestamp = alerta.get("timestamp", "")
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    st.caption(f"Analisado em: {dt.strftime('%d/%m/%Y %H:%M')}")
+                except:
+                    pass
+
+# =============================
 # CONFERÊNCIA DE RESULTADOS
 # =============================
 def conferir_resultados():
@@ -409,7 +546,6 @@ def conferir_resultados():
         st.info("Nenhum alerta salvo para conferência.")
         return
     
-    # Filtra apenas jogos que podem ter resultado
     jogos_para_conferir = []
     for alerta_id, alerta in alertas.items():
         game_data = alerta.get("game_data", {})
@@ -494,79 +630,16 @@ def conferir_resultados():
         st.markdown("---")
 
 # =============================
-# EXIBIÇÃO DOS JOGOS ANALISADOS
-# =============================
-def exibir_jogos_analisados():
-    st.header("📈 Jogos Analisados")
-    
-    alertas = carregar_alertas()
-    if not alertas:
-        st.info("Nenhum jogo analisado ainda.")
-        return
-    
-    # Ordena por timestamp (mais recentes primeiro)
-    alertas_ordenados = sorted(
-        alertas.items(), 
-        key=lambda x: x[1].get("timestamp", ""), 
-        reverse=True
-    )
-    
-    st.subheader(f"🎯 {len(alertas_ordenados)} Jogos Analisados")
-    
-    for alerta_id, alerta in alertas_ordenados:
-        game_data = alerta.get("game_data", {})
-        predictions = alerta.get("predictions", {})
-        
-        home_team = game_data.get("home_team", {}).get("full_name", "Casa")
-        away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
-        status = game_data.get("status", "SCHEDULED")
-        
-        total_pred = predictions.get("total", {})
-        vencedor_pred = predictions.get("vencedor", {})
-        
-        # Card do jogo
-        with st.expander(f"🏀 {home_team} vs {away_team} - {status}", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**📊 Total de Pontos**")
-                st.write(f"Tendência: {total_pred.get('tendencia', 'N/A')}")
-                st.write(f"Estimativa: {total_pred.get('estimativa', 0):.1f}")
-                st.write(f"Confiança: {total_pred.get('confianca', 0):.0f}%")
-            
-            with col2:
-                st.write("**🎯 Vencedor**")
-                st.write(f"Previsão: {vencedor_pred.get('vencedor', 'N/A')}")
-                st.write(f"Confiança: {vencedor_pred.get('confianca', 0):.0f}%")
-                st.write(f"Detalhe: {vencedor_pred.get('detalhe', '')}")
-            
-            # Status do Telegram
-            if alerta.get("enviado_telegram", False):
-                st.success("📤 Enviado para Telegram")
-            else:
-                st.info("📝 Salvo localmente")
-            
-            # Timestamp
-            timestamp = alerta.get("timestamp", "")
-            if timestamp:
-                try:
-                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                    st.caption(f"Analisado em: {dt.strftime('%d/%m/%Y %H:%M')}")
-                except:
-                    pass
-
-# =============================
 # INTERFACE STREAMLIT
 # =============================
 def main():
     st.set_page_config(page_title="🏀 Elite Master - NBA Alerts", layout="wide")
-    st.title("🏀 Elite Master — Sistema Completo")
+    st.title("🏀 Elite Master — Análise com Dados Reais")
     
-    # Sidebar
     st.sidebar.header("⚙️ Configurações")
-    st.sidebar.info("🎯 **Modalidades:** Vencedor + Total Pontos")
+    st.sidebar.info("🎯 **Fonte:** Dados Reais da API")
+    st.sidebar.warning("📊 **Período:** Temporada 2023-2024")
     
-    # Abas principais
     tab1, tab2, tab3 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência"])
     
     with tab1:
@@ -579,12 +652,12 @@ def main():
         conferir_resultados()
 
 def exibir_aba_analise():
-    st.header("🎯 Análise de Jogos")
+    st.header("🎯 Análise com Dados Reais")
     
     with st.sidebar:
         st.subheader("Controles de Análise")
         top_n = st.slider("Número de jogos para analisar", 1, 10, 5)
-        janela = st.slider("Jogos recentes para análise", 3, 8, 6)
+        janela = st.slider("Jogos recentes para análise", 8, 20, 15)
         enviar_auto = st.checkbox("Enviar alertas automaticamente para Telegram", value=True)
         
         st.markdown("---")
@@ -599,31 +672,31 @@ def exibir_aba_analise():
                     pass
             st.rerun()
 
-    # Interface de análise
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         data_sel = st.date_input("Selecione a data:", value=date.today())
     with col2:
         st.write("")
         st.write("")
-        if st.button("🚀 ANALISAR JOGOS", type="primary", use_container_width=True):
-            analisar_jogos_completo(data_sel, top_n, janela, enviar_auto)
+        if st.button("🚀 ANALISAR COM DADOS REAIS", type="primary", use_container_width=True):
+            analisar_jogos_com_dados_reais(data_sel, top_n, janela, enviar_auto)
     with col3:
         st.write("")
         st.write("")
         if st.button("🔄 Atualizar Dados", type="secondary"):
             st.rerun()
 
-def analisar_jogos_completo(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
+def analisar_jogos_com_dados_reais(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
     data_str = data_sel.strftime("%Y-%m-%d")
     
     progress_placeholder = st.empty()
     results_placeholder = st.empty()
     
     with progress_placeholder:
-        st.info(f"🔍 Iniciando análise para {data_sel.strftime('%d/%m/%Y')}...")
+        st.info(f"🔍 Buscando dados reais para {data_sel.strftime('%d/%m/%Y')}...")
+        st.success("📊 Analisando com dados das temporadas 2023-2024")
         if enviar_auto:
-            st.success("📤 Alertas serão enviados automaticamente para Telegram")
+            st.warning("📤 Alertas serão enviados para Telegram")
         progress_bar = st.progress(0)
         status_text = st.empty()
     
@@ -636,13 +709,13 @@ def analisar_jogos_completo(data_sel: date, top_n: int, janela: int, enviar_auto
     
     jogos = jogos[:top_n]
     
-    status_text.text(f"📊 Analisando {len(jogos)} jogos...")
+    status_text.text(f"📊 Analisando {len(jogos)} jogos com dados históricos...")
     
     resultados = []
     alertas_enviados = 0
     
     with results_placeholder:
-        st.subheader(f"🎯 Análise em Tempo Real")
+        st.subheader(f"🎯 Análise com Dados Reais")
         
         for i, jogo in enumerate(jogos):
             progress = (i + 1) / len(jogos)
@@ -656,7 +729,7 @@ def analisar_jogos_completo(data_sel: date, top_n: int, janela: int, enviar_auto
             away_id = jogo["visitor_team"]["id"]
             
             try:
-                # Previsões
+                # Previsões com dados reais
                 total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
                 vencedor, vencedor_conf, vencedor_detalhe = prever_vencedor(home_id, away_id, janela)
                 
@@ -678,18 +751,20 @@ def analisar_jogos_completo(data_sel: date, top_n: int, janela: int, enviar_auto
                 if enviado and enviar_auto:
                     alertas_enviados += 1
                 
-                # Exibe resultado imediatamente
+                # Exibe resultado
                 col1, col2, col3 = st.columns([3, 2, 1])
                 with col1:
                     st.write(f"**{home_team}** vs **{away_team}**")
-                    st.write(f"📊 **Total:** {total_tend}")
-                    st.write(f"🎯 **Vencedor:** {vencedor}")
+                    st.write(f"📍 **Status:** {jogo.get('status', 'SCHEDULED')}")
                 
                 with col2:
-                    st.write(f"📈 Estimativa: {total_estim:.1f}")
-                    st.write(f"💪 Confiança: {vencedor_conf}%")
+                    st.write(f"📊 **Total:** {total_tend}")
+                    st.write(f"🎯 **Vencedor:** {vencedor}")
+                    st.write(f"💪 **Confiança:** {vencedor_conf}%")
                 
                 with col3:
+                    st.write(f"📈 **Estimativa:** {total_estim:.1f}")
+                    st.write(f"🔒 **Confiança:** {total_conf}%")
                     if enviado and enviar_auto:
                         st.success("✅ Telegram")
                     else:
@@ -709,13 +784,13 @@ def analisar_jogos_completo(data_sel: date, top_n: int, janela: int, enviar_auto
     progress_placeholder.empty()
     
     # Resumo final
-    st.success(f"✅ Análise concluída!")
+    st.success(f"✅ Análise com dados reais concluída!")
     st.info(f"""
     **📊 Resumo da Análise:**
-    - 🏀 {len(resultados)} jogos analisados
+    - 🏀 {len(resultados)} jogos analisados com dados históricos
     - 📤 {alertas_enviados} alertas enviados para Telegram
-    - 🎯 2 modalidades por jogo
-    - 💾 Dados salvos para conferência
+    - 📈 Estatísticas baseadas na temporada 2023-2024
+    - 💾 Dados salvos para conferência futura
     """)
 
 # =============================
