@@ -140,7 +140,7 @@ def obter_jogos_data(data_str: str) -> list:
     st.info(f"📥 Buscando jogos para {data_str}...")
     jogos = []
     page = 1
-    max_pages = 2  # Aumentado para buscar mais jogos
+    max_pages = 2
     
     while page <= max_pages:
         params = {
@@ -171,27 +171,27 @@ def obter_jogos_data(data_str: str) -> list:
     return jogos
 
 # =============================
-# ESTATÍSTICAS REAIS COM DADOS PASSADOS
+# ESTATÍSTICAS REAIS - TEMPORADA 2024-2025
 # =============================
-def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_games: int = 15) -> dict:
-    """Busca estatísticas reais de temporadas passadas"""
+def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
+    """Busca estatísticas reais da temporada 2024-2025"""
     cache = carregar_cache_stats()
-    key = f"team_{team_id}_season_{season}"
+    key = f"team_{team_id}_2025"
     
     if key in cache:
         cached_data = cache[key]
         if cached_data.get("games", 0) > 0:
             return cached_data
 
-    # Busca jogos da temporada atual e anterior
-    start_date = f"{season-1}-10-01"  # Início da temporada anterior (outubro)
-    end_date = f"{season}-06-30"      # Fim da temporada atual (junho)
+    # Busca jogos da temporada 2024-2025 (season=2024 na API)
+    start_date = "2024-10-01"  # Início da temporada 2024-2025
+    end_date = "2025-06-30"    # Fim da temporada regular
     
     games = []
     page = 1
-    max_pages = 3  # Busca mais páginas para ter dados suficientes
+    max_pages = 3
     
-    st.info(f"📊 Buscando estatísticas do time {team_id}...")
+    st.info(f"📊 Buscando estatísticas 2024-2025 do time {team_id}...")
     
     while page <= max_pages:
         params = {
@@ -200,7 +200,7 @@ def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_ga
             "page": page,
             "start_date": start_date,
             "end_date": end_date,
-            "seasons[]": season
+            "seasons[]": 2024  # Temporada 2024-2025
         }
         
         resp = balldontlie_get("games", params=params)
@@ -227,7 +227,7 @@ def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_ga
             if (status in ("FINAL", "FINAL/OT") and 
                 home_score is not None and 
                 visitor_score is not None and
-                home_score > 0 and visitor_score > 0):  # Garante placares válidos
+                home_score > 0 and visitor_score > 0):
                 games_validos.append(game)
         except Exception:
             continue
@@ -239,15 +239,60 @@ def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_ga
     except Exception:
         games_validos = games_validos[:window_games]
 
-    # Se não encontrou jogos válidos, tenta buscar da temporada anterior
-    if not games_validos and season > 2020:
-        return obter_estatisticas_time_completo(team_id, season-1, window_games)
+    # Se não encontrou jogos válidos, usa fallback com dados da temporada atual
+    if not games_validos:
+        # Busca dados dos últimos 90 dias como fallback
+        end_date = date.today()
+        start_date = end_date - timedelta(days=90)
+        
+        games_fallback = []
+        page = 1
+        max_pages = 2
+        
+        while page <= max_pages:
+            params = {
+                "team_ids[]": team_id,
+                "per_page": 25,
+                "page": page,
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d")
+            }
+            
+            resp = balldontlie_get("games", params=params)
+            if not resp or "data" not in resp:
+                break
+                
+            games_fallback.extend(resp["data"])
+            page += 1
+        
+        # Filtra jogos válidos do fallback
+        for game in games_fallback:
+            try:
+                status = game.get("status", "").upper()
+                home_score = game.get("home_team_score")
+                visitor_score = game.get("visitor_team_score")
+                
+                if (status in ("FINAL", "FINAL/OT") and 
+                    home_score is not None and 
+                    visitor_score is not None and
+                    home_score > 0 and visitor_score > 0):
+                    games_validos.append(game)
+            except Exception:
+                continue
+        
+        # Ordena e limita novamente
+        try:
+            games_validos.sort(key=lambda x: x.get("date", ""), reverse=True)
+            games_validos = games_validos[:window_games]
+        except Exception:
+            games_validos = games_validos[:window_games]
 
     # Calcula estatísticas
     if not games_validos:
+        # Fallback para médias gerais da NBA 2024-2025
         stats = {
-            "pts_for_avg": 110.0,  # Fallback para média da NBA
-            "pts_against_avg": 110.0,
+            "pts_for_avg": 114.5,  # Média atualizada da NBA
+            "pts_against_avg": 114.5,
             "games": 0,
             "pts_diff_avg": 0.0,
             "win_rate": 0.5
@@ -288,8 +333,8 @@ def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_ga
             }
         else:
             stats = {
-                "pts_for_avg": 110.0,
-                "pts_against_avg": 110.0,
+                "pts_for_avg": 114.5,
+                "pts_against_avg": 114.5,
                 "games": 0,
                 "pts_diff_avg": 0.0,
                 "win_rate": 0.5
@@ -300,12 +345,12 @@ def obter_estatisticas_time_completo(team_id: int, season: int = 2024, window_ga
     return stats
 
 # =============================
-# PREVISÕES COM DADOS REAIS
+# PREVISÕES COM DADOS REAIS 2024-2025
 # =============================
 def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
-    """Previsão baseada em dados reais de temporadas passadas"""
-    home_stats = obter_estatisticas_time_completo(home_id, 2024, window_games)
-    away_stats = obter_estatisticas_time_completo(away_id, 2024, window_games)
+    """Previsão baseada em dados reais da temporada 2024-2025"""
+    home_stats = obter_estatisticas_time_2025(home_id, window_games)
+    away_stats = obter_estatisticas_time_2025(away_id, window_games)
     
     # Usa dados reais ou fallback se não houver dados suficientes
     home_avg = home_stats["pts_for_avg"]
@@ -354,9 +399,9 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> t
     return round(estimativa, 1), round(confianca, 1), tendencia
 
 def prever_vencedor(home_id: int, away_id: int, window_games: int = 15) -> tuple[str, float, str]:
-    """Previsão de vencedor baseada em dados reais"""
-    home_stats = obter_estatisticas_time_completo(home_id, 2024, window_games)
-    away_stats = obter_estatisticas_time_completo(away_id, 2024, window_games)
+    """Previsão de vencedor baseada em dados reais da temporada 2024-2025"""
+    home_stats = obter_estatisticas_time_2025(home_id, window_games)
+    away_stats = obter_estatisticas_time_2025(away_id, window_games)
     
     # Calcula vantagem baseada em performance histórica
     home_win_rate = home_stats["win_rate"]
@@ -443,7 +488,7 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
             msg += f"🎯 <b>Vencedor</b>: {vencedor_pred.get('vencedor', 'N/A')}\n"
             msg += f"   💪 Confiança: {vencedor_pred.get('confianca', 0):.0f}% | {vencedor_pred.get('detalhe', '')}\n"
 
-        msg += "\n🏆 <b>Elite Master</b> - Análise com Dados Reais"
+        msg += "\n🏆 <b>Elite Master</b> - Análise com Dados Reais 2024-2025"
         return msg
     except Exception as e:
         return f"⚠️ Erro ao formatar: {e}"
@@ -634,11 +679,11 @@ def conferir_resultados():
 # =============================
 def main():
     st.set_page_config(page_title="🏀 Elite Master - NBA Alerts", layout="wide")
-    st.title("🏀 Elite Master — Análise com Dados Reais")
+    st.title("🏀 Elite Master — Análise com Dados Reais 2024-2025")
     
     st.sidebar.header("⚙️ Configurações")
     st.sidebar.info("🎯 **Fonte:** Dados Reais da API")
-    st.sidebar.warning("📊 **Período:** Temporada 2023-2024")
+    st.sidebar.success("📊 **Temporada:** 2024-2025")
     
     tab1, tab2, tab3 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência"])
     
@@ -652,12 +697,12 @@ def main():
         conferir_resultados()
 
 def exibir_aba_analise():
-    st.header("🎯 Análise com Dados Reais")
+    st.header("🎯 Análise com Dados Reais 2024-2025")
     
     with st.sidebar:
         st.subheader("Controles de Análise")
-        top_n = st.slider("Número de jogos para analisar", 1, 15, 5)
-        janela = st.slider("Jogos recentes para análise", 2, 20, 15)
+        top_n = st.slider("Número de jogos para analisar", 1, 10, 5)
+        janela = st.slider("Jogos recentes para análise", 8, 20, 15)
         enviar_auto = st.checkbox("Enviar alertas automaticamente para Telegram", value=True)
         
         st.markdown("---")
@@ -678,15 +723,15 @@ def exibir_aba_analise():
     with col2:
         st.write("")
         st.write("")
-        if st.button("🚀 ANALISAR COM DADOS REAIS", type="primary", use_container_width=True):
-            analisar_jogos_com_dados_reais(data_sel, top_n, janela, enviar_auto)
+        if st.button("🚀 ANALISAR COM DADOS 2024-2025", type="primary", use_container_width=True):
+            analisar_jogos_com_dados_2025(data_sel, top_n, janela, enviar_auto)
     with col3:
         st.write("")
         st.write("")
         if st.button("🔄 Atualizar Dados", type="secondary"):
             st.rerun()
 
-def analisar_jogos_com_dados_reais(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
+def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
     data_str = data_sel.strftime("%Y-%m-%d")
     
     progress_placeholder = st.empty()
@@ -694,7 +739,7 @@ def analisar_jogos_com_dados_reais(data_sel: date, top_n: int, janela: int, envi
     
     with progress_placeholder:
         st.info(f"🔍 Buscando dados reais para {data_sel.strftime('%d/%m/%Y')}...")
-        st.success("📊 Analisando com dados das temporadas 2023-2024")
+        st.success("📊 Analisando com dados da temporada 2024-2025")
         if enviar_auto:
             st.warning("📤 Alertas serão enviados para Telegram")
         progress_bar = st.progress(0)
@@ -709,13 +754,13 @@ def analisar_jogos_com_dados_reais(data_sel: date, top_n: int, janela: int, envi
     
     jogos = jogos[:top_n]
     
-    status_text.text(f"📊 Analisando {len(jogos)} jogos com dados históricos...")
+    status_text.text(f"📊 Analisando {len(jogos)} jogos com dados 2024-2025...")
     
     resultados = []
     alertas_enviados = 0
     
     with results_placeholder:
-        st.subheader(f"🎯 Análise com Dados Reais")
+        st.subheader(f"🎯 Análise com Dados Reais 2024-2025")
         
         for i, jogo in enumerate(jogos):
             progress = (i + 1) / len(jogos)
@@ -729,7 +774,7 @@ def analisar_jogos_com_dados_reais(data_sel: date, top_n: int, janela: int, envi
             away_id = jogo["visitor_team"]["id"]
             
             try:
-                # Previsões com dados reais
+                # Previsões com dados reais 2024-2025
                 total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
                 vencedor, vencedor_conf, vencedor_detalhe = prever_vencedor(home_id, away_id, janela)
                 
@@ -784,12 +829,12 @@ def analisar_jogos_com_dados_reais(data_sel: date, top_n: int, janela: int, envi
     progress_placeholder.empty()
     
     # Resumo final
-    st.success(f"✅ Análise com dados reais concluída!")
+    st.success(f"✅ Análise com dados 2024-2025 concluída!")
     st.info(f"""
     **📊 Resumo da Análise:**
-    - 🏀 {len(resultados)} jogos analisados com dados históricos
+    - 🏀 {len(resultados)} jogos analisados com dados 2024-2025
     - 📤 {alertas_enviados} alertas enviados para Telegram
-    - 📈 Estatísticas baseadas na temporada 2023-2024
+    - 📈 Estatísticas baseadas na temporada atual
     - 💾 Dados salvos para conferência futura
     """)
 
