@@ -39,6 +39,10 @@ HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
 # ✅ Adicionar configuração de timeout global
 REQUEST_TIMEOUT = 15
 
+# ✅ Rate Limiting - BallDontLie tem limite de 60 requests/minuto
+LAST_REQUEST_TIME = 0
+MIN_REQUEST_INTERVAL = 1.1  # 1.1 segundo entre requests (≈54/minuto)
+
 # =============================
 # UTILITÁRIOS DE CACHE E IO
 # =============================
@@ -105,12 +109,33 @@ def abreviar(nome: str, l=20):
     return nome if len(nome) <= l else nome[:l-3] + "..."
 
 # =============================
-# REQUISIÇÕES À BALLDONTLIE
+# REQUISIÇÕES À BALLDONTLIE COM RATE LIMITING
 # =============================
 def balldontlie_get(path: str, params: dict | None = None, timeout: int = REQUEST_TIMEOUT) -> dict | None:
+    global LAST_REQUEST_TIME
+    
+    # ✅ Rate Limiting
+    current_time = time.time()
+    time_since_last_request = current_time - LAST_REQUEST_TIME
+    if time_since_last_request < MIN_REQUEST_INTERVAL:
+        sleep_time = MIN_REQUEST_INTERVAL - time_since_last_request
+        time.sleep(sleep_time)
+    
     try:
         url = BALLDONTLIE_BASE.rstrip("/") + "/" + path.lstrip("/")
         resp = requests.get(url, headers=HEADERS_BDL, params=params, timeout=timeout)
+        
+        # ✅ Atualizar último tempo de requisição
+        LAST_REQUEST_TIME = time.time()
+        
+        # ✅ Verificar rate limit
+        if resp.status_code == 429:
+            st.warning("⚠️ Rate limit atingido. Aguardando 60 segundos...")
+            time.sleep(60)
+            # Tentar novamente após espera
+            resp = requests.get(url, headers=HEADERS_BDL, params=params, timeout=timeout)
+            LAST_REQUEST_TIME = time.time()
+        
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as e:
@@ -144,17 +169,32 @@ def obter_jogos_data(data_str: str) -> list:
     jogos = []
     per_page = 100
     page = 1
-    while True:
+    
+    # ✅ Limitar número de páginas para evitar muitas requisições
+    max_pages = 3
+    
+    while page <= max_pages:
         params = {"dates[]": data_str, "per_page": per_page, "page": page}
         resp = balldontlie_get("games", params=params)
         if not resp or "data" not in resp:
             break
-        jogos.extend(resp["data"])
-        meta = resp.get("meta")
-        if not meta or page >= meta.get("total_pages", 1):
+            
+        data_chunk = resp["data"]
+        if not data_chunk:  # Sem mais dados
             break
+            
+        jogos.extend(data_chunk)
+        meta = resp.get("meta", {})
+        
+        # ✅ Verificar se chegamos na última página
+        current_page = meta.get("current_page", page)
+        total_pages = meta.get("total_pages", 1)
+        
+        if current_page >= total_pages:
+            break
+            
         page += 1
-        time.sleep(0.05)
+
     cache[key] = jogos
     salvar_cache_games(cache)
     return jogos
@@ -179,7 +219,9 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
     per_page = 100
     page = 1
     games = []
-    while len(games) < window_games * 2:  # Buscar um pouco mais para ter dados suficientes
+    max_pages = 2  # ✅ Limitar páginas para evitar rate limiting
+    
+    while len(games) < window_games * 2 and page <= max_pages:
         params = {
             "team_ids[]": team_id,
             "per_page": per_page,
@@ -195,7 +237,6 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 20) -> di
         if not meta or page >= meta.get("total_pages", 1):
             break
         page += 1
-        time.sleep(0.05)
 
     def _gdate(g):
         d = g.get("datetime") or g.get("date") or g.get("game_date")
@@ -271,20 +312,20 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 20) -> t
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
     
     if home_stats["games"] == 0 or away_stats["games"] == 0:
-        return 215.0, 50.0, "Dados Insuficientes"  # ✅ 55.0 era muito alto
+        return 215.0, 50.0, "Dados Insuficientes"
     
     # ✅ Cálculo mais conservador
-    estimativa = (home_stats["pts_for_avg"] + away_stats["pts_for_avg"]) * 0.98  # Ajuste para realidade
+    estimativa = (home_stats["pts_for_avg"] + away_stats["pts_for_avg"]) * 0.98
     
     # ✅ Confiança mais realista
     jogos_minimos = min(home_stats["games"], away_stats["games"])
-    conf_base = 40 + min(25, jogos_minimos)  # Base reduzida
+    conf_base = 40 + min(25, jogos_minimos)
     
     # ✅ Ajuste por qualidade dos dados
     diff_qualidade = abs(home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"])
     conf_ajustada = conf_base - min(15, diff_qualidade * 2)
     
-    confianca = max(30.0, min(85.0, conf_ajustada))  # ✅ 95.0 era muito otimista
+    confianca = max(30.0, min(85.0, conf_ajustada))
     
     # ✅ Tendência mais conservadora
     if estimativa >= 230:
@@ -311,10 +352,10 @@ def prever_moneyline(home_id: int, away_id: int, window_games: int = 20) -> tupl
     if abs(diff) < 2.5:
         return "Empate", 50.0
     elif diff > 0:
-        conf = min(90.0, 50 + diff * 3.0)  # ✅ Ajustado para ser mais conservador
+        conf = min(90.0, 50 + diff * 3.0)
         return "Casa vencer", round(max(50.0, conf), 1)
     else:
-        conf = min(90.0, 50 + abs(diff) * 3.0)  # ✅ Ajustado para ser mais conservador
+        conf = min(90.0, 50 + abs(diff) * 3.0)
         return "Fora vencer", round(max(50.0, conf), 1)
 
 def prever_handicap(home_id: int, away_id: int, window_games: int = 20) -> dict:
@@ -328,8 +369,8 @@ def prever_handicap(home_id: int, away_id: int, window_games: int = 20) -> dict:
         spread_str = f"-{abs(spread)}.5"
     else:
         spread_str = f"+{abs(spread)}.5"
-    prob = 50 + (margem * 2.5)  # ✅ Reduzido o multiplicador para ser mais conservador
-    prob = max(15.0, min(90.0, prob))  # ✅ Ajustado os limites
+    prob = 50 + (margem * 2.5)
+    prob = max(15.0, min(90.0, prob))
     return {"margem": round(margem, 1), "spread": spread_str, "prob_cover_home": round(prob, 1)}
 
 def prever_first_half(home_id: int, away_id: int, window_games: int = 20) -> tuple[float, float, str]:
@@ -339,8 +380,8 @@ def prever_first_half(home_id: int, away_id: int, window_games: int = 20) -> tup
         return 105.0, 50.0, "Mais 105.5 (1H)"
     estimativa = home_stats["first_half_avg"] + away_stats["first_half_avg"]
     jogos = min(home_stats["games"], away_stats["games"])
-    conf = 40 + min(25, jogos)  # ✅ Ajustado para ser mais conservador
-    conf = max(30.0, min(85.0, conf))  # ✅ Ajustado os limites
+    conf = 40 + min(25, jogos)
+    conf = max(30.0, min(85.0, conf))
     if estimativa >= 115:
         tendencia = "Mais 115.5 (1H)"
     elif estimativa >= 110:
@@ -396,7 +437,6 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
         # First Half
         fh = predictions.get("first_half", {})
         if fh:
-            # fh should be tuple/list: (estim, conf, tendencia)
             try:
                 estim_fh = fh.get("estimativa") if isinstance(fh, dict) else fh[0]
                 conf_fh = fh.get("confianca") if isinstance(fh, dict) else fh[1]
@@ -438,7 +478,6 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
     home_score = game.get("home_team_score")
     vis_score = game.get("visitor_team_score")
     
-    # ✅ Verificar se os scores estão disponíveis
     if home_score is None or vis_score is None:
         return {
             "home": home,
@@ -459,13 +498,11 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
         tendencia = t.get("tendencia", "")
         
         try:
-            # ✅ Extrair threshold de forma mais segura
             th_str = tendencia.split()[-1].replace("(", "").replace(")", "")
             th = float(th_str)
         except (ValueError, IndexError):
-            th = 215.5  # Valor padrão seguro
+            th = 215.5
 
-        # ✅ Lógica de resultado mais robusta
         if "Mais" in tendencia:
             total_res = "🟢 GREEN" if total > th else "🔴 RED"
         elif "Menos" in tendencia:
@@ -473,7 +510,6 @@ def processar_resultado_nba(game: dict, alerta_info: dict) -> dict:
         else:
             total_res = "⚪ INDEFINIDO"
 
-        # ✅ Cálculo do primeiro tempo com verificações
         home_q1 = game.get("home_periods", [0, 0, 0, 0])[0] if game.get("home_periods") else game.get("home_q1", 0)
         home_q2 = game.get("home_periods", [0, 0, 0, 0])[1] if game.get("home_periods") else game.get("home_q2", 0)
         vis_q1 = game.get("visitor_periods", [0, 0, 0, 0])[0] if game.get("visitor_periods") else game.get("visitor_q1", 0)
@@ -568,7 +604,6 @@ def main():
     st.set_page_config(page_title="🏀 Elite Master - NBA Alerts", layout="wide")
     st.title("🏀 Elite Master — Sistema de Alertas Automáticos (NBA)")
 
-    # ✅ Adicionar verificação de configuração no início
     if not BALLDONTLIE_API_KEY:
         st.error("""
         ❌ **Configuração necessária:**
@@ -596,7 +631,8 @@ def main():
             enviar_auto = False
             
         st.markdown("---")
-        st.markdown("**API:** BallDontLie")
+        st.markdown("**API:** BallDontLie (60 req/min)")
+        st.markdown("**Rate Limiting:** Ativo")
         st.markdown("**Desenvolvido por:** Elite Master Team")
 
     col1, col2 = st.columns([2,1])
@@ -627,6 +663,10 @@ def main():
 def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
     data_str = data_sel.strftime("%Y-%m-%d")
     st.info(f"Buscando jogos NBA para {data_sel.strftime('%d/%m/%Y')} ...")
+    
+    # ✅ Mostrar informações de rate limiting
+    st.warning("⚠️ Rate Limiting ativo: ~1 requisição/segundo para respeitar limites da API")
+    
     games = obter_jogos_data(data_str)
     if not games:
         st.warning("Nenhum jogo encontrado para a data selecionada.")
@@ -679,9 +719,24 @@ def processar_dia_nba(data_sel: date, top_n: int, janela: int, enviar_auto: bool
     alertas = carregar_alertas()
     jogos_list = []
     for fid, info in alertas.items():
-        g = balldontlie_get(f"games/{fid}")
-        if not g:
-            continue
+        # ✅ Usar cache em vez de fazer nova requisição
+        cache_games = carregar_cache_games()
+        g_cached = None
+        for data_key, games_in_cache in cache_games.items():
+            for game_in_cache in games_in_cache:
+                if str(game_in_cache.get("id")) == fid:
+                    g_cached = game_in_cache
+                    break
+            if g_cached:
+                break
+        
+        if g_cached:
+            g = g_cached
+        else:
+            g = balldontlie_get(f"games/{fid}")
+            if not g:
+                continue
+                
         pred = info.get("predictions", {})
         jogos_list.append({
             "id": fid,
@@ -712,10 +767,29 @@ def conferir_resultados_nba():
         return
     rows_pdf = []
     mudou = False
+    
+    # ✅ Mostrar informações de rate limiting
+    st.warning("⚠️ Conferindo resultados com rate limiting ativo...")
+    
     for fid, info in list(alertas.items()):
-        g = balldontlie_get(f"games/{fid}")
-        if not g:
-            continue
+        # ✅ Tentar usar cache primeiro
+        cache_games = carregar_cache_games()
+        g_cached = None
+        for data_key, games_in_cache in cache_games.items():
+            for game_in_cache in games_in_cache:
+                if str(game_in_cache.get("id")) == fid:
+                    g_cached = game_in_cache
+                    break
+            if g_cached:
+                break
+        
+        if g_cached:
+            g = g_cached
+        else:
+            g = balldontlie_get(f"games/{fid}")
+            if not g:
+                continue
+                
         res = processar_resultado_nba(g, info)
         exibir_resultado_streamlit(res)
         if res["status"] in ("FINAL", "FINAL/OT") and not info.get("conferido", False):
