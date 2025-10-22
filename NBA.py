@@ -33,7 +33,7 @@ HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
 # Rate limiting balanceado
 REQUEST_TIMEOUT = 10
 LAST_REQUEST_TIME = 0
-MIN_REQUEST_INTERVAL = 0.8  # Balance entre velocidade e rate limit
+MIN_REQUEST_INTERVAL = 0.8
 
 # =============================
 # CACHE E IO
@@ -43,7 +43,6 @@ def carregar_json(caminho: str) -> dict:
         if os.path.exists(caminho):
             with open(caminho, "r", encoding="utf-8") as f:
                 dados = json.load(f)
-            # Verifica se o cache é recente
             if datetime.now().timestamp() - os.path.getmtime(caminho) > CACHE_TIMEOUT:
                 return {}
             return dados
@@ -88,7 +87,6 @@ def salvar_cache_stats(dados):
 def balldontlie_get(path: str, params: dict | None = None, timeout: int = REQUEST_TIMEOUT) -> dict | None:
     global LAST_REQUEST_TIME
     
-    # Rate limiting
     current_time = time.time()
     time_since_last_request = current_time - LAST_REQUEST_TIME
     if time_since_last_request < MIN_REQUEST_INTERVAL:
@@ -115,7 +113,6 @@ def balldontlie_get(path: str, params: dict | None = None, timeout: int = REQUES
 # DADOS DOS TIMES
 # =============================
 def obter_times():
-    """Busca times da API uma vez e usa cache"""
     cache = carregar_cache_teams()
     if "teams" in cache and cache["teams"]:
         return cache["teams"]
@@ -134,7 +131,6 @@ def obter_times():
 # BUSCA DE JOGOS - OTIMIZADA
 # =============================
 def obter_jogos_data(data_str: str) -> list:
-    """Busca jogos de uma data específica com cache"""
     cache = carregar_cache_games()
     key = f"games_{data_str}"
     
@@ -144,12 +140,12 @@ def obter_jogos_data(data_str: str) -> list:
     st.info(f"📥 Buscando jogos para {data_str}...")
     jogos = []
     page = 1
-    max_pages = 2  # Limita para 2 páginas máximo
+    max_pages = 2
     
     while page <= max_pages:
         params = {
             "dates[]": data_str, 
-            "per_page": 50,  # Aumentado para 50 por página
+            "per_page": 50,
             "page": page
         }
         
@@ -163,7 +159,6 @@ def obter_jogos_data(data_str: str) -> list:
             
         jogos.extend(data_chunk)
         
-        # Verifica se há mais páginas
         meta = resp.get("meta", {})
         total_pages = meta.get("total_pages", 1)
         if page >= total_pages:
@@ -176,14 +171,13 @@ def obter_jogos_data(data_str: str) -> list:
     return jogos
 
 # =============================
-# ESTATÍSTICAS REAIS - OTIMIZADAS
+# ESTATÍSTICAS REAIS - CORRIGIDA
 # =============================
 def obter_estatisticas_recentes_time(team_id: int, window_games: int = 8) -> dict:
-    """Busca estatísticas reais com cache inteligente"""
+    """Busca estatísticas reais com cache inteligente - VERSÃO CORRIGIDA"""
     cache = carregar_cache_stats()
     key = f"team_{team_id}_{window_games}"
     
-    # Verifica cache primeiro
     if key in cache:
         cached_data = cache[key]
         if cached_data.get("games", 0) > 0:
@@ -191,7 +185,7 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 8) -> dic
 
     # Busca dados reais da API
     end_date = date.today()
-    start_date = end_date - timedelta(days=60)  # Últimos 60 dias
+    start_date = end_date - timedelta(days=60)
     
     games = []
     page = 1
@@ -203,8 +197,7 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 8) -> dic
             "per_page": 25,
             "page": page,
             "start_date": start_date.strftime("%Y-%m-%d"),
-            "end_date": end_date.strftime("%Y-%m-%d"),
-            "status": "Final"  # Apenas jogos finalizados
+            "end_date": end_date.strftime("%Y-%m-%d")
         }
         
         resp = balldontlie_get("games", params=params)
@@ -214,19 +207,31 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 8) -> dic
         games.extend(resp["data"])
         page += 1
 
-    # Processa os jogos
-    games_finalizados = [
-        g for g in games 
-        if g.get("status") in ("Final", "Final/OT") 
-        and g.get("home_team_score") is not None 
-        and g.get("visitor_team_score") is not None
-    ]
-    
-    # Ordena por data e pega os mais recentes
-    games_finalizados.sort(
-        key=lambda x: x.get("date") or "", 
-        reverse=True
-    )[:window_games]
+    # CORREÇÃO: Processamento mais robusto dos jogos
+    games_finalizados = []
+    for game in games:
+        try:
+            status = game.get("status", "").upper()
+            home_score = game.get("home_team_score")
+            visitor_score = game.get("visitor_team_score")
+            game_date = game.get("date")
+            
+            # Verifica se é um jogo finalizado com placar válido
+            if (status in ("FINAL", "FINAL/OT") and 
+                home_score is not None and 
+                visitor_score is not None and
+                game_date is not None):
+                games_finalizados.append(game)
+        except Exception:
+            continue
+
+    # CORREÇÃO: Ordenação mais segura
+    try:
+        games_finalizados.sort(key=lambda x: x.get("date", ""), reverse=True)
+        games_finalizados = games_finalizados[:window_games]
+    except Exception as e:
+        st.warning(f"⚠️ Erro ao ordenar jogos: {e}")
+        games_finalizados = games_finalizados[:window_games]
 
     if not games_finalizados:
         stats = {
@@ -243,36 +248,38 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 8) -> dic
         count = 0
 
         for game in games_finalizados:
-            home_id = game.get("home_team", {}).get("id")
-            home_score = game.get("home_team_score", 0)
-            visitor_score = game.get("visitor_team_score", 0)
-            
-            if home_id == team_id:
-                pts_for += home_score
-                pts_against += visitor_score
-                # Soma dos primeiros dois quartos (time da casa)
-                period_scores = game.get("home_periods")
-                if period_scores and len(period_scores) >= 2:
-                    first_half_total += sum(period_scores[:2])
+            try:
+                home_id = game.get("home_team", {}).get("id")
+                home_score = game.get("home_team_score", 0)
+                visitor_score = game.get("visitor_team_score", 0)
+                
+                if home_id == team_id:
+                    pts_for += home_score
+                    pts_against += visitor_score
+                    # Primeiro tempo - time da casa
+                    period_scores = game.get("home_periods")
+                    if period_scores and len(period_scores) >= 2:
+                        first_half_total += sum(period_scores[:2])
+                    else:
+                        q1 = game.get("home_q1", 0) or 0
+                        q2 = game.get("home_q2", 0) or 0
+                        first_half_total += q1 + q2
                 else:
-                    # Fallback para campos individuais
-                    q1 = game.get("home_q1", 0) or 0
-                    q2 = game.get("home_q2", 0) or 0
-                    first_half_total += q1 + q2
-            else:
-                pts_for += visitor_score
-                pts_against += home_score
-                # Soma dos primeiros dois quartos (time visitante)
-                period_scores = game.get("visitor_periods")
-                if period_scores and len(period_scores) >= 2:
-                    first_half_total += sum(period_scores[:2])
-                else:
-                    # Fallback para campos individuais
-                    q1 = game.get("visitor_q1", 0) or 0
-                    q2 = game.get("visitor_q2", 0) or 0
-                    first_half_total += q1 + q2
-            
-            count += 1
+                    pts_for += visitor_score
+                    pts_against += home_score
+                    # Primeiro tempo - time visitante
+                    period_scores = game.get("visitor_periods")
+                    if period_scores and len(period_scores) >= 2:
+                        first_half_total += sum(period_scores[:2])
+                    else:
+                        q1 = game.get("visitor_q1", 0) or 0
+                        q2 = game.get("visitor_q2", 0) or 0
+                        first_half_total += q1 + q2
+                
+                count += 1
+            except Exception as e:
+                st.warning(f"⚠️ Erro ao processar jogo: {e}")
+                continue
 
         if count > 0:
             stats = {
@@ -299,7 +306,6 @@ def obter_estatisticas_recentes_time(team_id: int, window_games: int = 8) -> dic
 # LÓGICA DE PREVISÃO COM DADOS REAIS
 # =============================
 def prever_total_points(home_id: int, away_id: int, window_games: int = 8) -> tuple[float, float, str]:
-    """Previsão baseada em dados reais"""
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
     
@@ -308,7 +314,6 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 8) -> tu
     
     estimativa = (home_stats["pts_for_avg"] + away_stats["pts_for_avg"])
     
-    # Cálculo de confiança baseado na qualidade dos dados
     jogos_minimos = min(home_stats["games"], away_stats["games"])
     conf_base = 40 + min(30, jogos_minimos * 3)
     
@@ -317,7 +322,6 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 8) -> tu
     
     confianca = max(35.0, min(90.0, conf_ajustada))
     
-    # Determina tendência
     if estimativa >= 235:
         tendencia = "Mais 235.5"
     elif estimativa >= 230:
@@ -336,7 +340,6 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 8) -> tu
     return round(estimativa, 1), round(confianca, 1), tendencia
 
 def prever_moneyline(home_id: int, away_id: int, window_games: int = 8) -> tuple[str, float]:
-    """Moneyline baseado em dados reais"""
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
     
@@ -344,7 +347,7 @@ def prever_moneyline(home_id: int, away_id: int, window_games: int = 8) -> tuple
         return "Dados Insuficientes", 50.0
     
     diff = home_stats["pts_diff_avg"] - away_stats["pts_diff_avg"]
-    home_bonus = 3.0  # Vantagem de jogar em casa
+    home_bonus = 3.0
     diff += home_bonus
     
     if abs(diff) < 2.0:
@@ -357,7 +360,6 @@ def prever_moneyline(home_id: int, away_id: int, window_games: int = 8) -> tuple
         return "Fora vencer", round(max(50.0, conf), 1)
 
 def prever_handicap(home_id: int, away_id: int, window_games: int = 8) -> dict:
-    """Handicap baseado em dados reais"""
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
     
@@ -365,7 +367,7 @@ def prever_handicap(home_id: int, away_id: int, window_games: int = 8) -> dict:
         return {"margem": 0.0, "spread": "0.5", "prob_cover_home": 50.0}
     
     margem = (home_stats["pts_for_avg"] - away_stats["pts_for_avg"]) + 2.5
-    spread = round(margem * 2) / 2  # Arredonda para 0.5
+    spread = round(margem * 2) / 2
     
     if spread >= 0:
         spread_str = f"-{abs(spread)}"
@@ -382,7 +384,6 @@ def prever_handicap(home_id: int, away_id: int, window_games: int = 8) -> dict:
     }
 
 def prever_first_half(home_id: int, away_id: int, window_games: int = 8) -> tuple[float, float, str]:
-    """Previsão do primeiro tempo baseada em dados reais"""
     home_stats = obter_estatisticas_recentes_time(home_id, window_games)
     away_stats = obter_estatisticas_recentes_time(away_id, window_games)
     
@@ -391,7 +392,6 @@ def prever_first_half(home_id: int, away_id: int, window_games: int = 8) -> tupl
     
     estimativa = home_stats["first_half_avg"] + away_stats["first_half_avg"]
     
-    # Confiança baseada na quantidade de dados
     jogos_minimos = min(home_stats["games"], away_stats["games"])
     confianca = max(40.0, min(85.0, 50 + jogos_minimos * 4))
     
@@ -423,7 +423,6 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
         home = game.get("home_team", {}).get("full_name", "Casa")
         away = game.get("visitor_team", {}).get("full_name", "Visitante")
         
-        # Formata data/hora
         data_hora = game.get("datetime") or game.get("date") or ""
         if data_hora:
             try:
@@ -439,22 +438,18 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
         msg += f"🏟️ {home} vs {away}\n"
         msg += f"📌 Status: {game.get('status', 'SCHEDULED')}\n\n"
 
-        # Total
         t = predictions.get("total", {})
         if t:
             msg += f"📈 <b>Total</b>: {t.get('tendencia', 'N/A')} | Estimativa: <b>{t.get('estimativa', 0):.1f}</b> | Conf: {t.get('confianca', 0):.0f}%\n"
         
-        # Moneyline
         ml = predictions.get("moneyline", ())
         if ml and len(ml) == 2:
             msg += f"🎯 <b>Moneyline</b>: {ml[0]} ({ml[1]:.0f}%)\n"
         
-        # Handicap
         h = predictions.get("handicap", {})
         if h:
             msg += f"📐 <b>Handicap</b>: {h.get('spread', '-')} | Prob: {h.get('prob_cover_home', 0):.0f}%\n"
         
-        # First Half
         fh = predictions.get("first_half", {})
         if fh and len(fh) == 3:
             msg += f"⏱️ <b>1º Tempo</b>: {fh[2]} | Estimativa: <b>{fh[0]:.1f}</b> | Conf: {fh[1]:.0f}%\n"
@@ -479,7 +474,6 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
         
         msg = formatar_msg_alerta(game, predictions)
         
-        # Mostra no Streamlit
         with st.expander(f"🎯 {game['home_team']['full_name']} vs {game['visitor_team']['full_name']}", expanded=True):
             st.write(f"**Total:** {predictions['total']['tendencia']} (Estimativa: {predictions['total']['estimativa']:.1f}, Conf: {predictions['total']['confianca']}%)")
             if predictions.get('moneyline'):
@@ -489,7 +483,6 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
             if predictions.get('first_half'):
                 st.write(f"**1º Tempo:** {predictions['first_half'][2]} (Estimativa: {predictions['first_half'][0]:.1f}, Conf: {predictions['first_half'][1]}%)")
         
-        # Envia para Telegram se solicitado
         if send_to_telegram:
             if enviar_telegram(msg):
                 st.success("📤 Enviado para Telegram")
@@ -523,7 +516,6 @@ def main():
                     pass
             st.rerun()
 
-    # Interface principal
     col1, col2 = st.columns([2, 1])
     with col1:
         data_sel = st.date_input("📅 Data para análise:", value=date.today())
@@ -533,11 +525,8 @@ def main():
             analisar_jogos_reais(data_sel, top_n, janela, enviar_auto)
 
 def analisar_jogos_reais(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
-    """Análise com dados reais da API"""
-    
     data_str = data_sel.strftime("%Y-%m-%d")
     
-    # Container para progresso
     progress_placeholder = st.empty()
     results_placeholder = st.empty()
     
@@ -546,14 +535,12 @@ def analisar_jogos_reais(data_sel: date, top_n: int, janela: int, enviar_auto: b
         progress_bar = st.progress(0)
         status_text = st.empty()
     
-    # Busca jogos
     jogos = obter_jogos_data(data_str)
     
     if not jogos:
         st.error("❌ Nenhum jogo encontrado para esta data")
         return
     
-    # Limita pelo número de jogos a analisar
     jogos = jogos[:top_n]
     
     status_text.text(f"📊 Analisando {len(jogos)} jogos...")
@@ -566,35 +553,35 @@ def analisar_jogos_reais(data_sel: date, top_n: int, janela: int, enviar_auto: b
             progress = (i + 1) / len(jogos)
             progress_bar.progress(progress)
             
-            # Atualiza status
             status_text.text(f"🔍 Analisando: {jogo['home_team']['full_name']} vs {jogo['visitor_team']['full_name']} ({i+1}/{len(jogos)})")
             
-            # Busca estatísticas reais
             home_id = jogo["home_team"]["id"]
             away_id = jogo["visitor_team"]["id"]
             
-            # Faz previsões com dados reais
-            total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
-            ml_pred = prever_moneyline(home_id, away_id, janela)
-            handicap_pred = prever_handicap(home_id, away_id, janela)
-            fh_pred = prever_first_half(home_id, away_id, janela)
-            
-            predictions = {
-                "total": {"estimativa": total_estim, "confianca": total_conf, "tendencia": total_tend},
-                "moneyline": ml_pred,
-                "handicap": handicap_pred,
-                "first_half": fh_pred
-            }
-            
-            results.append({
-                "jogo": jogo,
-                "predictions": predictions
-            })
-            
-            # Gera alerta
-            verificar_e_enviar_alerta(jogo, predictions, enviar_auto)
+            try:
+                total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
+                ml_pred = prever_moneyline(home_id, away_id, janela)
+                handicap_pred = prever_handicap(home_id, away_id, janela)
+                fh_pred = prever_first_half(home_id, away_id, janela)
+                
+                predictions = {
+                    "total": {"estimativa": total_estim, "confianca": total_conf, "tendencia": total_tend},
+                    "moneyline": ml_pred,
+                    "handicap": handicap_pred,
+                    "first_half": fh_pred
+                }
+                
+                results.append({
+                    "jogo": jogo,
+                    "predictions": predictions
+                })
+                
+                verificar_e_enviar_alerta(jogo, predictions, enviar_auto)
+                
+            except Exception as e:
+                st.error(f"❌ Erro ao analisar jogo {jogo['home_team']['full_name']} vs {jogo['visitor_team']['full_name']}: {e}")
+                continue
     
-    # Limpa placeholders de progresso
     progress_placeholder.empty()
     status_text.empty()
     
