@@ -406,7 +406,8 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
     msg += f"📐 <b>Handicap</b>: Spread sugerido {h['spread']} | Margem estimada: {h['margem']:.1f} | Prob cover casa: {h['prob_cover_home']:.0f}%\n"
     # First Half
     fh = predictions["first_half"]
-    msg += f"⏱️ <b>1º Tempo</b>: {fh[2]} | Estimativa: <b>{fh[0'] if False else fh[0]:.1f}</b> | Conf: {fh[1]:.0f}%\n"
+   # msg += f"⏱️ <b>1º Tempo</b>: {fh[2]} | Estimativa: <b>{fh[0'] if False else fh[0]:.1f}</b> | Conf: {fh[1]:.0f}%\n"
+    msg += f"⏱️ <b>1º Tempo</b>: {fh[2]} | Estimativa: <b>{fh[0]:.1f}</b> | Conf: {fh[1]:.0f}%\n"                                                     
 
     return msg
 
