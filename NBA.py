@@ -171,6 +171,71 @@ def obter_jogos_data(data_str: str) -> list:
     return jogos
 
 # =============================
+# ATUALIZAR RESULTADOS DAS PARTIDAS (NOVO)
+# =============================
+def atualizar_resultados_partidas():
+    """Atualiza os resultados das partidas salvas com dados mais recentes da API"""
+    alertas = carregar_alertas()
+    
+    if not alertas:
+        st.warning("❌ Nenhuma partida salva para atualizar.")
+        return 0
+    
+    st.info("🔄 Iniciando atualização dos resultados...")
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    jogos_atualizados = 0
+    total_jogos = len(alertas)
+    
+    for i, (alerta_id, alerta) in enumerate(alertas.items()):
+        progress = (i + 1) / total_jogos
+        progress_bar.progress(progress)
+        
+        game_data = alerta.get("game_data", {})
+        game_id = game_data.get("id")
+        
+        if not game_id:
+            continue
+        
+        # Busca dados atualizados do jogo específico
+        status_text.text(f"📡 Buscando dados do jogo {i+1}/{total_jogos}...")
+        
+        resp = balldontlie_get(f"games/{game_id}")
+        if resp and "data" in resp:
+            jogo_atualizado = resp["data"]
+            
+            # Atualiza os dados do jogo no alerta
+            alertas[alerta_id]["game_data"] = jogo_atualizado
+            
+            # Verifica se o status mudou
+            status_antigo = game_data.get("status", "")
+            status_novo = jogo_atualizado.get("status", "")
+            
+            if status_antigo != status_novo:
+                st.success(f"✅ Jogo {game_id}: {status_antigo} → {status_novo}")
+                jogos_atualizados += 1
+            else:
+                st.write(f"ℹ️ Jogo {game_id}: Status mantido ({status_novo})")
+        else:
+            st.error(f"❌ Erro ao buscar jogo {game_id}")
+        
+        # Pequena pausa para evitar rate limit
+        time.sleep(0.5)
+    
+    # Salva os alertas atualizados
+    if jogos_atualizados > 0:
+        salvar_alertas(alertas)
+        st.success(f"🎉 Atualização concluída! {jogos_atualizados} jogos atualizados.")
+    else:
+        st.info("ℹ️ Nenhum jogo precisou de atualização.")
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    return jogos_atualizados
+
+# =============================
 # ESTATÍSTICAS REAIS - TEMPORADA 2024-2025
 # =============================
 def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
@@ -696,6 +761,16 @@ def exibir_jogos_analisados():
 def conferir_resultados():
     st.header("📊 Conferência de Resultados")
     
+    # NOVO: Botão para atualizar resultados
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🔄 Atualizar Resultados", type="primary", use_container_width=True):
+            with st.spinner("Atualizando resultados das partidas..."):
+                jogos_atualizados = atualizar_resultados_partidas()
+                if jogos_atualizados > 0:
+                    st.success(f"✅ {jogos_atualizados} jogos atualizados!")
+                    st.rerun()
+    
     alertas = carregar_alertas()
     if not alertas:
         st.info("Nenhum alerta salvo para conferência.")
@@ -820,6 +895,18 @@ def main():
                 st.sidebar.write(f"   Pontuação: {pontuacao:.1f}")
         else:
             st.sidebar.warning("Nenhum jogo encontrado para esta data.")
+    
+    # NOVO: Botão para atualizar resultados na sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔄 Atualizações")
+    
+    if st.sidebar.button("📡 Atualizar Todos os Resultados", type="secondary"):
+        with st.spinner("Atualizando resultados de todas as partidas salvas..."):
+            jogos_atualizados = atualizar_resultados_partidas()
+            if jogos_atualizados > 0:
+                st.sidebar.success(f"✅ {jogos_atualizados} jogos atualizados!")
+            else:
+                st.sidebar.info("ℹ️ Nenhum jogo precisou de atualização.")
     
     tab1, tab2, tab3 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência"])
     
