@@ -26,6 +26,7 @@ ALERTAS_PATH = "alertas_nba.json"
 CACHE_GAMES = "cache_games_nba.json"
 CACHE_TEAMS = "cache_teams_nba.json"
 CACHE_STATS = "cache_stats_nba.json"
+STATS_PATH = "estatisticas_nba.json"  # NOVO: Arquivo para estatísticas
 CACHE_TIMEOUT = 86400  # 24h
 
 HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
@@ -80,6 +81,125 @@ def carregar_cache_stats():
 
 def salvar_cache_stats(dados):
     salvar_json(CACHE_STATS, dados)
+
+# =============================
+# SISTEMA DE ESTATÍSTICAS (NOVO)
+# =============================
+def carregar_estatisticas():
+    """Carrega as estatísticas de acertos/erros"""
+    return carregar_json(STATS_PATH) or {
+        "total_pontos": {"acertos": 0, "erros": 0, "total": 0},
+        "vencedor": {"acertos": 0, "erros": 0, "total": 0},
+        "jogos_analisados": 0,
+        "data_ultima_atualizacao": None
+    }
+
+def salvar_estatisticas(dados):
+    """Salva as estatísticas"""
+    salvar_json(STATS_PATH, dados)
+
+def atualizar_estatisticas(resultado_total: str, resultado_vencedor: str):
+    """Atualiza as estatísticas baseado nos resultados"""
+    stats = carregar_estatisticas()
+    
+    # Atualiza estatísticas de Total de Pontos
+    if resultado_total == "🟢 GREEN":
+        stats["total_pontos"]["acertos"] += 1
+        stats["total_pontos"]["total"] += 1
+    elif resultado_total == "🔴 RED":
+        stats["total_pontos"]["erros"] += 1
+        stats["total_pontos"]["total"] += 1
+    
+    # Atualiza estatísticas de Vencedor
+    if resultado_vencedor == "🟢 GREEN":
+        stats["vencedor"]["acertos"] += 1
+        stats["vencedor"]["total"] += 1
+    elif resultado_vencedor == "🔴 RED":
+        stats["vencedor"]["erros"] += 1
+        stats["vencedor"]["total"] += 1
+    
+    stats["jogos_analisados"] = max(stats["total_pontos"]["total"], stats["vencedor"]["total"])
+    stats["data_ultima_atualizacao"] = datetime.now().isoformat()
+    
+    salvar_estatisticas(stats)
+    return stats
+
+def calcular_taxa_acerto(acertos: int, total: int) -> float:
+    """Calcula a taxa de acerto em porcentagem"""
+    if total == 0:
+        return 0.0
+    return (acertos / total) * 100
+
+def exibir_estatisticas():
+    """Exibe as estatísticas de forma organizada"""
+    stats = carregar_estatisticas()
+    
+    st.header("📊 Estatísticas de Desempenho")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="🎯 Total de Pontos",
+            value=f"{stats['total_pontos']['acertos']}/{stats['total_pontos']['total']}",
+            delta=f"{calcular_taxa_acerto(stats['total_pontos']['acertos'], stats['total_pontos']['total']):.1f}%"
+        )
+        st.progress(stats['total_pontos']['acertos'] / max(stats['total_pontos']['total'], 1))
+    
+    with col2:
+        st.metric(
+            label="🏆 Vencedor",
+            value=f"{stats['vencedor']['acertos']}/{stats['vencedor']['total']}",
+            delta=f"{calcular_taxa_acerto(stats['vencedor']['acertos'], stats['vencedor']['total']):.1f}%"
+        )
+        st.progress(stats['vencedor']['acertos'] / max(stats['vencedor']['total'], 1))
+    
+    with col3:
+        st.metric(
+            label="📈 Jogos Analisados",
+            value=stats["jogos_analisados"],
+            delta="Performance"
+        )
+        taxa_geral = (stats['total_pontos']['acertos'] + stats['vencedor']['acertos']) / max((stats['total_pontos']['total'] + stats['vencedor']['total']), 1) * 100
+        st.write(f"**Taxa Geral:** {taxa_geral:.1f}%")
+    
+    # Estatísticas detalhadas
+    st.subheader("📋 Detalhamento por Categoria")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Total de Pontos**")
+        st.write(f"✅ Acertos: {stats['total_pontos']['acertos']}")
+        st.write(f"❌ Erros: {stats['total_pontos']['erros']}")
+        st.write(f"📊 Total: {stats['total_pontos']['total']}")
+        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['total_pontos']['acertos'], stats['total_pontos']['total']):.1f}%")
+    
+    with col2:
+        st.write("**Vencedor**")
+        st.write(f"✅ Acertos: {stats['vencedor']['acertos']}")
+        st.write(f"❌ Erros: {stats['vencedor']['erros']}")
+        st.write(f"📊 Total: {stats['vencedor']['total']}")
+        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['vencedor']['acertos'], stats['vencedor']['total']):.1f}%")
+    
+    # Data da última atualização
+    if stats["data_ultima_atualizacao"]:
+        try:
+            dt = datetime.fromisoformat(stats["data_ultima_atualizacao"])
+            st.caption(f"🕒 Última atualização: {dt.strftime('%d/%m/%Y %H:%M')}")
+        except:
+            pass
+
+def limpar_estatisticas():
+    """Limpa todas as estatísticas"""
+    stats = {
+        "total_pontos": {"acertos": 0, "erros": 0, "total": 0},
+        "vencedor": {"acertos": 0, "erros": 0, "total": 0},
+        "jogos_analisados": 0,
+        "data_ultima_atualizacao": None
+    }
+    salvar_estatisticas(stats)
+    return stats
 
 # =============================
 # REQUISIÇÕES À API
@@ -171,7 +291,7 @@ def obter_jogos_data(data_str: str) -> list:
     return jogos
 
 # =============================
-# ATUALIZAR RESULTADOS DAS PARTIDAS (NOVO)
+# ATUALIZAR RESULTADOS DAS PARTIDAS
 # =============================
 def atualizar_resultados_partidas():
     """Atualiza os resultados das partidas salvas com dados mais recentes da API"""
@@ -234,6 +354,48 @@ def atualizar_resultados_partidas():
     status_text.empty()
     
     return jogos_atualizados
+
+# =============================
+# CONFERIR JOGOS FINALIZADOS
+# =============================
+def conferir_jogos_finalizados():
+    """Função específica para conferir jogos finalizados e calcular resultados"""
+    alertas = carregar_alertas()
+    
+    if not alertas:
+        st.warning("❌ Nenhum jogo salvo para conferência.")
+        return 0
+    
+    st.info("🔍 Conferindo jogos finalizados...")
+    
+    jogos_conferidos = 0
+    jogos_finalizados = 0
+    
+    for alerta_id, alerta in alertas.items():
+        game_data = alerta.get("game_data", {})
+        status = game_data.get("status", "").upper()
+        
+        # Verifica se o jogo está finalizado
+        if status in ["FINAL", "FINAL/OT"]:
+            jogos_finalizados += 1
+            
+            # Se ainda não foi conferido, marca como conferido
+            if not alerta.get("conferido", False):
+                alertas[alerta_id]["conferido"] = True
+                jogos_conferidos += 1
+                
+                home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+                away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+                st.success(f"✅ Conferido: {home_team} vs {away_team}")
+    
+    # Salva as alterações se houver jogos conferidos
+    if jogos_conferidos > 0:
+        salvar_alertas(alertas)
+        st.success(f"🎉 Conferência concluída! {jogos_conferidos} jogos marcados como conferidos.")
+    else:
+        st.info(f"ℹ️ Nenhum jogo novo para conferir. Total de {jogos_finalizados} jogos finalizados.")
+    
+    return jogos_conferidos
 
 # =============================
 # ESTATÍSTICAS REAIS - TEMPORADA 2024-2025
@@ -587,7 +749,7 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
     return False
 
 # =============================
-# SISTEMA TOP 4 MELHORES JOGOS (NOVO)
+# SISTEMA TOP 4 MELHORES JOGOS
 # =============================
 def calcular_pontuacao_jogo(jogo: dict, times_stats: dict) -> float:
     """Calcula pontuação para ranking dos melhores jogos"""
@@ -761,8 +923,12 @@ def exibir_jogos_analisados():
 def conferir_resultados():
     st.header("📊 Conferência de Resultados")
     
-    # NOVO: Botão para atualizar resultados
-    col1, col2 = st.columns([3, 1])
+    # Botões de ação para conferência
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        st.subheader("Jogos Finalizados")
+    
     with col2:
         if st.button("🔄 Atualizar Resultados", type="primary", use_container_width=True):
             with st.spinner("Atualizando resultados das partidas..."):
@@ -770,6 +936,17 @@ def conferir_resultados():
                 if jogos_atualizados > 0:
                     st.success(f"✅ {jogos_atualizados} jogos atualizados!")
                     st.rerun()
+    
+    with col3:
+        # Botão específico para conferir jogos
+        if st.button("✅ Conferir Jogos", type="secondary", use_container_width=True):
+            with st.spinner("Conferindo jogos finalizados..."):
+                jogos_conferidos = conferir_jogos_finalizados()
+                if jogos_conferidos > 0:
+                    st.success(f"✅ {jogos_conferidos} jogos conferidos!")
+                    st.rerun()
+                else:
+                    st.info("ℹ️ Nenhum jogo novo para conferir.")
     
     alertas = carregar_alertas()
     if not alertas:
@@ -851,6 +1028,10 @@ def conferir_resultados():
         with col3:
             if not alerta.get("conferido", False):
                 if st.button("✅ Confirmar", key=f"conf_{alerta_id}"):
+                    # NOVO: Atualiza estatísticas quando confirma
+                    if resultado_total in ["🟢 GREEN", "🔴 RED"] and resultado_vencedor in ["🟢 GREEN", "🔴 RED"]:
+                        atualizar_estatisticas(resultado_total, resultado_vencedor)
+                    
                     alertas[alerta_id]["conferido"] = True
                     salvar_alertas(alertas)
                     st.rerun()
@@ -870,7 +1051,7 @@ def main():
     st.sidebar.info("🎯 **Fonte:** Dados Reais da API")
     st.sidebar.success("📊 **Temporada:** 2024-2025")
     
-    # NOVO: Botão para Top 4 Jogos
+    # Botão para Top 4 Jogos
     st.sidebar.markdown("---")
     st.sidebar.subheader("⭐ Top 4 Jogos")
     
@@ -896,7 +1077,7 @@ def main():
         else:
             st.sidebar.warning("Nenhum jogo encontrado para esta data.")
     
-    # NOVO: Botão para atualizar resultados na sidebar
+    # Botão para atualizar resultados na sidebar
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔄 Atualizações")
     
@@ -908,7 +1089,17 @@ def main():
             else:
                 st.sidebar.info("ℹ️ Nenhum jogo precisou de atualização.")
     
-    tab1, tab2, tab3 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência"])
+    # NOVO: Botão para limpar estatísticas
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📊 Estatísticas")
+    
+    if st.sidebar.button("🧹 Limpar Estatísticas", type="secondary"):
+        limpar_estatisticas()
+        st.sidebar.success("✅ Estatísticas limpas!")
+        st.rerun()
+    
+    # NOVO: Aba de estatísticas
+    tab1, tab2, tab3, tab4 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência", "📈 Estatísticas"])
     
     with tab1:
         exibir_aba_analise()
@@ -918,14 +1109,17 @@ def main():
     
     with tab3:
         conferir_resultados()
+    
+    with tab4:
+        exibir_estatisticas()
 
 def exibir_aba_analise():
     st.header("🎯 Análise com Dados Reais 2024-2025")
     
     with st.sidebar:
         st.subheader("Controles de Análise")
-        top_n = st.slider("Número de jogos para analisar", 1, 25, 15)
-        janela = st.slider("Jogos recentes para análise", 2, 20, 15)
+        top_n = st.slider("Número de jogos para analisar", 1, 10, 5)
+        janela = st.slider("Jogos recentes para análise", 8, 20, 15)
         enviar_auto = st.checkbox("Enviar alertas automaticamente para Telegram", value=True)
         
         st.markdown("---")
