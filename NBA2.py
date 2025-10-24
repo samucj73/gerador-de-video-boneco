@@ -1,0 +1,1796 @@
+# app_nba_elite_master.py
+import streamlit as st
+from datetime import datetime, timedelta, date
+import requests
+import json
+import os
+import io
+import pandas as pd
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+import time
+
+# =============================
+# CONFIGURAÇÕES
+# =============================
+BALLDONTLIE_API_KEY = "7da89f74-317a-45a0-88f9-57cccfef5a00"
+TELEGRAM_TOKEN = "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY"
+TELEGRAM_CHAT_ID = "-1003073115320"
+TELEGRAM_CHAT_ID_ALT2 = "-1002754276285"
+
+BALLDONTLIE_BASE = "https://api.balldontlie.io/v1"
+BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
+ALERTAS_PATH = "alertas_nba.json"
+CACHE_GAMES = "cache_games_nba.json"
+CACHE_TEAMS = "cache_teams_nba.json"
+CACHE_STATS = "cache_stats_nba.json"
+CACHE_PLAYERS = "cache_players_nba.json"  # NOVO: Cache para jogadores
+STATS_PATH = "estatisticas_nba.json"
+CACHE_TIMEOUT = 86400  # 24h
+
+HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
+
+# Rate limiting
+REQUEST_TIMEOUT = 10
+LAST_REQUEST_TIME = 0
+MIN_REQUEST_INTERVAL = 1.2
+
+# =============================
+# DICIONÁRIO DE JOGADORES ESTRELAS (NOVO)
+# =============================
+JOGADORES_ESTRELAS = {
+    # Atlanta Hawks
+    1: [{"id": 666, "nome": "Trae Young", "posicao": "PG"}, {"id": 667, "nome": "Dejounte Murray", "posicao": "SG"}],
+    
+    # Boston Celtics
+    2: [{"id": 354, "nome": "Jayson Tatum", "posicao": "SF"}, {"id": 355, "nome": "Jaylen Brown", "posicao": "SG"}],
+    
+    # Brooklyn Nets
+    3: [{"id": 668, "nome": "Mikal Bridges", "posicao": "SF"}, {"id": 669, "nome": "Ben Simmons", "posicao": "PG"}],
+    
+    # Charlotte Hornets
+    4: [{"id": 670, "nome": "LaMelo Ball", "posicao": "PG"}, {"id": 671, "nome": "Brandon Miller", "posicao": "SF"}],
+    
+    # Chicago Bulls
+    5: [{"id": 115, "nome": "DeMar DeRozan", "posicao": "SF"}, {"id": 116, "nome": "Zach LaVine", "posicao": "SG"}],
+    
+    # Cleveland Cavaliers
+    6: [{"id": 117, "nome": "Donovan Mitchell", "posicao": "SG"}, {"id": 118, "nome": "Darius Garland", "posicao": "PG"}],
+    
+    # Dallas Mavericks
+    7: [{"id": 228, "nome": "Luka Doncic", "posicao": "PG"}, {"id": 229, "nome": "Kyrie Irving", "posicao": "SG"}],
+    
+    # Denver Nuggets
+    8: [{"id": 246, "nome": "Nikola Jokic", "posicao": "C"}, {"id": 247, "nome": "Jamal Murray", "posicao": "PG"}],
+    
+    # Detroit Pistons
+    9: [{"id": 672, "nome": "Cade Cunningham", "posicao": "PG"}, {"id": 673, "nome": "Jaden Ivey", "posicao": "SG"}],
+    
+    # Golden State Warriors
+    10: [{"id": 115, "nome": "Stephen Curry", "posicao": "PG"}, {"id": 116, "nome": "Klay Thompson", "posicao": "SG"}],
+    
+    # Houston Rockets
+    11: [{"id": 674, "nome": "Jalen Green", "posicao": "SG"}, {"id": 675, "nome": "Alperen Sengun", "posicao": "C"}],
+    
+    # Indiana Pacers
+    12: [{"id": 676, "nome": "Tyrese Haliburton", "posicao": "PG"}, {"id": 677, "nome": "Myles Turner", "posicao": "C"}],
+    
+    # LA Clippers
+    13: [{"id": 274, "nome": "Kawhi Leonard", "posicao": "SF"}, {"id": 275, "nome": "Paul George", "posicao": "SF"}],
+    
+    # Los Angeles Lakers
+    14: [{"id": 237, "nome": "LeBron James", "posicao": "SF"}, {"id": 238, "nome": "Anthony Davis", "posicao": "PF"}],
+    
+    # Memphis Grizzlies
+    15: [{"id": 678, "nome": "Ja Morant", "posicao": "PG"}, {"id": 679, "nome": "Jaren Jackson Jr.", "posicao": "PF"}],
+    
+    # Miami Heat
+    16: [{"id": 680, "nome": "Jimmy Butler", "posicao": "SF"}, {"id": 681, "nome": "Bam Adebayo", "posicao": "C"}],
+    
+    # Milwaukee Bucks
+    17: [{"id": 15, "nome": "Giannis Antetokounmpo", "posicao": "PF"}, {"id": 16, "nome": "Damian Lillard", "posicao": "PG"}],
+    
+    # Minnesota Timberwolves
+    18: [{"id": 682, "nome": "Anthony Edwards", "posicao": "SG"}, {"id": 683, "nome": "Karl-Anthony Towns", "posicao": "C"}],
+    
+    # New Orleans Pelicans
+    19: [{"id": 684, "nome": "Zion Williamson", "posicao": "PF"}, {"id": 685, "nome": "Brandon Ingram", "posicao": "SF"}],
+    
+    # New York Knicks
+    20: [{"id": 686, "nome": "Jalen Brunson", "posicao": "PG"}, {"id": 687, "nome": "Julius Randle", "posicao": "PF"}],
+    
+    # Oklahoma City Thunder
+    21: [{"id": 688, "nome": "Shai Gilgeous-Alexander", "posicao": "PG"}, {"id": 689, "nome": "Chet Holmgren", "posicao": "C"}],
+    
+    # Orlando Magic
+    22: [{"id": 690, "nome": "Paolo Banchero", "posicao": "PF"}, {"id": 691, "nome": "Franz Wagner", "posicao": "SF"}],
+    
+    # Philadelphia 76ers
+    23: [{"id": 692, "nome": "Joel Embiid", "posicao": "C"}, {"id": 693, "nome": "Tyrese Maxey", "posicao": "PG"}],
+    
+    # Phoenix Suns
+    24: [{"id": 694, "nome": "Kevin Durant", "posicao": "SF"}, {"id": 695, "nome": "Devin Booker", "posicao": "SG"}],
+    
+    # Portland Trail Blazers
+    25: [{"id": 696, "nome": "Anfernee Simons", "posicao": "SG"}, {"id": 697, "nome": "Scoot Henderson", "posicao": "PG"}],
+    
+    # Sacramento Kings
+    26: [{"id": 698, "nome": "De'Aaron Fox", "posicao": "PG"}, {"id": 699, "nome": "Domantas Sabonis", "posicao": "C"}],
+    
+    # San Antonio Spurs
+    27: [{"id": 700, "nome": "Victor Wembanyama", "posicao": "C"}, {"id": 701, "nome": "Devin Vassell", "posicao": "SG"}],
+    
+    # Toronto Raptors
+    28: [{"id": 702, "nome": "Scottie Barnes", "posicao": "PF"}, {"id": 703, "nome": "Pascal Siakam", "posicao": "PF"}],
+    
+    # Utah Jazz
+    29: [{"id": 704, "nome": "Lauri Markkanen", "posicao": "PF"}, {"id": 705, "nome": "Jordan Clarkson", "posicao": "SG"}],
+    
+    # Washington Wizards
+    30: [{"id": 706, "nome": "Kyle Kuzma", "posicao": "PF"}, {"id": 707, "nome": "Jordan Poole", "posicao": "SG"}]
+}
+
+# =============================
+# CACHE E IO
+# =============================
+def carregar_json(caminho: str) -> dict:
+    try:
+        if os.path.exists(caminho):
+            with open(caminho, "r", encoding="utf-8") as f:
+                dados = json.load(f)
+            if datetime.now().timestamp() - os.path.getmtime(caminho) > CACHE_TIMEOUT:
+                return {}
+            return dados
+    except Exception:
+        return {}
+    return {}
+
+def salvar_json(caminho: str, dados: dict):
+    try:
+        with open(caminho, "w", encoding="utf-8") as f:
+            json.dump(dados, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def carregar_alertas():
+    return carregar_json(ALERTAS_PATH) or {}
+
+def salvar_alertas(dados):
+    salvar_json(ALERTAS_PATH, dados)
+
+def carregar_cache_games():
+    return carregar_json(CACHE_GAMES) or {}
+
+def salvar_cache_games(dados):
+    salvar_json(CACHE_GAMES, dados)
+
+def carregar_cache_teams():
+    return carregar_json(CACHE_TEAMS) or {}
+
+def salvar_cache_teams(dados):
+    salvar_json(CACHE_TEAMS, dados)
+
+def carregar_cache_stats():
+    return carregar_json(CACHE_STATS) or {}
+
+def salvar_cache_stats(dados):
+    salvar_json(CACHE_STATS, dados)
+
+def carregar_cache_players():
+    return carregar_json(CACHE_PLAYERS) or {}
+
+def salvar_cache_players(dados):
+    salvar_json(CACHE_PLAYERS, dados)
+
+# =============================
+# SISTEMA DE ESTATÍSTICAS
+# =============================
+def carregar_estatisticas():
+    """Carrega as estatísticas de acertos/erros"""
+    return carregar_json(STATS_PATH) or {
+        "total_pontos": {"acertos": 0, "erros": 0, "total": 0},
+        "vencedor": {"acertos": 0, "erros": 0, "total": 0},
+        "primeiro_quarto": {"acertos": 0, "erros": 0, "total": 0},
+        "jogadores_estrelas": {"acertos": 0, "erros": 0, "total": 0},
+        "jogos_analisados": 0,
+        "data_ultima_atualizacao": None
+    }
+
+def salvar_estatisticas(dados):
+    """Salva as estatísticas"""
+    salvar_json(STATS_PATH, dados)
+
+def atualizar_estatisticas(resultado_total: str, resultado_vencedor: str, resultado_quarto: str = None, resultado_jogadores: str = None):
+    """Atualiza as estatísticas baseado nos resultados"""
+    stats = carregar_estatisticas()
+    
+    # Atualiza estatísticas de Total de Pontos
+    if resultado_total == "🟢 GREEN":
+        stats["total_pontos"]["acertos"] += 1
+        stats["total_pontos"]["total"] += 1
+    elif resultado_total == "🔴 RED":
+        stats["total_pontos"]["erros"] += 1
+        stats["total_pontos"]["total"] += 1
+    
+    # Atualiza estatísticas de Vencedor
+    if resultado_vencedor == "🟢 GREEN":
+        stats["vencedor"]["acertos"] += 1
+        stats["vencedor"]["total"] += 1
+    elif resultado_vencedor == "🔴 RED":
+        stats["vencedor"]["erros"] += 1
+        stats["vencedor"]["total"] += 1
+    
+    # Atualiza estatísticas de Primeiro Quarto (se disponível)
+    if resultado_quarto and resultado_quarto in ["🟢 GREEN", "🔴 RED"]:
+        if resultado_quarto == "🟢 GREEN":
+            stats["primeiro_quarto"]["acertos"] += 1
+            stats["primeiro_quarto"]["total"] += 1
+        elif resultado_quarto == "🔴 RED":
+            stats["primeiro_quarto"]["erros"] += 1
+            stats["primeiro_quarto"]["total"] += 1
+    
+    # Atualiza estatísticas de Jogadores Estrelas (se disponível)
+    if resultado_jogadores and resultado_jogadores in ["🟢 GREEN", "🔴 RED"]:
+        if resultado_jogadores == "🟢 GREEN":
+            stats["jogadores_estrelas"]["acertos"] += 1
+            stats["jogadores_estrelas"]["total"] += 1
+        elif resultado_jogadores == "🔴 RED":
+            stats["jogadores_estrelas"]["erros"] += 1
+            stats["jogadores_estrelas"]["total"] += 1
+    
+    stats["jogos_analisados"] = max(stats["total_pontos"]["total"], stats["vencedor"]["total"])
+    stats["data_ultima_atualizacao"] = datetime.now().isoformat()
+    
+    salvar_estatisticas(stats)
+    return stats
+
+def calcular_taxa_acerto(acertos: int, total: int) -> float:
+    """Calcula a taxa de acerto em porcentagem"""
+    if total == 0:
+        return 0.0
+    return (acertos / total) * 100
+
+def exibir_estatisticas():
+    """Exibe as estatísticas de forma organizada"""
+    stats = carregar_estatisticas()
+    
+    st.header("📊 Estatísticas de Desempenho")
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric(
+            label="🎯 Total de Pontos",
+            value=f"{stats['total_pontos']['acertos']}/{stats['total_pontos']['total']}",
+            delta=f"{calcular_taxa_acerto(stats['total_pontos']['acertos'], stats['total_pontos']['total']):.1f}%"
+        )
+        st.progress(stats['total_pontos']['acertos'] / max(stats['total_pontos']['total'], 1))
+    
+    with col2:
+        st.metric(
+            label="🏆 Vencedor",
+            value=f"{stats['vencedor']['acertos']}/{stats['vencedor']['total']}",
+            delta=f"{calcular_taxa_acerto(stats['vencedor']['acertos'], stats['vencedor']['total']):.1f}%"
+        )
+        st.progress(stats['vencedor']['acertos'] / max(stats['vencedor']['total'], 1))
+    
+    with col3:
+        st.metric(
+            label="⏱️ 1º Quarto",
+            value=f"{stats['primeiro_quarto']['acertos']}/{stats['primeiro_quarto']['total']}",
+            delta=f"{calcular_taxa_acerto(stats['primeiro_quarto']['acertos'], stats['primeiro_quarto']['total']):.1f}%"
+        )
+        st.progress(stats['primeiro_quarto']['acertos'] / max(stats['primeiro_quarto']['total'], 1))
+    
+    with col4:
+        st.metric(
+            label="⭐ Jogadores",
+            value=f"{stats['jogadores_estrelas']['acertos']}/{stats['jogadores_estrelas']['total']}",
+            delta=f"{calcular_taxa_acerto(stats['jogadores_estrelas']['acertos'], stats['jogadores_estrelas']['total']):.1f}%"
+        )
+        st.progress(stats['jogadores_estrelas']['acertos'] / max(stats['jogadores_estrelas']['total'], 1))
+    
+    with col5:
+        st.metric(
+            label="📈 Jogos Analisados",
+            value=stats["jogos_analisados"],
+            delta="Performance"
+        )
+        taxa_geral = (stats['total_pontos']['acertos'] + stats['vencedor']['acertos']) / max((stats['total_pontos']['total'] + stats['vencedor']['total']), 1) * 100
+        st.write(f"**Taxa Geral:** {taxa_geral:.1f}%")
+    
+    # Estatísticas detalhadas
+    st.subheader("📋 Detalhamento por Categoria")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.write("**Total de Pontos**")
+        st.write(f"✅ Acertos: {stats['total_pontos']['acertos']}")
+        st.write(f"❌ Erros: {stats['total_pontos']['erros']}")
+        st.write(f"📊 Total: {stats['total_pontos']['total']}")
+        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['total_pontos']['acertos'], stats['total_pontos']['total']):.1f}%")
+    
+    with col2:
+        st.write("**Vencedor**")
+        st.write(f"✅ Acertos: {stats['vencedor']['acertos']}")
+        st.write(f"❌ Erros: {stats['vencedor']['erros']}")
+        st.write(f"📊 Total: {stats['vencedor']['total']}")
+        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['vencedor']['acertos'], stats['vencedor']['total']):.1f}%")
+    
+    with col3:
+        st.write("**1º Quarto**")
+        st.write(f"✅ Acertos: {stats['primeiro_quarto']['acertos']}")
+        st.write(f"❌ Erros: {stats['primeiro_quarto']['erros']}")
+        st.write(f"📊 Total: {stats['primeiro_quarto']['total']}")
+        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['primeiro_quarto']['acertos'], stats['primeiro_quarto']['total']):.1f}%")
+    
+    with col4:
+        st.write("**Jogadores Estrelas**")
+        st.write(f"✅ Acertos: {stats['jogadores_estrelas']['acertos']}")
+        st.write(f"❌ Erros: {stats['jogadores_estrelas']['erros']}")
+        st.write(f"📊 Total: {stats['jogadores_estrelas']['total']}")
+        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['jogadores_estrelas']['acertos'], stats['jogadores_estrelas']['total']):.1f}%")
+    
+    # Data da última atualização
+    if stats["data_ultima_atualizacao"]:
+        try:
+            dt = datetime.fromisoformat(stats["data_ultima_atualizacao"])
+            st.caption(f"🕒 Última atualização: {dt.strftime('%d/%m/%Y %H:%M')}")
+        except:
+            pass
+
+def limpar_estatisticas():
+    """Limpa todas as estatísticas"""
+    stats = {
+        "total_pontos": {"acertos": 0, "erros": 0, "total": 0},
+        "vencedor": {"acertos": 0, "erros": 0, "total": 0},
+        "primeiro_quarto": {"acertos": 0, "erros": 0, "total": 0},
+        "jogadores_estrelas": {"acertos": 0, "erros": 0, "total": 0},
+        "jogos_analisados": 0,
+        "data_ultima_atualizacao": None
+    }
+    salvar_estatisticas(stats)
+    return stats
+
+# =============================
+# REQUISIÇÕES À API
+# =============================
+def balldontlie_get(path: str, params: dict | None = None, timeout: int = REQUEST_TIMEOUT) -> dict | None:
+    global LAST_REQUEST_TIME
+    
+    current_time = time.time()
+    time_since_last_request = current_time - LAST_REQUEST_TIME
+    if time_since_last_request < MIN_REQUEST_INTERVAL:
+        time.sleep(MIN_REQUEST_INTERVAL - time_since_last_request)
+    
+    try:
+        url = BALLDONTLIE_BASE.rstrip("/") + "/" + path.lstrip("/")
+        resp = requests.get(url, headers=HEADERS_BDL, params=params, timeout=timeout)
+        LAST_REQUEST_TIME = time.time()
+        
+        if resp.status_code == 429:
+            st.error("🚨 RATE LIMIT ATINGIDO! Aguardando 60 segundos...")
+            time.sleep(60)
+            resp = requests.get(url, headers=HEADERS_BDL, params=params, timeout=timeout)
+            LAST_REQUEST_TIME = time.time()
+        
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as e:
+        st.error(f"Erro na API: {e}")
+        return None
+
+# =============================
+# DADOS DOS TIMES
+# =============================
+def obter_times():
+    cache = carregar_cache_teams()
+    if "teams" in cache and cache["teams"]:
+        return cache["teams"]
+    
+    st.info("📥 Buscando dados dos times...")
+    data = balldontlie_get("teams")
+    if not data or "data" not in data:
+        return {}
+    
+    teams = {t["id"]: t for t in data.get("data", [])}
+    cache["teams"] = teams
+    salvar_cache_teams(cache)
+    return teams
+
+# =============================
+# BUSCA DE JOGOS REAIS
+# =============================
+def obter_jogos_data(data_str: str) -> list:
+    cache = carregar_cache_games()
+    key = f"games_{data_str}"
+    
+    if key in cache and cache[key]:
+        return cache[key]
+
+    st.info(f"📥 Buscando jogos para {data_str}...")
+    jogos = []
+    page = 1
+    max_pages = 2
+    
+    while page <= max_pages:
+        params = {
+            "dates[]": data_str, 
+            "per_page": 50,
+            "page": page
+        }
+        
+        resp = balldontlie_get("games", params=params)
+        if not resp or "data" not in resp:
+            break
+            
+        data_chunk = resp["data"]
+        if not data_chunk:
+            break
+            
+        jogos.extend(data_chunk)
+        
+        meta = resp.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
+            break
+            
+        page += 1
+
+    cache[key] = jogos
+    salvar_cache_games(cache)
+    return jogos
+
+# =============================
+# SISTEMA DE JOGADORES ESTRELAS (NOVO)
+# =============================
+def obter_estatisticas_jogador(player_id: int, season: int = 2024, window_games: int = 10) -> dict:
+    """Busca estatísticas de um jogador específico"""
+    cache = carregar_cache_players()
+    key = f"player_{player_id}_{season}"
+    
+    if key in cache:
+        cached_data = cache[key]
+        if cached_data.get("games", 0) > 0:
+            return cached_data
+
+    st.info(f"📊 Buscando estatísticas do jogador {player_id}...")
+    
+    # Busca jogos do jogador na temporada
+    start_date = f"{season}-10-01"
+    end_date = f"{season+1}-06-30"
+    
+    stats = []
+    page = 1
+    max_pages = 3
+    
+    while page <= max_pages:
+        params = {
+            "player_ids[]": player_id,
+            "per_page": 25,
+            "page": page,
+            "start_date": start_date,
+            "end_date": end_date,
+            "seasons[]": season
+        }
+        
+        resp = balldontlie_get("stats", params=params)
+        if not resp or "data" not in resp:
+            break
+            
+        stats.extend(resp["data"])
+        
+        meta = resp.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
+            break
+            
+        page += 1
+
+    # Filtra apenas jogos com estatísticas válidas
+    stats_validos = []
+    for stat in stats:
+        try:
+            if (stat.get("min") and stat.get("min") != "" and 
+                stat.get("pts") is not None and
+                stat.get("min") != "00:00"):
+                stats_validos.append(stat)
+        except Exception:
+            continue
+
+    # Ordena por data (mais recentes primeiro) e limita pela janela
+    try:
+        stats_validos.sort(key=lambda x: x.get("game", {}).get("date", ""), reverse=True)
+        stats_validos = stats_validos[:window_games]
+    except Exception:
+        stats_validos = stats_validos[:window_games]
+
+    # Calcula estatísticas
+    if not stats_validos:
+        # Fallback para médias gerais da NBA
+        player_stats = {
+            "pts_avg": 18.5,
+            "reb_avg": 5.5,
+            "ast_avg": 4.2,
+            "stl_avg": 1.1,
+            "blk_avg": 0.6,
+            "fg3m_avg": 2.1,
+            "games": 0,
+            "min_avg": "32:00"
+        }
+    else:
+        pts_total = 0
+        reb_total = 0
+        ast_total = 0
+        stl_total = 0
+        blk_total = 0
+        fg3m_total = 0
+        count = len(stats_validos)
+
+        for stat in stats_validos:
+            pts_total += stat.get("pts", 0)
+            reb_total += stat.get("reb", 0)
+            ast_total += stat.get("ast", 0)
+            stl_total += stat.get("stl", 0)
+            blk_total += stat.get("blk", 0)
+            fg3m_total += stat.get("fg3m", 0)
+
+        if count > 0:
+            player_stats = {
+                "pts_avg": pts_total / count,
+                "reb_avg": reb_total / count,
+                "ast_avg": ast_total / count,
+                "stl_avg": stl_total / count,
+                "blk_avg": blk_total / count,
+                "fg3m_avg": fg3m_total / count,
+                "games": count,
+                "min_avg": stats_validos[0].get("min", "32:00")  # Usa o mais recente
+            }
+        else:
+            player_stats = {
+                "pts_avg": 18.5,
+                "reb_avg": 5.5,
+                "ast_avg": 4.2,
+                "stl_avg": 1.1,
+                "blk_avg": 0.6,
+                "fg3m_avg": 2.1,
+                "games": 0,
+                "min_avg": "32:00"
+            }
+
+    cache[key] = player_stats
+    salvar_cache_players(cache)
+    return player_stats
+
+def prever_performance_jogador(player_id: int, opponent_team_id: int, window_games: int = 10) -> dict:
+    """Preve a performance de um jogador contra um oponente específico"""
+    player_stats = obter_estatisticas_jogador(player_id, 2024, window_games)
+    
+    if player_stats["games"] == 0:
+        return {
+            "pts": player_stats["pts_avg"],
+            "reb": player_stats["reb_avg"],
+            "ast": player_stats["ast_avg"],
+            "stl": player_stats["stl_avg"],
+            "blk": player_stats["blk_avg"],
+            "fg3m": player_stats["fg3m_avg"],
+            "confianca": 40.0,
+            "min_estimado": player_stats["min_avg"]
+        }
+    
+    # Ajusta baseado no oponente (simplificado)
+    opponent_stats = obter_estatisticas_time_2025(opponent_team_id)
+    
+    # Fator de ajuste baseado na defesa do oponente
+    defense_factor = 1.0
+    if opponent_stats["pts_against_avg"] < 110:  # Time defensivo forte
+        defense_factor = 0.9
+    elif opponent_stats["pts_against_avg"] > 118:  # Time defensivo fraco
+        defense_factor = 1.1
+    
+    # Calcula previsões ajustadas
+    pts_estimado = player_stats["pts_avg"] * defense_factor
+    reb_estimado = player_stats["reb_avg"] * (1.0 if defense_factor == 1.0 else defense_factor + 0.05)
+    ast_estimado = player_stats["ast_avg"] * defense_factor
+    
+    # Calcula confiança baseada na consistência
+    confianca = min(80.0, 50.0 + (player_stats["games"] * 3))
+    
+    return {
+        "pts": round(pts_estimado, 1),
+        "reb": round(reb_estimado, 1),
+        "ast": round(ast_estimado, 1),
+        "stl": round(player_stats["stl_avg"], 1),
+        "blk": round(player_stats["blk_avg"], 1),
+        "fg3m": round(player_stats["fg3m_avg"], 1),
+        "confianca": round(confianca, 1),
+        "min_estimado": player_stats["min_avg"]
+    }
+
+def obter_jogadores_estrelas_time(team_id: int) -> list:
+    """Retorna a lista de jogadores estrelas de um time"""
+    return JOGADORES_ESTRELAS.get(team_id, [])
+
+def prever_jogadores_estrelas_partida(home_team_id: int, away_team_id: int) -> dict:
+    """Preve a performance dos jogadores estrelas de ambos os times"""
+    home_stars = obter_jogadores_estrelas_time(home_team_id)
+    away_stars = obter_jogadores_estrelas_time(away_team_id)
+    
+    predictions = {
+        "home_team": [],
+        "away_team": []
+    }
+    
+    # Previsões para jogadores da casa
+    for player in home_stars:
+        performance = prever_performance_jogador(player["id"], away_team_id)
+        predictions["home_team"].append({
+            "id": player["id"],
+            "nome": player["nome"],
+            "posicao": player["posicao"],
+            "performance": performance
+        })
+    
+    # Previsões para jogadores visitantes
+    for player in away_stars:
+        performance = prever_performance_jogador(player["id"], home_team_id)
+        predictions["away_team"].append({
+            "id": player["id"],
+            "nome": player["nome"],
+            "posicao": player["posicao"],
+            "performance": performance
+        })
+    
+    return predictions
+
+# =============================
+# ATUALIZAR RESULTADOS DAS PARTIDAS
+# =============================
+def atualizar_resultados_partidas():
+    """Atualiza os resultados das partidas salvas com dados mais recentes da API"""
+    alertas = carregar_alertas()
+    
+    if not alertas:
+        st.warning("❌ Nenhuma partida salva para atualizar.")
+        return 0
+    
+    st.info("🔄 Iniciando atualização dos resultados...")
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    jogos_atualizados = 0
+    total_jogos = len(alertas)
+    
+    for i, (alerta_id, alerta) in enumerate(alertas.items()):
+        progress = (i + 1) / total_jogos
+        progress_bar.progress(progress)
+        
+        game_data = alerta.get("game_data", {})
+        game_id = game_data.get("id")
+        
+        if not game_id:
+            continue
+        
+        # Busca dados atualizados do jogo específico
+        status_text.text(f"📡 Buscando dados do jogo {i+1}/{total_jogos}...")
+        
+        resp = balldontlie_get(f"games/{game_id}")
+        if resp and "data" in resp:
+            jogo_atualizado = resp["data"]
+            
+            # Atualiza os dados do jogo no alerta
+            alertas[alerta_id]["game_data"] = jogo_atualizado
+            
+            # Verifica se o status mudou
+            status_antigo = game_data.get("status", "")
+            status_novo = jogo_atualizado.get("status", "")
+            
+            if status_antigo != status_novo:
+                st.success(f"✅ Jogo {game_id}: {status_antigo} → {status_novo}")
+                jogos_atualizados += 1
+            else:
+                st.write(f"ℹ️ Jogo {game_id}: Status mantido ({status_novo})")
+        else:
+            st.error(f"❌ Erro ao buscar jogo {game_id}")
+        
+        # Pequena pausa para evitar rate limit
+        time.sleep(0.5)
+    
+    # Salva os alertas atualizados
+    if jogos_atualizados > 0:
+        salvar_alertas(alertas)
+        st.success(f"🎉 Atualização concluída! {jogos_atualizados} jogos atualizados.")
+    else:
+        st.info("ℹ️ Nenhum jogo precisou de atualização.")
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    return jogos_atualizados
+
+# =============================
+# CONFERIR JOGOS FINALIZADOS
+# =============================
+def conferir_jogos_finalizados():
+    """Função específica para conferir jogos finalizados e calcular resultados"""
+    alertas = carregar_alertas()
+    
+    if not alertas:
+        st.warning("❌ Nenhum jogo salvo para conferência.")
+        return 0
+    
+    st.info("🔍 Conferindo jogos finalizados...")
+    
+    jogos_conferidos = 0
+    jogos_finalizados = 0
+    
+    for alerta_id, alerta in alertas.items():
+        game_data = alerta.get("game_data", {})
+        status = game_data.get("status", "").upper()
+        
+        # Verifica se o jogo está finalizado
+        if status in ["FINAL", "FINAL/OT"]:
+            jogos_finalizados += 1
+            
+            # Se ainda não foi conferido, marca como conferido
+            if not alerta.get("conferido", False):
+                alertas[alerta_id]["conferido"] = True
+                jogos_conferidos += 1
+                
+                home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+                away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+                st.success(f"✅ Conferido: {home_team} vs {away_team}")
+    
+    # Salva as alterações se houver jogos conferidos
+    if jogos_conferidos > 0:
+        salvar_alertas(alertas)
+        st.success(f"🎉 Conferência concluída! {jogos_conferidos} jogos marcados como conferidos.")
+    else:
+        st.info(f"ℹ️ Nenhum jogo novo para conferir. Total de {jogos_finalizados} jogos finalizados.")
+    
+    return jogos_conferidos
+
+# =============================
+# ESTATÍSTICAS REAIS - TEMPORADA 2024-2025
+# =============================
+def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
+    """Busca estatísticas reais da temporada 2024-2025"""
+    cache = carregar_cache_stats()
+    key = f"team_{team_id}_2025"
+    
+    if key in cache:
+        cached_data = cache[key]
+        if cached_data.get("games", 0) > 0:
+            return cached_data
+
+    # Busca jogos da temporada 2024-2025 (season=2024 na API)
+    start_date = "2024-10-01"  # Início da temporada 2024-2025
+    end_date = "2025-06-30"    # Fim da temporada regular
+    
+    games = []
+    page = 1
+    max_pages = 3
+    
+    st.info(f"📊 Buscando estatísticas 2024-2025 do time {team_id}...")
+    
+    while page <= max_pages:
+        params = {
+            "team_ids[]": team_id,
+            "per_page": 25,
+            "page": page,
+            "start_date": start_date,
+            "end_date": end_date,
+            "seasons[]": 2024  # Temporada 2024-2025
+        }
+        
+        resp = balldontlie_get("games", params=params)
+        if not resp or "data" not in resp:
+            break
+            
+        games.extend(resp["data"])
+        
+        meta = resp.get("meta", {})
+        total_pages = meta.get("total_pages", 1)
+        if page >= total_pages:
+            break
+            
+        page += 1
+
+    # Filtra apenas jogos finalizados com placar válido
+    games_validos = []
+    for game in games:
+        try:
+            status = game.get("status", "").upper()
+            home_score = game.get("home_team_score")
+            visitor_score = game.get("visitor_team_score")
+            
+            if (status in ("FINAL", "FINAL/OT") and 
+                home_score is not None and 
+                visitor_score is not None and
+                home_score > 0 and visitor_score > 0):
+                games_validos.append(game)
+        except Exception:
+            continue
+
+    # Ordena por data (mais recentes primeiro) e limita pela janela
+    try:
+        games_validos.sort(key=lambda x: x.get("date", ""), reverse=True)
+        games_validos = games_validos[:window_games]
+    except Exception:
+        games_validos = games_validos[:window_games]
+
+    # Se não encontrou jogos válidos, usa fallback com dados da temporada atual
+    if not games_validos:
+        # Busca dados dos últimos 90 dias como fallback
+        end_date = date.today()
+        start_date = end_date - timedelta(days=90)
+        
+        games_fallback = []
+        page = 1
+        max_pages = 2
+        
+        while page <= max_pages:
+            params = {
+                "team_ids[]": team_id,
+                "per_page": 25,
+                "page": page,
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d")
+            }
+            
+            resp = balldontlie_get("games", params=params)
+            if not resp or "data" not in resp:
+                break
+                
+            games_fallback.extend(resp["data"])
+            page += 1
+        
+        # Filtra jogos válidos do fallback
+        for game in games_fallback:
+            try:
+                status = game.get("status", "").upper()
+                home_score = game.get("home_team_score")
+                visitor_score = game.get("visitor_team_score")
+                
+                if (status in ("FINAL", "FINAL/OT") and 
+                    home_score is not None and 
+                    visitor_score is not None and
+                    home_score > 0 and visitor_score > 0):
+                    games_validos.append(game)
+            except Exception:
+                continue
+        
+        # Ordena e limita novamente
+        try:
+            games_validos.sort(key=lambda x: x.get("date", ""), reverse=True)
+            games_validos = games_validos[:window_games]
+        except Exception:
+            games_validos = games_validos[:window_games]
+
+    # Calcula estatísticas
+    if not games_validos:
+        # Fallback para médias gerais da NBA 2024-2025
+        stats = {
+            "pts_for_avg": 114.5,  # Média atualizada da NBA
+            "pts_against_avg": 114.5,
+            "games": 0,
+            "pts_diff_avg": 0.0,
+            "win_rate": 0.5
+        }
+    else:
+        pts_for = 0
+        pts_against = 0
+        wins = 0
+        count = len(games_validos)
+
+        for game in games_validos:
+            try:
+                home_id = game.get("home_team", {}).get("id")
+                home_score = game.get("home_team_score", 0)
+                visitor_score = game.get("visitor_team_score", 0)
+                
+                if home_id == team_id:
+                    pts_for += home_score
+                    pts_against += visitor_score
+                    if home_score > visitor_score:
+                        wins += 1
+                else:
+                    pts_for += visitor_score
+                    pts_against += home_score
+                    if visitor_score > home_score:
+                        wins += 1
+                        
+            except Exception:
+                continue
+
+        if count > 0:
+            stats = {
+                "pts_for_avg": pts_for / count,
+                "pts_against_avg": pts_against / count,
+                "games": count,
+                "pts_diff_avg": (pts_for - pts_against) / count,
+                "win_rate": wins / count
+            }
+        else:
+            stats = {
+                "pts_for_avg": 114.5,
+                "pts_against_avg": 114.5,
+                "games": 0,
+                "pts_diff_avg": 0.0,
+                "win_rate": 0.5
+            }
+
+    cache[key] = stats
+    salvar_cache_stats(cache)
+    return stats
+
+# =============================
+# PREVISÕES COM DADOS REAIS 2024-2025
+# =============================
+def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
+    """Previsão baseada em dados reais da temporada 2024-2025"""
+    home_stats = obter_estatisticas_time_2025(home_id, window_games)
+    away_stats = obter_estatisticas_time_2025(away_id, window_games)
+    
+    # Usa dados reais ou fallback se não houver dados suficientes
+    home_avg = home_stats["pts_for_avg"]
+    away_avg = away_stats["pts_for_avg"]
+    
+    # Ajuste para vantagem de casa
+    home_advantage = 2.5
+    estimativa = home_avg + away_avg + home_advantage
+    
+    # Calcula confiança baseada na quantidade de dados
+    home_games = home_stats["games"]
+    away_games = away_stats["games"]
+    min_games = min(home_games, away_games)
+    
+    if min_games >= 10:
+        confianca = 75.0
+    elif min_games >= 5:
+        confianca = 65.0
+    elif min_games > 0:
+        confianca = 55.0
+    else:
+        confianca = 45.0  # Dados insuficientes
+    
+    # Ajusta confiança baseado na consistência dos times
+    home_consistency = min(10, home_stats.get("pts_diff_avg", 0) * 0.5)
+    away_consistency = min(10, away_stats.get("pts_diff_avg", 0) * 0.5)
+    confianca += (home_consistency + away_consistency)
+    confianca = min(85.0, max(40.0, confianca))
+    
+    # Determina tendência baseada em dados reais
+    if estimativa >= 235:
+        tendencia = "Mais 235.5"
+    elif estimativa >= 230:
+        tendencia = "Mais 230.5"
+    elif estimativa >= 225:
+        tendencia = "Mais 225.5"
+    elif estimativa >= 220:
+        tendencia = "Mais 220.5"
+    elif estimativa >= 215:
+        tendencia = "Mais 215.5"
+    elif estimativa >= 210:
+        tendencia = "Mais 210.5"
+    else:
+        tendencia = "Menos 210.5"
+        
+    return round(estimativa, 1), round(confianca, 1), tendencia
+
+def prever_vencedor(home_id: int, away_id: int, window_games: int = 15) -> tuple[str, float, str]:
+    """Previsão de vencedor baseada em dados reais da temporada 2024-2025"""
+    home_stats = obter_estatisticas_time_2025(home_id, window_games)
+    away_stats = obter_estatisticas_time_2025(away_id, window_games)
+    
+    # Calcula vantagem baseada em performance histórica
+    home_win_rate = home_stats["win_rate"]
+    away_win_rate = away_stats["win_rate"]
+    home_pts_diff = home_stats["pts_diff_avg"]
+    away_pts_diff = away_stats["pts_diff_avg"]
+    
+    # Vantagem de jogar em casa (NBA: ~3-4 pontos)
+    home_advantage = 0.1  # ~10% de aumento na win rate
+    
+    # Calcula probabilidade
+    home_strength = home_win_rate + home_pts_diff * 0.01
+    away_strength = away_win_rate + away_pts_diff * 0.01
+    
+    home_prob = home_strength / (home_strength + away_strength) + home_advantage
+    away_prob = 1 - home_prob
+    
+    # Determina vencedor e confiança
+    if home_prob > 0.6:
+        vencedor = "Casa"
+        confianca = min(85.0, home_prob * 100)
+        detalhe = f"Forte vantagem da casa ({home_win_rate:.1%} win rate)"
+    elif away_prob > 0.6:
+        vencedor = "Visitante"
+        confianca = min(85.0, away_prob * 100)
+        detalhe = f"Visitante favorito ({away_win_rate:.1%} win rate)"
+    elif home_prob > away_prob:
+        vencedor = "Casa"
+        confianca = home_prob * 100
+        detalhe = f"Ligeira vantagem da casa"
+    elif away_prob > home_prob:
+        vencedor = "Visitante"
+        confianca = away_prob * 100
+        detalhe = f"Ligeira vantagem do visitante"
+    else:
+        vencedor = "Empate"
+        confianca = 50.0
+        detalhe = "Jogo muito equilibrado"
+    
+    # Ajusta confiança baseada na quantidade de dados
+    min_games = min(home_stats["games"], away_stats["games"])
+    if min_games < 5:
+        confianca = max(40.0, confianca * 0.8)
+    
+    return vencedor, round(confianca, 1), detalhe
+
+def prever_pontos_quarto(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
+    """Previsão de pontos no 1º quarto baseada em dados reais"""
+    home_stats = obter_estatisticas_time_2025(home_id, window_games)
+    away_stats = obter_estatisticas_time_2025(away_id, window_games)
+    
+    # Estimativa baseada na média de pontos por quarto
+    # Na NBA, o primeiro quarto geralmente tem menos pontos que a média do jogo
+    home_q1_avg = home_stats.get("pts_for_avg", 114.5) * 0.24  # Aproximadamente 24% dos pontos totais
+    away_q1_avg = away_stats.get("pts_for_avg", 114.5) * 0.24
+    
+    # Ajuste para vantagem de casa no primeiro quarto
+    home_advantage = 1.0
+    estimativa = home_q1_avg + away_q1_avg + home_advantage
+    
+    # Calcula confiança baseada na quantidade de dados
+    home_games = home_stats["games"]
+    away_games = away_stats["games"]
+    min_games = min(home_games, away_games)
+    
+    if min_games >= 10:
+        confianca = 65.0
+    elif min_games >= 5:
+        confianca = 55.0
+    elif min_games > 0:
+        confianca = 45.0
+    else:
+        confianca = 35.0  # Dados insuficientes
+    
+    # Ajusta confiança baseado na consistência dos times
+    home_consistency = min(8, home_stats.get("pts_diff_avg", 0) * 0.3)
+    away_consistency = min(8, away_stats.get("pts_diff_avg", 0) * 0.3)
+    confianca += (home_consistency + away_consistency)
+    confianca = min(75.0, max(30.0, confianca))
+    
+    # Determina tendência baseada em dados reais
+    if estimativa >= 58:
+        tendencia = "Mais 58.5"
+    elif estimativa >= 56:
+        tendencia = "Mais 56.5"
+    elif estimativa >= 54:
+        tendencia = "Mais 54.5"
+    elif estimativa >= 52:
+        tendencia = "Mais 52.5"
+    elif estimativa >= 50:
+        tendencia = "Mais 50.5"
+    else:
+        tendencia = "Menos 50.5"
+        
+    return round(estimativa, 1), round(confianca, 1), tendencia
+
+# =============================
+# ALERTAS E TELEGRAM
+# =============================
+def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
+    try:
+        resp = requests.get(BASE_URL_TG, params={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}, timeout=10)
+        return resp.status_code == 200
+    except requests.RequestException:
+        return False
+
+def formatar_msg_alerta(game: dict, predictions: dict) -> str:
+    try:
+        home = game.get("home_team", {}).get("full_name", "Casa")
+        away = game.get("visitor_team", {}).get("full_name", "Visitante")
+        
+        data_hora = game.get("datetime") or game.get("date") or ""
+        if data_hora:
+            try:
+                dt = datetime.fromisoformat(data_hora.replace("Z", "+00:00")) - timedelta(hours=3)
+                data_str = dt.strftime("%d/%m/%Y")
+                hora_str = dt.strftime("%H:%M")
+            except:
+                data_str, hora_str = "-", "-"
+        else:
+            data_str, hora_str = "-", "-"
+
+        msg = f"🏀 <b>Alerta NBA - {data_str} {hora_str} (BRT)</b>\n"
+        msg += f"🏟️ {home} vs {away}\n"
+        msg += f"📌 Status: {game.get('status', 'SCHEDULED')}\n\n"
+
+        total_pred = predictions.get("total", {})
+        if total_pred:
+            msg += f"📈 <b>Total Pontos</b>: {total_pred.get('tendencia', 'N/A')}\n"
+            msg += f"   📊 Estimativa: <b>{total_pred.get('estimativa', 0):.1f}</b> | Confiança: {total_pred.get('confianca', 0):.0f}%\n\n"
+
+        vencedor_pred = predictions.get("vencedor", {})
+        if vencedor_pred:
+            msg += f"🎯 <b>Vencedor</b>: {vencedor_pred.get('vencedor', 'N/A')}\n"
+            msg += f"   💪 Confiança: {vencedor_pred.get('confianca', 0):.0f}% | {vencedor_pred.get('detalhe', '')}\n\n"
+
+        # Previsão do 1º Quarto
+        primeiro_quarto_pred = predictions.get("primeiro_quarto", {})
+        if primeiro_quarto_pred:
+            msg += f"⏱️ <b>1º Quarto</b>: {primeiro_quarto_pred.get('tendencia', 'N/A')}\n"
+            msg += f"   📊 Estimativa: <b>{primeiro_quarto_pred.get('estimativa', 0):.1f}</b> | Confiança: {primeiro_quarto_pred.get('confianca', 0):.0f}%\n\n"
+
+        # NOVO: Previsões de Jogadores Estrelas
+        jogadores_pred = predictions.get("jogadores_estrelas", {})
+        if jogadores_pred:
+            msg += f"⭐ <b>Jogadores Estrelas</b>\n"
+            
+            # Jogadores da casa
+            home_players = jogadores_pred.get("home_team", [])
+            if home_players:
+                msg += f"   🏠 <b>{home}</b>:\n"
+                for player in home_players[:2]:  # Mostra até 2 jogadores
+                    perf = player.get("performance", {})
+                    msg += f"   • {player.get('nome', '')} ({player.get('posicao', '')}): "
+                    msg += f"{perf.get('pts', 0):.1f} pts, {perf.get('reb', 0):.1f} reb, {perf.get('ast', 0):.1f} ast\n"
+            
+            # Jogadores visitantes
+            away_players = jogadores_pred.get("away_team", [])
+            if away_players:
+                msg += f"   🚗 <b>{away}</b>:\n"
+                for player in away_players[:2]:  # Mostra até 2 jogadores
+                    perf = player.get("performance", {})
+                    msg += f"   • {player.get('nome', '')} ({player.get('posicao', '')}): "
+                    msg += f"{perf.get('pts', 0):.1f} pts, {perf.get('reb', 0):.1f} reb, {perf.get('ast', 0):.1f} ast\n"
+            
+            msg += "\n"
+
+        msg += "\n🏆 <b>Elite Master</b> - Análise com Dados Reais 2024-2025"
+        return msg
+    except Exception as e:
+        return f"⚠️ Erro ao formatar: {e}"
+
+def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: bool = False):
+    alertas = carregar_alertas()
+    fid = str(game.get("id"))
+    
+    if fid not in alertas:
+        alertas[fid] = {
+            "game_id": fid,
+            "game_data": game,
+            "predictions": predictions,
+            "timestamp": datetime.now().isoformat(),
+            "enviado_telegram": send_to_telegram,
+            "conferido": False
+        }
+        salvar_alertas(alertas)
+        
+        msg = formatar_msg_alerta(game, predictions)
+        
+        # Se marcado para enviar ao Telegram, envia
+        if send_to_telegram:
+            if enviar_telegram(msg):
+                alertas[fid]["enviado_telegram"] = True
+                salvar_alertas(alertas)
+                return True
+            else:
+                return False
+        return True
+    return False
+
+# =============================
+# SISTEMA TOP 4 MELHORES JOGOS
+# =============================
+def calcular_pontuacao_jogo(jogo: dict, times_stats: dict) -> float:
+    """Calcula pontuação para ranking dos melhores jogos"""
+    home_team_id = jogo["home_team"]["id"]
+    visitor_team_id = jogo["visitor_team"]["id"]
+    
+    # Obtém estatísticas dos times
+    home_stats = times_stats.get(home_team_id, {})
+    visitor_stats = times_stats.get(visitor_team_id, {})
+    
+    if not home_stats or not visitor_stats:
+        return 0
+    
+    # Fatores para cálculo da pontuação:
+    # 1. Potencial ofensivo (média de pontos dos dois times)
+    ofensiva_total = home_stats.get("pts_for_avg", 0) + visitor_stats.get("pts_for_avg", 0)
+    
+    # 2. Competitividade (diferença pequena na taxa de vitórias)
+    diff_win_rate = abs(home_stats.get("win_rate", 0) - visitor_stats.get("win_rate", 0))
+    fator_competitividade = 1.0 - (diff_win_rate * 0.5)  # Times com win_rate similar = jogos mais disputados
+    
+    # 3. Potencial de pontos totais (over/under implícito)
+    pontos_totais_esperados = home_stats.get("pts_for_avg", 0) + visitor_stats.get("pts_for_avg", 0)
+    
+    # Pontuação final
+    pontuacao = (ofensiva_total * 0.4) + (fator_competitividade * 30) + (pontos_totais_esperados * 0.3)
+    
+    return pontuacao
+
+def obter_top4_melhores_jogos(data_str: str) -> list:
+    """Retorna os 4 melhores jogos do dia baseado em estatísticas"""
+    jogos = obter_jogos_data(data_str)
+    
+    if not jogos:
+        return []
+    
+    # Obtém estatísticas de todos os times envolvidos
+    times_stats = {}
+    times_cache = obter_times()
+    
+    for jogo in jogos:
+        for team_type in ["home_team", "visitor_team"]:
+            team_id = jogo[team_type]["id"]
+            if team_id not in times_stats:
+                times_stats[team_id] = obter_estatisticas_time_2025(team_id)
+    
+    # Calcula pontuação para cada jogo
+    jogos_com_pontuacao = []
+    for jogo in jogos:
+        pontuacao = calcular_pontuacao_jogo(jogo, times_stats)
+        
+        # Obtém nomes completos dos times
+        home_team_name = times_cache.get(jogo["home_team"]["id"], {}).get("full_name", jogo["home_team"]["name"])
+        visitor_team_name = times_cache.get(jogo["visitor_team"]["id"], {}).get("full_name", jogo["visitor_team"]["name"])
+        
+        jogos_com_pontuacao.append({
+            "jogo": jogo,
+            "pontuacao": pontuacao,
+            "home_team_name": home_team_name,
+            "visitor_team_name": visitor_team_name,
+            "home_stats": times_stats.get(jogo["home_team"]["id"], {}),
+            "visitor_stats": times_stats.get(jogo["visitor_team"]["id"], {})
+        })
+    
+    # Ordena por pontuação (decrescente) e pega top 4
+    jogos_com_pontuacao.sort(key=lambda x: x["pontuacao"], reverse=True)
+    return jogos_com_pontuacao[:4]
+
+def enviar_alerta_top4_jogos(data_str: str):
+    """Envia alerta com os 4 melhores jogos do dia para o canal alternativo"""
+    top4_jogos = obter_top4_melhores_jogos(data_str)
+    
+    if not top4_jogos:
+        mensagem = f"🏀 <b>TOP 4 JOGOS - {data_str}</b>\n\n"
+        mensagem += "⚠️ Nenhum jogo encontrado para hoje."
+        enviar_telegram(mensagem, TELEGRAM_CHAT_ID_ALT2)
+        return
+    
+    # Constroi mensagem formatada
+    mensagem = f"🏀 <b>TOP 4 MELHORES JOGOS - {data_str}</b>\n\n"
+    mensagem += "⭐ <i>Jogos mais promissores do dia</i> ⭐\n\n"
+    
+    for i, jogo_info in enumerate(top4_jogos, 1):
+        home_team = jogo_info["home_team_name"]
+        visitor_team = jogo_info["visitor_team_name"]
+        home_stats = jogo_info["home_stats"]
+        visitor_stats = jogo_info["visitor_stats"]
+        
+        # Emojis para ranking
+        emojis = ["🥇", "🥈", "🥉", "4️⃣"]
+        
+        mensagem += f"{emojis[i-1]} <b>{visitor_team} @ {home_team}</b>\n"
+        
+        # Adiciona estatísticas relevantes
+        if home_stats and visitor_stats:
+            total_esperado = home_stats.get("pts_for_avg", 0) + visitor_stats.get("pts_for_avg", 0)
+            mensagem += f"   📊 Total Esperado: <b>{total_esperado:.1f} pts</b>\n"
+            mensagem += f"   🏆 Competitividade: <b>{(1 - abs(home_stats.get('win_rate',0) - visitor_stats.get('win_rate',0)))*100:.0f}%</b>\n"
+        
+        mensagem += "\n"
+    
+    mensagem += "📈 <i>Baseado em estatísticas ofensivas e competitividade</i>\n"
+    mensagem += "#Top4Jogos #NBA"
+    
+    # Envia para o canal alternativo
+    enviar_telegram(mensagem, TELEGRAM_CHAT_ID_ALT2)
+    st.success("✅ Alerta Top 4 Jogos enviado para canal alternativo!")
+
+# =============================
+# EXIBIÇÃO DOS JOGOS ANALISADOS
+# =============================
+def exibir_jogos_analisados():
+    st.header("📈 Jogos Analisados")
+    
+    alertas = carregar_alertas()
+    if not alertas:
+        st.info("Nenhum jogo analisado ainda.")
+        return
+    
+    alertas_ordenados = sorted(
+        alertas.items(), 
+        key=lambda x: x[1].get("timestamp", ""), 
+        reverse=True
+    )
+    
+    st.subheader(f"🎯 {len(alertas_ordenados)} Jogos Analisados")
+    
+    for alerta_id, alerta in alertas_ordenados:
+        game_data = alerta.get("game_data", {})
+        predictions = alerta.get("predictions", {})
+        
+        home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+        away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+        status = game_data.get("status", "SCHEDULED")
+        
+        total_pred = predictions.get("total", {})
+        vencedor_pred = predictions.get("vencedor", {})
+        primeiro_quarto_pred = predictions.get("primeiro_quarto", {})
+        jogadores_pred = predictions.get("jogadores_estrelas", {})
+        
+        # Card do jogo
+        with st.expander(f"🏀 {home_team} vs {away_team} - {status}", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**📊 Total de Pontos**")
+                st.write(f"Tendência: {total_pred.get('tendencia', 'N/A')}")
+                st.write(f"Estimativa: {total_pred.get('estimativa', 0):.1f}")
+                st.write(f"Confiança: {total_pred.get('confianca', 0):.0f}%")
+                
+                # Previsão do 1º Quarto
+                st.write("**⏱️ 1º Quarto**")
+                st.write(f"Tendência: {primeiro_quarto_pred.get('tendencia', 'N/A')}")
+                st.write(f"Estimativa: {primeiro_quarto_pred.get('estimativa', 0):.1f}")
+                st.write(f"Confiança: {primeiro_quarto_pred.get('confianca', 0):.0f}%")
+            
+            with col2:
+                st.write("**🎯 Vencedor**")
+                st.write(f"Previsão: {vencedor_pred.get('vencedor', 'N/A')}")
+                st.write(f"Confiança: {vencedor_pred.get('confianca', 0):.0f}%")
+                st.write(f"Detalhe: {vencedor_pred.get('detalhe', '')}")
+            
+            # NOVO: Seção de Jogadores Estrelas
+            if jogadores_pred:
+                st.write("**⭐ Jogadores Estrelas**")
+                
+                home_players = jogadores_pred.get("home_team", [])
+                away_players = jogadores_pred.get("away_team", [])
+                
+                col3, col4 = st.columns(2)
+                
+                with col3:
+                    st.write(f"**🏠 {home_team}**")
+                    for player in home_players[:2]:
+                        perf = player.get("performance", {})
+                        st.write(f"• {player['nome']} ({player['posicao']})")
+                        st.write(f"  {perf.get('pts', 0):.1f} pts | {perf.get('reb', 0):.1f} reb | {perf.get('ast', 0):.1f} ast")
+                        st.write(f"  Confiança: {perf.get('confianca', 0):.0f}%")
+                
+                with col4:
+                    st.write(f"**🚗 {away_team}**")
+                    for player in away_players[:2]:
+                        perf = player.get("performance", {})
+                        st.write(f"• {player['nome']} ({player['posicao']})")
+                        st.write(f"  {perf.get('pts', 0):.1f} pts | {perf.get('reb', 0):.1f} reb | {perf.get('ast', 0):.1f} ast")
+                        st.write(f"  Confiança: {perf.get('confianca', 0):.0f}%")
+            
+            if alerta.get("enviado_telegram", False):
+                st.success("📤 Enviado para Telegram")
+            else:
+                st.info("📝 Salvo localmente")
+            
+            timestamp = alerta.get("timestamp", "")
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    st.caption(f"Analisado em: {dt.strftime('%d/%m/%Y %H:%M')}")
+                except:
+                    pass
+
+# =============================
+# CONFERÊNCIA DE RESULTADOS
+# =============================
+def conferir_resultados():
+    st.header("📊 Conferência de Resultados")
+    
+    # Botões de ação para conferência
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        st.subheader("Jogos Finalizados")
+    
+    with col2:
+        if st.button("🔄 Atualizar Resultados", type="primary", use_container_width=True):
+            with st.spinner("Atualizando resultados das partidas..."):
+                jogos_atualizados = atualizar_resultados_partidas()
+                if jogos_atualizados > 0:
+                    st.success(f"✅ {jogos_atualizados} jogos atualizados!")
+                    st.rerun()
+    
+    with col3:
+        # Botão específico para conferir jogos
+        if st.button("✅ Conferir Jogos", type="secondary", use_container_width=True):
+            with st.spinner("Conferindo jogos finalizados..."):
+                jogos_conferidos = conferir_jogos_finalizados()
+                if jogos_conferidos > 0:
+                    st.success(f"✅ {jogos_conferidos} jogos conferidos!")
+                    st.rerun()
+                else:
+                    st.info("ℹ️ Nenhum jogo novo para conferir.")
+    
+    alertas = carregar_alertas()
+    if not alertas:
+        st.info("Nenhum alerta salvo para conferência.")
+        return
+    
+    jogos_para_conferir = []
+    for alerta_id, alerta in alertas.items():
+        game_data = alerta.get("game_data", {})
+        status = game_data.get("status", "").upper()
+        
+        if status in ["FINAL", "FINAL/OT"]:
+            jogos_para_conferir.append((alerta_id, alerta))
+    
+    if not jogos_para_conferir:
+        st.info("Nenhum jogo finalizado para conferência.")
+        return
+    
+    st.subheader(f"🎯 {len(jogos_para_conferir)} Jogos Finalizados")
+    
+    for alerta_id, alerta in jogos_para_conferir:
+        game_data = alerta.get("game_data", {})
+        predictions = alerta.get("predictions", {})
+        
+        home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+        away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+        home_score = game_data.get("home_team_score", 0)
+        away_score = game_data.get("visitor_team_score", 0)
+        status = game_data.get("status", "")
+        
+        total_pontos = home_score + away_score
+        
+        # Determina resultado do Total
+        total_pred = predictions.get("total", {})
+        tendencia_total = total_pred.get("tendencia", "")
+        resultado_total = "⏳ Aguardando"
+        
+        if "Mais" in tendencia_total:
+            try:
+                limite = float(tendencia_total.split()[-1])
+                resultado_total = "🟢 GREEN" if total_pontos > limite else "🔴 RED"
+            except:
+                resultado_total = "⚪ INDEFINIDO"
+        elif "Menos" in tendencia_total:
+            try:
+                limite = float(tendencia_total.split()[-1])
+                resultado_total = "🟢 GREEN" if total_pontos < limite else "🔴 RED"
+            except:
+                resultado_total = "⚪ INDEFINIDO"
+        
+        # Determina resultado do Vencedor
+        vencedor_pred = predictions.get("vencedor", {})
+        vencedor_previsto = vencedor_pred.get("vencedor", "")
+        resultado_vencedor = "⏳ Aguardando"
+        
+        if vencedor_previsto == "Casa" and home_score > away_score:
+            resultado_vencedor = "🟢 GREEN"
+        elif vencedor_previsto == "Visitante" and away_score > home_score:
+            resultado_vencedor = "🟢 GREEN"
+        elif vencedor_previsto == "Empate" and home_score == away_score:
+            resultado_vencedor = "🟢 GREEN"
+        elif vencedor_previsto in ["Casa", "Visitante", "Empate"]:
+            resultado_vencedor = "🔴 RED"
+        else:
+            resultado_vencedor = "⚪ INDEFINIDO"
+        
+        # Determina resultado do 1º Quarto (placeholder - API não fornece dados por quarto)
+        primeiro_quarto_pred = predictions.get("primeiro_quarto", {})
+        resultado_quarto = "⚪ INDEFINIDO"  # Não podemos conferir automaticamente
+        
+        # Determina resultado dos Jogadores Estrelas (placeholder)
+        resultado_jogadores = "⚪ INDEFINIDO"  # Não podemos conferir automaticamente
+        
+        # Exibe card do jogo
+        col1, col2, col3 = st.columns([3, 2, 1])
+        with col1:
+            st.write(f"**{home_team}** vs **{away_team}**")
+            st.write(f"📊 **Placar:** {home_score} x {away_score}")
+            st.write(f"🏀 **Total:** {total_pontos} pontos")
+            st.write(f"⏱️ **1º Quarto:** Não disponível na API")
+            st.write(f"⭐ **Jogadores:** Não disponível na API")
+        
+        with col2:
+            st.write(f"**Total:** {tendencia_total}")
+            st.write(f"**Resultado:** {resultado_total}")
+            st.write(f"**Vencedor:** {resultado_vencedor}")
+            st.write(f"**1º Quarto:** {resultado_quarto}")
+            st.write(f"**Jogadores:** {resultado_jogadores}")
+        
+        with col3:
+            if not alerta.get("conferido", False):
+                if st.button("✅ Confirmar", key=f"conf_{alerta_id}"):
+                    # Atualiza estatísticas quando confirma
+                    if resultado_total in ["🟢 GREEN", "🔴 RED"] and resultado_vencedor in ["🟢 GREEN", "🔴 RED"]:
+                        atualizar_estatisticas(resultado_total, resultado_vencedor, resultado_quarto, resultado_jogadores)
+                    
+                    alertas[alerta_id]["conferido"] = True
+                    salvar_alertas(alertas)
+                    st.rerun()
+            else:
+                st.success("✅ Conferido")
+        
+        st.markdown("---")
+
+# =============================
+# INTERFACE STREAMLIT
+# =============================
+def main():
+    st.set_page_config(page_title="🏀 Elite Master - NBA Alerts", layout="wide")
+    st.title("🏀 Elite Master — Análise com Dados Reais 2024-2025")
+    
+    st.sidebar.header("⚙️ Configurações")
+    st.sidebar.info("🎯 **Fonte:** Dados Reais da API")
+    st.sidebar.success("📊 **Temporada:** 2024-2025")
+    
+    # Botão para Top 4 Jogos
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("⭐ Top 4 Jogos")
+    
+    data_selecionada = st.sidebar.date_input("Data para Top 4:", value=date.today())
+    data_str = data_selecionada.strftime("%Y-%m-%d")
+    
+    if st.sidebar.button("🚀 Enviar Top 4 Melhores Jogos", type="primary"):
+        with st.spinner("Buscando melhores jogos e enviando alerta..."):
+            enviar_alerta_top4_jogos(data_str)
+    
+    # Visualização do Top 4
+    if st.sidebar.button("👀 Visualizar Top 4 Jogos"):
+        top4_jogos = obter_top4_melhores_jogos(data_str)
+        
+        if top4_jogos:
+            st.sidebar.success(f"🎯 Top 4 Jogos para {data_str}:")
+            for i, jogo_info in enumerate(top4_jogos, 1):
+                home_team = jogo_info["home_team_name"]
+                visitor_team = jogo_info["visitor_team_name"]
+                pontuacao = jogo_info["pontuacao"]
+                st.sidebar.write(f"{i}. {visitor_team} @ {home_team}")
+                st.sidebar.write(f"   Pontuação: {pontuacao:.1f}")
+        else:
+            st.sidebar.warning("Nenhum jogo encontrado para esta data.")
+    
+    # Botão para atualizar resultados na sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔄 Atualizações")
+    
+    if st.sidebar.button("📡 Atualizar Todos os Resultados", type="secondary"):
+        with st.spinner("Atualizando resultados de todas as partidas salvas..."):
+            jogos_atualizados = atualizar_resultados_partidas()
+            if jogos_atualizados > 0:
+                st.sidebar.success(f"✅ {jogos_atualizados} jogos atualizados!")
+            else:
+                st.sidebar.info("ℹ️ Nenhum jogo precisou de atualização.")
+    
+    # Botão para limpar estatísticas
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📊 Estatísticas")
+    
+    if st.sidebar.button("🧹 Limpar Estatísticas", type="secondary"):
+        limpar_estatisticas()
+        st.sidebar.success("✅ Estatísticas limpas!")
+        st.rerun()
+    
+    # Aba de estatísticas
+    tab1, tab2, tab3, tab4 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência", "📈 Estatísticas"])
+    
+    with tab1:
+        exibir_aba_analise()
+    
+    with tab2:
+        exibir_jogos_analisados()
+    
+    with tab3:
+        conferir_resultados()
+    
+    with tab4:
+        exibir_estatisticas()
+
+def exibir_aba_analise():
+    st.header("🎯 Análise com Dados Reais 2024-2025")
+    
+    with st.sidebar:
+        st.subheader("Controles de Análise")
+        top_n = st.slider("Número de jogos para analisar", 1, 10, 5)
+        janela = st.slider("Jogos recentes para análise", 8, 20, 15)
+        enviar_auto = st.checkbox("Enviar alertas automaticamente para Telegram", value=True)
+        
+        st.markdown("---")
+        st.subheader("Gerenciamento")
+        if st.button("🧹 Limpar Cache", type="secondary"):
+            for f in [CACHE_GAMES, CACHE_STATS, ALERTAS_PATH, CACHE_PLAYERS]:
+                try:
+                    if os.path.exists(f):
+                        os.remove(f)
+                        st.success(f"🗑️ {f} removido")
+                except:
+                    pass
+            st.rerun()
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        data_sel = st.date_input("Selecione a data:", value=date.today())
+    with col2:
+        st.write("")
+        st.write("")
+        if st.button("🚀 ANALISAR COM DADOS 2024-2025", type="primary", use_container_width=True):
+            analisar_jogos_com_dados_2025(data_sel, top_n, janela, enviar_auto)
+    with col3:
+        st.write("")
+        st.write("")
+        if st.button("🔄 Atualizar Dados", type="secondary"):
+            st.rerun()
+
+def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, enviar_auto: bool):
+    data_str = data_sel.strftime("%Y-%m-%d")
+    
+    progress_placeholder = st.empty()
+    results_placeholder = st.empty()
+    
+    with progress_placeholder:
+        st.info(f"🔍 Buscando dados reais para {data_sel.strftime('%d/%m/%Y')}...")
+        st.success("📊 Analisando com dados da temporada 2024-2025")
+        if enviar_auto:
+            st.warning("📤 Alertas serão enviados para Telegram")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+    
+    # Busca jogos
+    jogos = obter_jogos_data(data_str)
+    
+    if not jogos:
+        st.error("❌ Nenhum jogo encontrado para esta data")
+        return
+    
+    jogos = jogos[:top_n]
+    
+    status_text.text(f"📊 Analisando {len(jogos)} jogos com dados 2024-2025...")
+    
+    resultados = []
+    alertas_enviados = 0
+    
+    with results_placeholder:
+        st.subheader(f"🎯 Análise com Dados Reais 2024-2025")
+        
+        for i, jogo in enumerate(jogos):
+            progress = (i + 1) / len(jogos)
+            progress_bar.progress(progress)
+            
+            home_team = jogo['home_team']['full_name']
+            away_team = jogo['visitor_team']['full_name']
+            status_text.text(f"🔍 Analisando: {home_team} vs {away_team} ({i+1}/{len(jogos)})")
+            
+            home_id = jogo["home_team"]["id"]
+            away_id = jogo["visitor_team"]["id"]
+            
+            try:
+                # Previsões com dados reais 2024-2025
+                total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
+                vencedor, vencedor_conf, vencedor_detalhe = prever_vencedor(home_id, away_id, janela)
+                q1_estim, q1_conf, q1_tend = prever_pontos_quarto(home_id, away_id, janela)
+                # NOVO: Previsão de Jogadores Estrelas
+                jogadores_pred = prever_jogadores_estrelas_partida(home_id, away_id)
+                
+                predictions = {
+                    "total": {
+                        "estimativa": total_estim, 
+                        "confianca": total_conf, 
+                        "tendencia": total_tend
+                    },
+                    "vencedor": {
+                        "vencedor": vencedor,
+                        "confianca": vencedor_conf,
+                        "detalhe": vencedor_detalhe
+                    },
+                    "primeiro_quarto": {
+                        "estimativa": q1_estim,
+                        "confianca": q1_conf,
+                        "tendencia": q1_tend
+                    },
+                    # NOVO: Previsão de Jogadores Estrelas
+                    "jogadores_estrelas": jogadores_pred
+                }
+                
+                # Envia alerta
+                enviado = verificar_e_enviar_alerta(jogo, predictions, enviar_auto)
+                if enviado and enviar_auto:
+                    alertas_enviados += 1
+                
+                # Exibe resultado
+                col1, col2, col3 = st.columns([3, 2, 1])
+                with col1:
+                    st.write(f"**{home_team}** vs **{away_team}**")
+                    st.write(f"📍 **Status:** {jogo.get('status', 'SCHEDULED')}")
+                
+                with col2:
+                    st.write(f"📊 **Total:** {total_tend}")
+                    st.write(f"🎯 **Vencedor:** {vencedor}")
+                    st.write(f"⏱️ **1º Quarto:** {q1_tend}")
+                    st.write(f"⭐ **Jogadores:** {len(jogadores_pred.get('home_team', [])) + len(jogadores_pred.get('away_team', []))} estrelas")
+                    st.write(f"💪 **Confiança:** {vencedor_conf}%")
+                
+                with col3:
+                    st.write(f"📈 **Estimativa:** {total_estim:.1f}")
+                    st.write(f"🔒 **Confiança:** {total_conf}%")
+                    st.write(f"⏱️ **1ºQ:** {q1_estim:.1f}")
+                    st.write(f"🔒 **Conf:** {q1_conf}%")
+                    if enviado and enviar_auto:
+                        st.success("✅ Telegram")
+                    else:
+                        st.info("💾 Salvo")
+                
+                # NOVO: Exibe detalhes dos jogadores estrelas
+                with st.expander("👀 Ver Jogadores Estrelas", expanded=False):
+                    home_players = jogadores_pred.get("home_team", [])
+                    away_players = jogadores_pred.get("away_team", [])
+                    
+                    col4, col5 = st.columns(2)
+                    
+                    with col4:
+                        st.write(f"**🏠 {home_team}**")
+                        for player in home_players:
+                            perf = player.get("performance", {})
+                            st.write(f"**{player['nome']}** ({player['posicao']})")
+                            st.write(f"• Pontos: {perf.get('pts', 0):.1f}")
+                            st.write(f"• Rebotes: {perf.get('reb', 0):.1f}")
+                            st.write(f"• Assistências: {perf.get('ast', 0):.1f}")
+                            st.write(f"• Roubos: {perf.get('stl', 0):.1f}")
+                            st.write(f"• Tocos: {perf.get('blk', 0):.1f}")
+                            st.write(f"• 3PT: {perf.get('fg3m', 0):.1f}")
+                            st.write(f"• Minutos: {perf.get('min_estimado', '32:00')}")
+                            st.write(f"• Confiança: {perf.get('confianca', 0):.0f}%")
+                            st.write("---")
+                    
+                    with col5:
+                        st.write(f"**🚗 {away_team}**")
+                        for player in away_players:
+                            perf = player.get("performance", {})
+                            st.write(f"**{player['nome']}** ({player['posicao']})")
+                            st.write(f"• Pontos: {perf.get('pts', 0):.1f}")
+                            st.write(f"• Rebotes: {perf.get('reb', 0):.1f}")
+                            st.write(f"• Assistências: {perf.get('ast', 0):.1f}")
+                            st.write(f"• Roubos: {perf.get('stl', 0):.1f}")
+                            st.write(f"• Tocos: {perf.get('blk', 0):.1f}")
+                            st.write(f"• 3PT: {perf.get('fg3m', 0):.1f}")
+                            st.write(f"• Minutos: {perf.get('min_estimado', '32:00')}")
+                            st.write(f"• Confiança: {perf.get('confianca', 0):.0f}%")
+                            st.write("---")
+                
+                st.markdown("---")
+                
+                resultados.append({
+                    "jogo": jogo,
+                    "predictions": predictions
+                })
+                
+            except Exception as e:
+                st.error(f"❌ Erro ao analisar {home_team} vs {away_team}: {e}")
+                continue
+    
+    progress_placeholder.empty()
+    
+    # Resumo final
+    st.success(f"✅ Análise com dados 2024-2025 concluída!")
+    st.info(f"""
+    **📊 Resumo da Análise:**
+    - 🏀 {len(resultados)} jogos analisados com dados 2024-2025
+    - 📤 {alertas_enviados} alertas enviados para Telegram
+    - 📈 Estatísticas baseadas na temporada atual
+    - ⏱️ Previsões de 1º Quarto incluídas
+    - ⭐ Previsões de Jogadores Estrelas incluídas
+    - 💾 Dados salvos para conferência futura
+    """)
+
+# =============================
+# EXECUÇÃO PRINCIPAL
+# =============================
+if __name__ == "__main__":
+    main()
