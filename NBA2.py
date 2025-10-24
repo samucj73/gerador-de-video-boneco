@@ -26,7 +26,6 @@ ALERTAS_PATH = "alertas_nba.json"
 CACHE_GAMES = "cache_games_nba.json"
 CACHE_TEAMS = "cache_teams_nba.json"
 CACHE_STATS = "cache_stats_nba.json"
-CACHE_PLAYERS = "cache_players_nba.json"  # NOVO: Cache para jogadores
 STATS_PATH = "estatisticas_nba.json"
 CACHE_TIMEOUT = 86400  # 24h
 
@@ -36,101 +35,6 @@ HEADERS_BDL = {"Authorization": BALLDONTLIE_API_KEY}
 REQUEST_TIMEOUT = 10
 LAST_REQUEST_TIME = 0
 MIN_REQUEST_INTERVAL = 1.2
-
-# =============================
-# DICIONÁRIO DE JOGADORES ESTRELAS (NOVO)
-# =============================
-JOGADORES_ESTRELAS = {
-    # Atlanta Hawks
-    1: [{"id": 666, "nome": "Trae Young", "posicao": "PG"}, {"id": 667, "nome": "Dejounte Murray", "posicao": "SG"}],
-    
-    # Boston Celtics
-    2: [{"id": 354, "nome": "Jayson Tatum", "posicao": "SF"}, {"id": 355, "nome": "Jaylen Brown", "posicao": "SG"}],
-    
-    # Brooklyn Nets
-    3: [{"id": 668, "nome": "Mikal Bridges", "posicao": "SF"}, {"id": 669, "nome": "Ben Simmons", "posicao": "PG"}],
-    
-    # Charlotte Hornets
-    4: [{"id": 670, "nome": "LaMelo Ball", "posicao": "PG"}, {"id": 671, "nome": "Brandon Miller", "posicao": "SF"}],
-    
-    # Chicago Bulls
-    5: [{"id": 115, "nome": "DeMar DeRozan", "posicao": "SF"}, {"id": 116, "nome": "Zach LaVine", "posicao": "SG"}],
-    
-    # Cleveland Cavaliers
-    6: [{"id": 117, "nome": "Donovan Mitchell", "posicao": "SG"}, {"id": 118, "nome": "Darius Garland", "posicao": "PG"}],
-    
-    # Dallas Mavericks
-    7: [{"id": 228, "nome": "Luka Doncic", "posicao": "PG"}, {"id": 229, "nome": "Kyrie Irving", "posicao": "SG"}],
-    
-    # Denver Nuggets
-    8: [{"id": 246, "nome": "Nikola Jokic", "posicao": "C"}, {"id": 247, "nome": "Jamal Murray", "posicao": "PG"}],
-    
-    # Detroit Pistons
-    9: [{"id": 672, "nome": "Cade Cunningham", "posicao": "PG"}, {"id": 673, "nome": "Jaden Ivey", "posicao": "SG"}],
-    
-    # Golden State Warriors
-    10: [{"id": 115, "nome": "Stephen Curry", "posicao": "PG"}, {"id": 116, "nome": "Klay Thompson", "posicao": "SG"}],
-    
-    # Houston Rockets
-    11: [{"id": 674, "nome": "Jalen Green", "posicao": "SG"}, {"id": 675, "nome": "Alperen Sengun", "posicao": "C"}],
-    
-    # Indiana Pacers
-    12: [{"id": 676, "nome": "Tyrese Haliburton", "posicao": "PG"}, {"id": 677, "nome": "Myles Turner", "posicao": "C"}],
-    
-    # LA Clippers
-    13: [{"id": 274, "nome": "Kawhi Leonard", "posicao": "SF"}, {"id": 275, "nome": "Paul George", "posicao": "SF"}],
-    
-    # Los Angeles Lakers
-    14: [{"id": 237, "nome": "LeBron James", "posicao": "SF"}, {"id": 238, "nome": "Anthony Davis", "posicao": "PF"}],
-    
-    # Memphis Grizzlies
-    15: [{"id": 678, "nome": "Ja Morant", "posicao": "PG"}, {"id": 679, "nome": "Jaren Jackson Jr.", "posicao": "PF"}],
-    
-    # Miami Heat
-    16: [{"id": 680, "nome": "Jimmy Butler", "posicao": "SF"}, {"id": 681, "nome": "Bam Adebayo", "posicao": "C"}],
-    
-    # Milwaukee Bucks
-    17: [{"id": 15, "nome": "Giannis Antetokounmpo", "posicao": "PF"}, {"id": 16, "nome": "Damian Lillard", "posicao": "PG"}],
-    
-    # Minnesota Timberwolves
-    18: [{"id": 682, "nome": "Anthony Edwards", "posicao": "SG"}, {"id": 683, "nome": "Karl-Anthony Towns", "posicao": "C"}],
-    
-    # New Orleans Pelicans
-    19: [{"id": 684, "nome": "Zion Williamson", "posicao": "PF"}, {"id": 685, "nome": "Brandon Ingram", "posicao": "SF"}],
-    
-    # New York Knicks
-    20: [{"id": 686, "nome": "Jalen Brunson", "posicao": "PG"}, {"id": 687, "nome": "Julius Randle", "posicao": "PF"}],
-    
-    # Oklahoma City Thunder
-    21: [{"id": 688, "nome": "Shai Gilgeous-Alexander", "posicao": "PG"}, {"id": 689, "nome": "Chet Holmgren", "posicao": "C"}],
-    
-    # Orlando Magic
-    22: [{"id": 690, "nome": "Paolo Banchero", "posicao": "PF"}, {"id": 691, "nome": "Franz Wagner", "posicao": "SF"}],
-    
-    # Philadelphia 76ers
-    23: [{"id": 692, "nome": "Joel Embiid", "posicao": "C"}, {"id": 693, "nome": "Tyrese Maxey", "posicao": "PG"}],
-    
-    # Phoenix Suns
-    24: [{"id": 694, "nome": "Kevin Durant", "posicao": "SF"}, {"id": 695, "nome": "Devin Booker", "posicao": "SG"}],
-    
-    # Portland Trail Blazers
-    25: [{"id": 696, "nome": "Anfernee Simons", "posicao": "SG"}, {"id": 697, "nome": "Scoot Henderson", "posicao": "PG"}],
-    
-    # Sacramento Kings
-    26: [{"id": 698, "nome": "De'Aaron Fox", "posicao": "PG"}, {"id": 699, "nome": "Domantas Sabonis", "posicao": "C"}],
-    
-    # San Antonio Spurs
-    27: [{"id": 700, "nome": "Victor Wembanyama", "posicao": "C"}, {"id": 701, "nome": "Devin Vassell", "posicao": "SG"}],
-    
-    # Toronto Raptors
-    28: [{"id": 702, "nome": "Scottie Barnes", "posicao": "PF"}, {"id": 703, "nome": "Pascal Siakam", "posicao": "PF"}],
-    
-    # Utah Jazz
-    29: [{"id": 704, "nome": "Lauri Markkanen", "posicao": "PF"}, {"id": 705, "nome": "Jordan Clarkson", "posicao": "SG"}],
-    
-    # Washington Wizards
-    30: [{"id": 706, "nome": "Kyle Kuzma", "posicao": "PF"}, {"id": 707, "nome": "Jordan Poole", "posicao": "SG"}]
-}
 
 # =============================
 # CACHE E IO
@@ -178,12 +82,6 @@ def carregar_cache_stats():
 def salvar_cache_stats(dados):
     salvar_json(CACHE_STATS, dados)
 
-def carregar_cache_players():
-    return carregar_json(CACHE_PLAYERS) or {}
-
-def salvar_cache_players(dados):
-    salvar_json(CACHE_PLAYERS, dados)
-
 # =============================
 # SISTEMA DE ESTATÍSTICAS
 # =============================
@@ -193,7 +91,6 @@ def carregar_estatisticas():
         "total_pontos": {"acertos": 0, "erros": 0, "total": 0},
         "vencedor": {"acertos": 0, "erros": 0, "total": 0},
         "primeiro_quarto": {"acertos": 0, "erros": 0, "total": 0},
-        "jogadores_estrelas": {"acertos": 0, "erros": 0, "total": 0},
         "jogos_analisados": 0,
         "data_ultima_atualizacao": None
     }
@@ -202,7 +99,7 @@ def salvar_estatisticas(dados):
     """Salva as estatísticas"""
     salvar_json(STATS_PATH, dados)
 
-def atualizar_estatisticas(resultado_total: str, resultado_vencedor: str, resultado_quarto: str = None, resultado_jogadores: str = None):
+def atualizar_estatisticas(resultado_total: str, resultado_vencedor: str, resultado_quarto: str = None):
     """Atualiza as estatísticas baseado nos resultados"""
     stats = carregar_estatisticas()
     
@@ -231,15 +128,6 @@ def atualizar_estatisticas(resultado_total: str, resultado_vencedor: str, result
             stats["primeiro_quarto"]["erros"] += 1
             stats["primeiro_quarto"]["total"] += 1
     
-    # Atualiza estatísticas de Jogadores Estrelas (se disponível)
-    if resultado_jogadores and resultado_jogadores in ["🟢 GREEN", "🔴 RED"]:
-        if resultado_jogadores == "🟢 GREEN":
-            stats["jogadores_estrelas"]["acertos"] += 1
-            stats["jogadores_estrelas"]["total"] += 1
-        elif resultado_jogadores == "🔴 RED":
-            stats["jogadores_estrelas"]["erros"] += 1
-            stats["jogadores_estrelas"]["total"] += 1
-    
     stats["jogos_analisados"] = max(stats["total_pontos"]["total"], stats["vencedor"]["total"])
     stats["data_ultima_atualizacao"] = datetime.now().isoformat()
     
@@ -258,7 +146,7 @@ def exibir_estatisticas():
     
     st.header("📊 Estatísticas de Desempenho")
     
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
@@ -286,14 +174,6 @@ def exibir_estatisticas():
     
     with col4:
         st.metric(
-            label="⭐ Jogadores",
-            value=f"{stats['jogadores_estrelas']['acertos']}/{stats['jogadores_estrelas']['total']}",
-            delta=f"{calcular_taxa_acerto(stats['jogadores_estrelas']['acertos'], stats['jogadores_estrelas']['total']):.1f}%"
-        )
-        st.progress(stats['jogadores_estrelas']['acertos'] / max(stats['jogadores_estrelas']['total'], 1))
-    
-    with col5:
-        st.metric(
             label="📈 Jogos Analisados",
             value=stats["jogos_analisados"],
             delta="Performance"
@@ -304,7 +184,7 @@ def exibir_estatisticas():
     # Estatísticas detalhadas
     st.subheader("📋 Detalhamento por Categoria")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.write("**Total de Pontos**")
@@ -327,13 +207,6 @@ def exibir_estatisticas():
         st.write(f"📊 Total: {stats['primeiro_quarto']['total']}")
         st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['primeiro_quarto']['acertos'], stats['primeiro_quarto']['total']):.1f}%")
     
-    with col4:
-        st.write("**Jogadores Estrelas**")
-        st.write(f"✅ Acertos: {stats['jogadores_estrelas']['acertos']}")
-        st.write(f"❌ Erros: {stats['jogadores_estrelas']['erros']}")
-        st.write(f"📊 Total: {stats['jogadores_estrelas']['total']}")
-        st.write(f"🎯 Taxa: {calcular_taxa_acerto(stats['jogadores_estrelas']['acertos'], stats['jogadores_estrelas']['total']):.1f}%")
-    
     # Data da última atualização
     if stats["data_ultima_atualizacao"]:
         try:
@@ -348,7 +221,6 @@ def limpar_estatisticas():
         "total_pontos": {"acertos": 0, "erros": 0, "total": 0},
         "vencedor": {"acertos": 0, "erros": 0, "total": 0},
         "primeiro_quarto": {"acertos": 0, "erros": 0, "total": 0},
-        "jogadores_estrelas": {"acertos": 0, "erros": 0, "total": 0},
         "jogos_analisados": 0,
         "data_ultima_atualizacao": None
     }
@@ -443,208 +315,6 @@ def obter_jogos_data(data_str: str) -> list:
     cache[key] = jogos
     salvar_cache_games(cache)
     return jogos
-
-# =============================
-# SISTEMA DE JOGADORES ESTRELAS (NOVO)
-# =============================
-def obter_estatisticas_jogador(player_id: int, season: int = 2024, window_games: int = 10) -> dict:
-    """Busca estatísticas de um jogador específico"""
-    cache = carregar_cache_players()
-    key = f"player_{player_id}_{season}"
-    
-    if key in cache:
-        cached_data = cache[key]
-        if cached_data.get("games", 0) > 0:
-            return cached_data
-
-    st.info(f"📊 Buscando estatísticas do jogador {player_id}...")
-    
-    # Busca jogos do jogador na temporada
-    start_date = f"{season}-10-01"
-    end_date = f"{season+1}-06-30"
-    
-    stats = []
-    page = 1
-    max_pages = 3
-    
-    while page <= max_pages:
-        params = {
-            "player_ids[]": player_id,
-            "per_page": 25,
-            "page": page,
-            "start_date": start_date,
-            "end_date": end_date,
-            "seasons[]": season
-        }
-        
-        resp = balldontlie_get("stats", params=params)
-        if not resp or "data" not in resp:
-            break
-            
-        stats.extend(resp["data"])
-        
-        meta = resp.get("meta", {})
-        total_pages = meta.get("total_pages", 1)
-        if page >= total_pages:
-            break
-            
-        page += 1
-
-    # Filtra apenas jogos com estatísticas válidas
-    stats_validos = []
-    for stat in stats:
-        try:
-            if (stat.get("min") and stat.get("min") != "" and 
-                stat.get("pts") is not None and
-                stat.get("min") != "00:00"):
-                stats_validos.append(stat)
-        except Exception:
-            continue
-
-    # Ordena por data (mais recentes primeiro) e limita pela janela
-    try:
-        stats_validos.sort(key=lambda x: x.get("game", {}).get("date", ""), reverse=True)
-        stats_validos = stats_validos[:window_games]
-    except Exception:
-        stats_validos = stats_validos[:window_games]
-
-    # Calcula estatísticas
-    if not stats_validos:
-        # Fallback para médias gerais da NBA
-        player_stats = {
-            "pts_avg": 18.5,
-            "reb_avg": 5.5,
-            "ast_avg": 4.2,
-            "stl_avg": 1.1,
-            "blk_avg": 0.6,
-            "fg3m_avg": 2.1,
-            "games": 0,
-            "min_avg": "32:00"
-        }
-    else:
-        pts_total = 0
-        reb_total = 0
-        ast_total = 0
-        stl_total = 0
-        blk_total = 0
-        fg3m_total = 0
-        count = len(stats_validos)
-
-        for stat in stats_validos:
-            pts_total += stat.get("pts", 0)
-            reb_total += stat.get("reb", 0)
-            ast_total += stat.get("ast", 0)
-            stl_total += stat.get("stl", 0)
-            blk_total += stat.get("blk", 0)
-            fg3m_total += stat.get("fg3m", 0)
-
-        if count > 0:
-            player_stats = {
-                "pts_avg": pts_total / count,
-                "reb_avg": reb_total / count,
-                "ast_avg": ast_total / count,
-                "stl_avg": stl_total / count,
-                "blk_avg": blk_total / count,
-                "fg3m_avg": fg3m_total / count,
-                "games": count,
-                "min_avg": stats_validos[0].get("min", "32:00")  # Usa o mais recente
-            }
-        else:
-            player_stats = {
-                "pts_avg": 18.5,
-                "reb_avg": 5.5,
-                "ast_avg": 4.2,
-                "stl_avg": 1.1,
-                "blk_avg": 0.6,
-                "fg3m_avg": 2.1,
-                "games": 0,
-                "min_avg": "32:00"
-            }
-
-    cache[key] = player_stats
-    salvar_cache_players(cache)
-    return player_stats
-
-def prever_performance_jogador(player_id: int, opponent_team_id: int, window_games: int = 10) -> dict:
-    """Preve a performance de um jogador contra um oponente específico"""
-    player_stats = obter_estatisticas_jogador(player_id, 2024, window_games)
-    
-    if player_stats["games"] == 0:
-        return {
-            "pts": player_stats["pts_avg"],
-            "reb": player_stats["reb_avg"],
-            "ast": player_stats["ast_avg"],
-            "stl": player_stats["stl_avg"],
-            "blk": player_stats["blk_avg"],
-            "fg3m": player_stats["fg3m_avg"],
-            "confianca": 40.0,
-            "min_estimado": player_stats["min_avg"]
-        }
-    
-    # Ajusta baseado no oponente (simplificado)
-    opponent_stats = obter_estatisticas_time_2025(opponent_team_id)
-    
-    # Fator de ajuste baseado na defesa do oponente
-    defense_factor = 1.0
-    if opponent_stats["pts_against_avg"] < 110:  # Time defensivo forte
-        defense_factor = 0.9
-    elif opponent_stats["pts_against_avg"] > 118:  # Time defensivo fraco
-        defense_factor = 1.1
-    
-    # Calcula previsões ajustadas
-    pts_estimado = player_stats["pts_avg"] * defense_factor
-    reb_estimado = player_stats["reb_avg"] * (1.0 if defense_factor == 1.0 else defense_factor + 0.05)
-    ast_estimado = player_stats["ast_avg"] * defense_factor
-    
-    # Calcula confiança baseada na consistência
-    confianca = min(80.0, 50.0 + (player_stats["games"] * 3))
-    
-    return {
-        "pts": round(pts_estimado, 1),
-        "reb": round(reb_estimado, 1),
-        "ast": round(ast_estimado, 1),
-        "stl": round(player_stats["stl_avg"], 1),
-        "blk": round(player_stats["blk_avg"], 1),
-        "fg3m": round(player_stats["fg3m_avg"], 1),
-        "confianca": round(confianca, 1),
-        "min_estimado": player_stats["min_avg"]
-    }
-
-def obter_jogadores_estrelas_time(team_id: int) -> list:
-    """Retorna a lista de jogadores estrelas de um time"""
-    return JOGADORES_ESTRELAS.get(team_id, [])
-
-def prever_jogadores_estrelas_partida(home_team_id: int, away_team_id: int) -> dict:
-    """Preve a performance dos jogadores estrelas de ambos os times"""
-    home_stars = obter_jogadores_estrelas_time(home_team_id)
-    away_stars = obter_jogadores_estrelas_time(away_team_id)
-    
-    predictions = {
-        "home_team": [],
-        "away_team": []
-    }
-    
-    # Previsões para jogadores da casa
-    for player in home_stars:
-        performance = prever_performance_jogador(player["id"], away_team_id)
-        predictions["home_team"].append({
-            "id": player["id"],
-            "nome": player["nome"],
-            "posicao": player["posicao"],
-            "performance": performance
-        })
-    
-    # Previsões para jogadores visitantes
-    for player in away_stars:
-        performance = prever_performance_jogador(player["id"], home_team_id)
-        predictions["away_team"].append({
-            "id": player["id"],
-            "nome": player["nome"],
-            "posicao": player["posicao"],
-            "performance": performance
-        })
-    
-    return predictions
 
 # =============================
 # ATUALIZAR RESULTADOS DAS PARTIDAS
@@ -1031,6 +701,9 @@ def prever_vencedor(home_id: int, away_id: int, window_games: int = 15) -> tuple
     
     return vencedor, round(confianca, 1), detalhe
 
+# =============================
+# PREVISÃO DE PONTOS POR QUARTO (NOVA FUNÇÃO)
+# =============================
 def prever_pontos_quarto(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
     """Previsão de pontos no 1º quarto baseada em dados reais"""
     home_stats = obter_estatisticas_time_2025(home_id, window_games)
@@ -1121,36 +794,11 @@ def formatar_msg_alerta(game: dict, predictions: dict) -> str:
             msg += f"🎯 <b>Vencedor</b>: {vencedor_pred.get('vencedor', 'N/A')}\n"
             msg += f"   💪 Confiança: {vencedor_pred.get('confianca', 0):.0f}% | {vencedor_pred.get('detalhe', '')}\n\n"
 
-        # Previsão do 1º Quarto
+        # NOVO: Previsão do 1º Quarto
         primeiro_quarto_pred = predictions.get("primeiro_quarto", {})
         if primeiro_quarto_pred:
             msg += f"⏱️ <b>1º Quarto</b>: {primeiro_quarto_pred.get('tendencia', 'N/A')}\n"
             msg += f"   📊 Estimativa: <b>{primeiro_quarto_pred.get('estimativa', 0):.1f}</b> | Confiança: {primeiro_quarto_pred.get('confianca', 0):.0f}%\n\n"
-
-        # NOVO: Previsões de Jogadores Estrelas
-        jogadores_pred = predictions.get("jogadores_estrelas", {})
-        if jogadores_pred:
-            msg += f"⭐ <b>Jogadores Estrelas</b>\n"
-            
-            # Jogadores da casa
-            home_players = jogadores_pred.get("home_team", [])
-            if home_players:
-                msg += f"   🏠 <b>{home}</b>:\n"
-                for player in home_players[:2]:  # Mostra até 2 jogadores
-                    perf = player.get("performance", {})
-                    msg += f"   • {player.get('nome', '')} ({player.get('posicao', '')}): "
-                    msg += f"{perf.get('pts', 0):.1f} pts, {perf.get('reb', 0):.1f} reb, {perf.get('ast', 0):.1f} ast\n"
-            
-            # Jogadores visitantes
-            away_players = jogadores_pred.get("away_team", [])
-            if away_players:
-                msg += f"   🚗 <b>{away}</b>:\n"
-                for player in away_players[:2]:  # Mostra até 2 jogadores
-                    perf = player.get("performance", {})
-                    msg += f"   • {player.get('nome', '')} ({player.get('posicao', '')}): "
-                    msg += f"{perf.get('pts', 0):.1f} pts, {perf.get('reb', 0):.1f} reb, {perf.get('ast', 0):.1f} ast\n"
-            
-            msg += "\n"
 
         msg += "\n🏆 <b>Elite Master</b> - Análise com Dados Reais 2024-2025"
         return msg
@@ -1325,7 +973,6 @@ def exibir_jogos_analisados():
         total_pred = predictions.get("total", {})
         vencedor_pred = predictions.get("vencedor", {})
         primeiro_quarto_pred = predictions.get("primeiro_quarto", {})
-        jogadores_pred = predictions.get("jogadores_estrelas", {})
         
         # Card do jogo
         with st.expander(f"🏀 {home_team} vs {away_team} - {status}", expanded=False):
@@ -1337,7 +984,7 @@ def exibir_jogos_analisados():
                 st.write(f"Estimativa: {total_pred.get('estimativa', 0):.1f}")
                 st.write(f"Confiança: {total_pred.get('confianca', 0):.0f}%")
                 
-                # Previsão do 1º Quarto
+                # NOVO: Previsão do 1º Quarto
                 st.write("**⏱️ 1º Quarto**")
                 st.write(f"Tendência: {primeiro_quarto_pred.get('tendencia', 'N/A')}")
                 st.write(f"Estimativa: {primeiro_quarto_pred.get('estimativa', 0):.1f}")
@@ -1348,31 +995,6 @@ def exibir_jogos_analisados():
                 st.write(f"Previsão: {vencedor_pred.get('vencedor', 'N/A')}")
                 st.write(f"Confiança: {vencedor_pred.get('confianca', 0):.0f}%")
                 st.write(f"Detalhe: {vencedor_pred.get('detalhe', '')}")
-            
-            # NOVO: Seção de Jogadores Estrelas
-            if jogadores_pred:
-                st.write("**⭐ Jogadores Estrelas**")
-                
-                home_players = jogadores_pred.get("home_team", [])
-                away_players = jogadores_pred.get("away_team", [])
-                
-                col3, col4 = st.columns(2)
-                
-                with col3:
-                    st.write(f"**🏠 {home_team}**")
-                    for player in home_players[:2]:
-                        perf = player.get("performance", {})
-                        st.write(f"• {player['nome']} ({player['posicao']})")
-                        st.write(f"  {perf.get('pts', 0):.1f} pts | {perf.get('reb', 0):.1f} reb | {perf.get('ast', 0):.1f} ast")
-                        st.write(f"  Confiança: {perf.get('confianca', 0):.0f}%")
-                
-                with col4:
-                    st.write(f"**🚗 {away_team}**")
-                    for player in away_players[:2]:
-                        perf = player.get("performance", {})
-                        st.write(f"• {player['nome']} ({player['posicao']})")
-                        st.write(f"  {perf.get('pts', 0):.1f} pts | {perf.get('reb', 0):.1f} reb | {perf.get('ast', 0):.1f} ast")
-                        st.write(f"  Confiança: {perf.get('confianca', 0):.0f}%")
             
             if alerta.get("enviado_telegram", False):
                 st.success("📤 Enviado para Telegram")
@@ -1483,12 +1105,9 @@ def conferir_resultados():
         else:
             resultado_vencedor = "⚪ INDEFINIDO"
         
-        # Determina resultado do 1º Quarto (placeholder - API não fornece dados por quarto)
+        # NOVO: Determina resultado do 1º Quarto (placeholder - API não fornece dados por quarto)
         primeiro_quarto_pred = predictions.get("primeiro_quarto", {})
         resultado_quarto = "⚪ INDEFINIDO"  # Não podemos conferir automaticamente
-        
-        # Determina resultado dos Jogadores Estrelas (placeholder)
-        resultado_jogadores = "⚪ INDEFINIDO"  # Não podemos conferir automaticamente
         
         # Exibe card do jogo
         col1, col2, col3 = st.columns([3, 2, 1])
@@ -1497,21 +1116,19 @@ def conferir_resultados():
             st.write(f"📊 **Placar:** {home_score} x {away_score}")
             st.write(f"🏀 **Total:** {total_pontos} pontos")
             st.write(f"⏱️ **1º Quarto:** Não disponível na API")
-            st.write(f"⭐ **Jogadores:** Não disponível na API")
         
         with col2:
             st.write(f"**Total:** {tendencia_total}")
             st.write(f"**Resultado:** {resultado_total}")
             st.write(f"**Vencedor:** {resultado_vencedor}")
             st.write(f"**1º Quarto:** {resultado_quarto}")
-            st.write(f"**Jogadores:** {resultado_jogadores}")
         
         with col3:
             if not alerta.get("conferido", False):
                 if st.button("✅ Confirmar", key=f"conf_{alerta_id}"):
                     # Atualiza estatísticas quando confirma
                     if resultado_total in ["🟢 GREEN", "🔴 RED"] and resultado_vencedor in ["🟢 GREEN", "🔴 RED"]:
-                        atualizar_estatisticas(resultado_total, resultado_vencedor, resultado_quarto, resultado_jogadores)
+                        atualizar_estatisticas(resultado_total, resultado_vencedor, resultado_quarto)
                     
                     alertas[alerta_id]["conferido"] = True
                     salvar_alertas(alertas)
@@ -1606,7 +1223,7 @@ def exibir_aba_analise():
         st.markdown("---")
         st.subheader("Gerenciamento")
         if st.button("🧹 Limpar Cache", type="secondary"):
-            for f in [CACHE_GAMES, CACHE_STATS, ALERTAS_PATH, CACHE_PLAYERS]:
+            for f in [CACHE_GAMES, CACHE_STATS, ALERTAS_PATH]:
                 try:
                     if os.path.exists(f):
                         os.remove(f)
@@ -1675,9 +1292,8 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
                 # Previsões com dados reais 2024-2025
                 total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
                 vencedor, vencedor_conf, vencedor_detalhe = prever_vencedor(home_id, away_id, janela)
+                # NOVO: Previsão do 1º Quarto
                 q1_estim, q1_conf, q1_tend = prever_pontos_quarto(home_id, away_id, janela)
-                # NOVO: Previsão de Jogadores Estrelas
-                jogadores_pred = prever_jogadores_estrelas_partida(home_id, away_id)
                 
                 predictions = {
                     "total": {
@@ -1690,13 +1306,12 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
                         "confianca": vencedor_conf,
                         "detalhe": vencedor_detalhe
                     },
+                    # NOVO: Previsão do 1º Quarto
                     "primeiro_quarto": {
                         "estimativa": q1_estim,
                         "confianca": q1_conf,
                         "tendencia": q1_tend
-                    },
-                    # NOVO: Previsão de Jogadores Estrelas
-                    "jogadores_estrelas": jogadores_pred
+                    }
                 }
                 
                 # Envia alerta
@@ -1714,7 +1329,6 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
                     st.write(f"📊 **Total:** {total_tend}")
                     st.write(f"🎯 **Vencedor:** {vencedor}")
                     st.write(f"⏱️ **1º Quarto:** {q1_tend}")
-                    st.write(f"⭐ **Jogadores:** {len(jogadores_pred.get('home_team', [])) + len(jogadores_pred.get('away_team', []))} estrelas")
                     st.write(f"💪 **Confiança:** {vencedor_conf}%")
                 
                 with col3:
@@ -1726,43 +1340,6 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
                         st.success("✅ Telegram")
                     else:
                         st.info("💾 Salvo")
-                
-                # NOVO: Exibe detalhes dos jogadores estrelas
-                with st.expander("👀 Ver Jogadores Estrelas", expanded=False):
-                    home_players = jogadores_pred.get("home_team", [])
-                    away_players = jogadores_pred.get("away_team", [])
-                    
-                    col4, col5 = st.columns(2)
-                    
-                    with col4:
-                        st.write(f"**🏠 {home_team}**")
-                        for player in home_players:
-                            perf = player.get("performance", {})
-                            st.write(f"**{player['nome']}** ({player['posicao']})")
-                            st.write(f"• Pontos: {perf.get('pts', 0):.1f}")
-                            st.write(f"• Rebotes: {perf.get('reb', 0):.1f}")
-                            st.write(f"• Assistências: {perf.get('ast', 0):.1f}")
-                            st.write(f"• Roubos: {perf.get('stl', 0):.1f}")
-                            st.write(f"• Tocos: {perf.get('blk', 0):.1f}")
-                            st.write(f"• 3PT: {perf.get('fg3m', 0):.1f}")
-                            st.write(f"• Minutos: {perf.get('min_estimado', '32:00')}")
-                            st.write(f"• Confiança: {perf.get('confianca', 0):.0f}%")
-                            st.write("---")
-                    
-                    with col5:
-                        st.write(f"**🚗 {away_team}**")
-                        for player in away_players:
-                            perf = player.get("performance", {})
-                            st.write(f"**{player['nome']}** ({player['posicao']})")
-                            st.write(f"• Pontos: {perf.get('pts', 0):.1f}")
-                            st.write(f"• Rebotes: {perf.get('reb', 0):.1f}")
-                            st.write(f"• Assistências: {perf.get('ast', 0):.1f}")
-                            st.write(f"• Roubos: {perf.get('stl', 0):.1f}")
-                            st.write(f"• Tocos: {perf.get('blk', 0):.1f}")
-                            st.write(f"• 3PT: {perf.get('fg3m', 0):.1f}")
-                            st.write(f"• Minutos: {perf.get('min_estimado', '32:00')}")
-                            st.write(f"• Confiança: {perf.get('confianca', 0):.0f}%")
-                            st.write("---")
                 
                 st.markdown("---")
                 
@@ -1785,7 +1362,6 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
     - 📤 {alertas_enviados} alertas enviados para Telegram
     - 📈 Estatísticas baseadas na temporada atual
     - ⏱️ Previsões de 1º Quarto incluídas
-    - ⭐ Previsões de Jogadores Estrelas incluídas
     - 💾 Dados salvos para conferência futura
     """)
 
