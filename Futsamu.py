@@ -52,20 +52,148 @@ LIGA_DICT = {
 # Utilitários de Cache
 # =============================
 def carregar_json(caminho: str) -> dict:
+    """Carrega dados JSON com verificação de timeout."""
     try:
         if os.path.exists(caminho):
             with open(caminho, "r", encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
+                dados = json.load(f)
+            
+            # Verificar se o cache é muito antigo
+            if caminho in [CACHE_JOGOS, CACHE_CLASSIFICACAO]:
+                agora = datetime.now().timestamp()
+                for key in list(dados.keys()):
+                    if isinstance(dados[key], dict) and '_timestamp' in dados[key]:
+                        if agora - dados[key]['_timestamp'] > CACHE_TIMEOUT:
+                            del dados[key]
+                    elif agora - os.path.getmtime(caminho) > CACHE_TIMEOUT:
+                        return {}
+            return dados
+    except (json.JSONDecodeError, IOError) as e:
         st.error(f"Erro ao carregar {caminho}: {e}")
     return {}
 
 def salvar_json(caminho: str, dados: dict):
+    """Salva dados JSON com timestamp."""
     try:
+        # Adicionar timestamp para caches temporais
+        if caminho in [CACHE_JOGOS, CACHE_CLASSIFICACAO]:
+            dados['_timestamp'] = datetime.now().timestamp()
+        
         with open(caminho, "w", encoding='utf-8') as f:
             json.dump(dados, f, ensure_ascii=False, indent=2)
-    except Exception as e:
+    except IOError as e:
         st.error(f"Erro ao salvar {caminho}: {e}")
+
+def carregar_alertas() -> dict:
+    return carregar_json(ALERTAS_PATH)
+
+def salvar_alertas(alertas: dict):
+    salvar_json(ALERTAS_PATH, alertas)
+
+def carregar_cache_jogos() -> dict:
+    return carregar_json(CACHE_JOGOS)
+
+def salvar_cache_jogos(dados: dict):
+    salvar_json(CACHE_JOGOS, dados)
+
+def carregar_cache_classificacao() -> dict:
+    return carregar_json(CACHE_CLASSIFICACAO)
+
+def salvar_cache_classificacao(dados: dict):
+    salvar_json(CACHE_CLASSIFICACAO, dados)
+
+# =============================
+# Utilitários de Data e Formatação
+# =============================
+def formatar_data_iso(data_iso: str) -> tuple[str, str]:
+    """Formata data ISO para data e hora brasileira."""
+    try:
+        data_jogo = datetime.fromisoformat(data_iso.replace("Z", "+00:00")) - timedelta(hours=3)
+        return data_jogo.strftime("%d/%m/%Y"), data_jogo.strftime("%H:%M")
+    except ValueError:
+        return "Data inválida", "Hora inválida"
+
+def abreviar_nome(nome: str, max_len: int = 15) -> str:
+    """Abrevia nomes longos para exibição."""
+    if len(nome) <= max_len:
+        return nome
+    palavras = nome.split()
+    abreviado = " ".join([p[0] + "." if len(p) > 2 else p for p in palavras])
+    return abreviado[:max_len-3] + "..." if len(abreviado) > max_len else abreviado
+
+# =============================
+# Comunicação com APIs
+# =============================
+def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
+    """Envia mensagem para o Telegram com tratamento de erro."""
+    try:
+        response = requests.get(
+            BASE_URL_TG, 
+            params={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
+            timeout=10
+        )
+        return response.status_code == 200
+    except requests.RequestException as e:
+        st.error(f"Erro ao enviar para Telegram: {e}")
+        return False
+
+def obter_dados_api(url: str, timeout: int = 10) -> dict | None:
+    """Faz requisição genérica à API com tratamento de erro."""
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        st.error(f"Erro na requisição API: {e}")
+        return None
+
+def obter_classificacao(liga_id: str) -> dict:
+    """Obtém dados de classificação da liga."""
+    cache = carregar_cache_classificacao()
+    
+    if liga_id in cache:
+        return cache[liga_id]
+
+    url = f"{BASE_URL_FD}/competitions/{liga_id}/standings"
+    data = obter_dados_api(url)
+    
+    if not data:
+        return {}
+
+    standings = {}
+    for s in data.get("standings", []):
+        if s["type"] != "TOTAL":
+            continue
+        for t in s["table"]:
+            name = t["team"]["name"]
+            standings[name] = {
+                "scored": t.get("goalsFor", 0),
+                "against": t.get("goalsAgainst", 0),
+                "played": t.get("playedGames", 1),
+                "position": t.get("position", 0),
+                "points": t.get("points", 0)
+            }
+
+    cache[liga_id] = standings
+    salvar_cache_classificacao(cache)
+    return standings
+
+def obter_jogos(liga_id: str, data: str) -> list:
+    """Obtém jogos da liga para uma data específica."""
+    cache = carregar_cache_jogos()
+    key = f"{liga_id}_{data}"
+    
+    if key in cache:
+        return cache[key]
+
+    url = f"{BASE_URL_FD}/competitions/{liga_id}/matches?dateFrom={data}&dateTo={data}"
+    data = obter_dados_api(url)
+    
+    jogos = data.get("matches", []) if data else []
+    cache[key] = jogos
+    salvar_cache_jogos(cache)
+    
+    return jogos
 
 # =============================
 # Análise Dinâmica de Tendências
@@ -190,85 +318,11 @@ def analisar_estilo_jogo_dinamico(dados_equipe: dict) -> str:
     except:
         return "INDEFINIDO"
 
-def obter_historico_recente(team_id: str, limit: int = 5) -> list:
-    """Obtém histórico recente de jogos para análise de forma"""
-    # Implementação simplificada - você pode expandir com chamadas de API
-    return []
-
 # =============================
-# Funções de API (mantidas do original)
-# =============================
-def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
-    try:
-        response = requests.get(
-            BASE_URL_TG, 
-            params={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
-            timeout=10
-        )
-        return response.status_code == 200
-    except requests.RequestException as e:
-        st.error(f"Erro ao enviar para Telegram: {e}")
-        return False
-
-def obter_dados_api(url: str, timeout: int = 10) -> dict | None:
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=timeout)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        st.error(f"Erro na requisição API: {e}")
-        return None
-
-def obter_classificacao(liga_id: str) -> dict:
-    cache = carregar_json(CACHE_CLASSIFICACAO)
-    
-    if liga_id in cache:
-        return cache[liga_id]
-
-    url = f"{BASE_URL_FD}/competitions/{liga_id}/standings"
-    data = obter_dados_api(url)
-    
-    if not data:
-        return {}
-
-    standings = {}
-    for s in data.get("standings", []):
-        if s["type"] != "TOTAL":
-            continue
-        for t in s["table"]:
-            name = t["team"]["name"]
-            standings[name] = {
-                "scored": t.get("goalsFor", 0),
-                "against": t.get("goalsAgainst", 0),
-                "played": t.get("playedGames", 1),
-                "position": t.get("position", 0),
-                "points": t.get("points", 0)
-            }
-
-    cache[liga_id] = standings
-    salvar_json(CACHE_CLASSIFICACAO, cache)
-    return standings
-
-def obter_jogos(liga_id: str, data: str) -> list:
-    cache = carregar_json(CACHE_JOGOS)
-    key = f"{liga_id}_{data}"
-    
-    if key in cache:
-        return cache[key]
-
-    url = f"{BASE_URL_FD}/competitions/{liga_id}/matches?dateFrom={data}&dateTo={data}"
-    data = obter_dados_api(url)
-    
-    jogos = data.get("matches", []) if data else []
-    cache[key] = jogos
-    salvar_json(CACHE_JOGOS, cache)
-    
-    return jogos
-
-# =============================
-# Sistema de Alertas (adaptado)
+# Sistema de Alertas
 # =============================
 def enviar_alerta_telegram(fixture: dict, tendencia: str, estimativa: float, confianca: float):
+    """Envia alerta formatado para o Telegram."""
     home = fixture["homeTeam"]["name"]
     away = fixture["awayTeam"]["name"]
     data_formatada, hora_formatada = formatar_data_iso(fixture["utcDate"])
@@ -307,7 +361,8 @@ def enviar_alerta_telegram(fixture: dict, tendencia: str, estimativa: float, con
     enviar_telegram(msg)
 
 def verificar_enviar_alerta(fixture: dict, tendencia: str, estimativa: float, confianca: float):
-    alertas = carregar_json(ALERTAS_PATH)
+    """Verifica e envia alerta se necessário."""
+    alertas = carregar_alertas()
     fixture_id = str(fixture["id"])
     
     if fixture_id not in alertas:
@@ -318,24 +373,7 @@ def verificar_enviar_alerta(fixture: dict, tendencia: str, estimativa: float, co
             "conferido": False
         }
         enviar_alerta_telegram(fixture, tendencia, estimativa, confianca)
-        salvar_json(ALERTAS_PATH, alertas)
-
-# =============================
-# Utilitários
-# =============================
-def formatar_data_iso(data_iso: str) -> tuple[str, str]:
-    try:
-        data_jogo = datetime.fromisoformat(data_iso.replace("Z", "+00:00")) - timedelta(hours=3)
-        return data_jogo.strftime("%d/%m/%Y"), data_jogo.strftime("%H:%M")
-    except ValueError:
-        return "Data inválida", "Hora inválida"
-
-def abreviar_nome(nome: str, max_len: int = 15) -> str:
-    if len(nome) <= max_len:
-        return nome
-    palavras = nome.split()
-    abreviado = " ".join([p[0] + "." if len(p) > 2 else p for p in palavras])
-    return abreviado[:max_len-3] + "..." if len(abreviado) > max_len else abreviado
+        salvar_alertas(alertas)
 
 # =============================
 # Interface Streamlit Atualizada
@@ -358,7 +396,7 @@ def main():
         
         st.info("""
         **Análise Dinâmica**: 
-        - Baseada em dados reais da API
+        - Baseada em dados real da API
         - Adaptável a cada jogo
         - Sem regras engessadas
         """)
@@ -376,9 +414,24 @@ def main():
     if not todas_ligas:
         liga_selecionada = st.selectbox("📌 Liga específica:", list(LIGA_DICT.keys()))
 
-    # Processamento
-    if st.button("🔍 Analisar Partidas", type="primary"):
-        processar_jogos_dinamico(data_selecionada, todas_ligas, liga_selecionada, top_n, metodo_analise)
+    # Botões de ação
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔍 Analisar Partidas", type="primary"):
+            processar_jogos_dinamico(data_selecionada, todas_ligas, liga_selecionada, top_n, metodo_analise)
+    
+    with col2:
+        if st.button("🔄 Atualizar Status"):
+            atualizar_status_partidas()
+    
+    with col3:
+        if st.button("📊 Conferir Resultados"):
+            conferir_resultados()
+
+    # Botão adicional
+    if st.button("🧹 Limpar Cache"):
+        limpar_caches()
 
     # Estatísticas em tempo real
     st.subheader("📈 Estatísticas da Análise")
@@ -494,10 +547,11 @@ def mostrar_analise_detalhada(jogos: list):
             st.progress(jogo['confianca'] / 100, text=f"Confiança na análise: {jogo['confianca']:.0f}%")
 
 # =============================
-# Funções de Ação (mantidas)
+# Funções de Conferência e Atualização
 # =============================
 def atualizar_status_partidas():
-    cache_jogos = carregar_json(CACHE_JOGOS)
+    """Atualiza o status das partidas em cache."""
+    cache_jogos = carregar_cache_jogos()
     mudou = False
 
     for key in cache_jogos.keys():
@@ -517,12 +571,15 @@ def atualizar_status_partidas():
             st.error(f"Erro ao atualizar liga {liga_id}: {e}")
 
     if mudou:
-        salvar_json(CACHE_JOGOS, cache_jogos)
+        salvar_cache_jogos(cache_jogos)
         st.success("✅ Status das partidas atualizado!")
+    else:
+        st.info("ℹ️ Nenhuma atualização disponível.")
 
 def conferir_resultados():
-    alertas = carregar_json(ALERTAS_PATH)
-    jogos_cache = carregar_json(CACHE_JOGOS)
+    """Conferência de resultados dos jogos alertados."""
+    alertas = carregar_alertas()
+    jogos_cache = carregar_cache_jogos()
     
     if not alertas:
         st.info("ℹ️ Nenhum alerta para conferir.")
@@ -535,6 +592,7 @@ def conferir_resultados():
         if info.get("conferido"):
             continue
 
+        # Encontrar jogo no cache
         jogo_dado = None
         for key, jogos in jogos_cache.items():
             if key == "_timestamp":
@@ -549,6 +607,7 @@ def conferir_resultados():
         if not jogo_dado:
             continue
 
+        # Processar resultado
         resultado_info = processar_resultado_jogo(jogo_dado, info)
         if resultado_info:
             exibir_resultado_streamlit(resultado_info)
@@ -558,16 +617,19 @@ def conferir_resultados():
                 info["conferido"] = True
                 mudou = True
 
+        # Coletar dados para PDF
         jogos_conferidos.append(preparar_dados_pdf(jogo_dado, info, resultado_info))
 
     if mudou:
-        salvar_json(ALERTAS_PATH, alertas)
-        st.success("✅ Resultados conferidos!")
+        salvar_alertas(alertas)
+        st.success("✅ Resultados conferidos e atualizados!")
 
+    # Gerar PDF se houver jogos
     if jogos_conferidos:
         gerar_pdf_jogos(jogos_conferidos)
 
 def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
+    """Processa o resultado de um jogo."""
     home = jogo["homeTeam"]["name"]
     away = jogo["awayTeam"]["name"]
     status = jogo.get("status", "DESCONHECIDO")
@@ -577,6 +639,7 @@ def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
     placar = f"{gols_home} x {gols_away}" if gols_home is not None and gols_away is not None else "-"
     total_gols = (gols_home or 0) + (gols_away or 0)
 
+    # Determinar resultado da aposta
     resultado = "⏳ Aguardando"
     if status == "FINISHED":
         tendencia = info["tendencia"]
@@ -602,6 +665,7 @@ def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
     }
 
 def exibir_resultado_streamlit(resultado: dict):
+    """Exibe resultado formatado no Streamlit."""
     bg_color = "#1e4620" if resultado["resultado"] == "🟢 GREEN" else \
                "#5a1e1e" if resultado["resultado"] == "🔴 RED" else "#2c2c2c"
     
@@ -617,6 +681,7 @@ def exibir_resultado_streamlit(resultado: dict):
     """, unsafe_allow_html=True)
 
 def enviar_resultado_telegram(resultado: dict):
+    """Envia resultado para o Telegram."""
     msg = (
         f"📊 <b>Resultado Conferido</b>\n"
         f"🏟️ {resultado['home']} vs {resultado['away']}\n"
@@ -627,6 +692,7 @@ def enviar_resultado_telegram(resultado: dict):
     enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2)
 
 def preparar_dados_pdf(jogo: dict, info: dict, resultado: dict) -> list:
+    """Prepara dados para geração do PDF."""
     home = abreviar_nome(jogo["homeTeam"]["name"])
     away = abreviar_nome(jogo["awayTeam"]["name"])
     hora = datetime.fromisoformat(jogo["utcDate"].replace("Z", "+00:00")) - timedelta(hours=3)
@@ -643,6 +709,12 @@ def preparar_dados_pdf(jogo: dict, info: dict, resultado: dict) -> list:
     ]
 
 def gerar_pdf_jogos(jogos_conferidos: list):
+    """Gera e disponibiliza PDF dos jogos conferidos."""
+    df_conferidos = pd.DataFrame(jogos_conferidos, columns=[
+        "Jogo", "Tendência", "Estimativa", "Confiança", 
+        "Placar", "Status", "Resultado", "Hora"
+    ])
+
     buffer = gerar_relatorio_pdf(jogos_conferidos)
     
     st.download_button(
@@ -653,6 +725,7 @@ def gerar_pdf_jogos(jogos_conferidos: list):
     )
 
 def gerar_relatorio_pdf(jogos_conferidos: list) -> io.BytesIO:
+    """Gera relatório PDF dos jogos conferidos."""
     buffer = io.BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=letter, 
                           rightMargin=20, leftMargin=20, 
@@ -677,6 +750,7 @@ def gerar_relatorio_pdf(jogos_conferidos: list) -> io.BytesIO:
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
     ])
 
+    # Alternar cores das linhas
     for i in range(1, len(data)):
         bg_color = colors.HexColor("#E0E0E0") if i % 2 == 0 else colors.HexColor("#F5F5F5")
         style.add('BACKGROUND', (0,i), (-1,i), bg_color)
@@ -687,8 +761,9 @@ def gerar_relatorio_pdf(jogos_conferidos: list) -> io.BytesIO:
     return buffer
 
 def limpar_caches():
+    """Limpa todos os caches do sistema."""
     try:
-        for cache_file in [CACHE_JOGOS, CACHE_CLASSIFICACAO, CACHE_ESTATISTICAS, ALERTAS_PATH]:
+        for cache_file in [CACHE_JOGOS, CACHE_CLASSIFICACAO, ALERTAS_PATH]:
             if os.path.exists(cache_file):
                 os.remove(cache_file)
         st.success("✅ Caches limpos com sucesso!")
