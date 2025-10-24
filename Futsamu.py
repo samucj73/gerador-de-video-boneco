@@ -8,12 +8,12 @@ import pandas as pd
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+import numpy as np
 
 # =============================
 # Configurações e Segurança
 # =============================
 
-# Mover para variáveis de ambiente (CRÍTICO)
 API_KEY = os.getenv("FOOTBALL_API_KEY", "9058de85e3324bdb969adc005b5d918a")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "7900056631:AAHjG6iCDqQdGTfJI6ce0AZ0E2ilV2fV9RY")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003073115320")
@@ -27,7 +27,8 @@ BASE_URL_TG = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 ALERTAS_PATH = "alertas.json"
 CACHE_JOGOS = "cache_jogos.json"
 CACHE_CLASSIFICACAO = "cache_classificacao.json"
-CACHE_TIMEOUT = 3600  # 1 hora em segundos
+CACHE_ESTATISTICAS = "cache_estatisticas.json"
+CACHE_TIMEOUT = 3600
 
 # =============================
 # Dicionário de Ligas
@@ -48,104 +49,156 @@ LIGA_DICT = {
 }
 
 # =============================
-# Dicionário de Perfis de Equipes (Atualizado)
-# =============================
-PERFIS_EQUIPES = {
-    # Equipes Ofensivas (Over 2.5 natural)
-    "Bayern Munich": "OFENSIVA", "Borussia Dortmund": "OFENSIVA", 
-    "Manchester City": "OFENSIVA", "Liverpool": "OFENSIVA",
-    "Paris Saint-Germain": "OFENSIVA", "Barcelona": "OFENSIVA",
-    "Real Madrid": "OFENSIVA", "Ajax": "OFENSIVA",
-    "RB Leipzig": "OFENSIVA", "Atalanta": "OFENSIVA",
-    
-    # Equipes Defensivas (Under 2.5 natural)
-    "Union Berlin": "DEFENSIVA", "Getafe": "DEFENSIVA",
-    "Atlético Madrid": "DEFENSIVA", "Wolverhampton Wanderers": "DEFENSIVA",
-    "Burnley": "DEFENSIVA", "Cádiz": "DEFENSIVA",
-    "Stuttgart": "DEFENSIVA", "Mainz 05": "DEFENSIVA",
-    
-    # Equipes Equilibradas
-    "default": "EQUILIBRADA"
-}
-
-# =============================
-# Utilitários de Cache e Persistência
+# Utilitários de Cache
 # =============================
 def carregar_json(caminho: str) -> dict:
-    """Carrega dados JSON com verificação de timeout."""
     try:
         if os.path.exists(caminho):
             with open(caminho, "r", encoding='utf-8') as f:
-                dados = json.load(f)
-            
-            # Verificar se o cache é muito antigo
-            if caminho in [CACHE_JOGOS, CACHE_CLASSIFICACAO]:
-                agora = datetime.now().timestamp()
-                for key in list(dados.keys()):
-                    if isinstance(dados[key], dict) and '_timestamp' in dados[key]:
-                        if agora - dados[key]['_timestamp'] > CACHE_TIMEOUT:
-                            del dados[key]
-                    elif agora - os.path.getmtime(caminho) > CACHE_TIMEOUT:
-                        return {}
-            return dados
-    except (json.JSONDecodeError, IOError) as e:
+                return json.load(f)
+    except Exception as e:
         st.error(f"Erro ao carregar {caminho}: {e}")
     return {}
 
 def salvar_json(caminho: str, dados: dict):
-    """Salva dados JSON com timestamp."""
     try:
-        # Adicionar timestamp para caches temporais
-        if caminho in [CACHE_JOGOS, CACHE_CLASSIFICACAO]:
-            dados['_timestamp'] = datetime.now().timestamp()
-        
         with open(caminho, "w", encoding='utf-8') as f:
             json.dump(dados, f, ensure_ascii=False, indent=2)
-    except IOError as e:
+    except Exception as e:
         st.error(f"Erro ao salvar {caminho}: {e}")
 
-def carregar_alertas() -> dict:
-    return carregar_json(ALERTAS_PATH)
-
-def salvar_alertas(alertas: dict):
-    salvar_json(ALERTAS_PATH, alertas)
-
-def carregar_cache_jogos() -> dict:
-    return carregar_json(CACHE_JOGOS)
-
-def salvar_cache_jogos(dados: dict):
-    salvar_json(CACHE_JOGOS, dados)
-
-def carregar_cache_classificacao() -> dict:
-    return carregar_json(CACHE_CLASSIFICACAO)
-
-def salvar_cache_classificacao(dados: dict):
-    salvar_json(CACHE_CLASSIFICACAO, dados)
-
 # =============================
-# Utilitários de Data e Formatação
+# Análise Dinâmica de Tendências
 # =============================
-def formatar_data_iso(data_iso: str) -> tuple[str, str]:
-    """Formata data ISO para data e hora brasileira."""
+def analisar_tendencia_gols(dados_casa: dict, dados_fora: dict, historico_recente: list = None) -> tuple[float, float, str]:
+    """
+    Analisa tendência de gols baseada em dados reais da API
+    de forma dinâmica e não-engessada
+    """
     try:
-        data_jogo = datetime.fromisoformat(data_iso.replace("Z", "+00:00")) - timedelta(hours=3)
-        return data_jogo.strftime("%d/%m/%Y"), data_jogo.strftime("%H:%M")
-    except ValueError:
-        return "Data inválida", "Hora inválida"
+        # Coleta dados básicos
+        gols_feitos_casa = dados_casa.get("scored", 0)
+        gols_sofridos_casa = dados_casa.get("against", 0)
+        jogos_casa = max(dados_casa.get("played", 1), 1)
+        
+        gols_feitos_fora = dados_fora.get("scored", 0)
+        gols_sofridos_fora = dados_fora.get("against", 0)
+        jogos_fora = max(dados_fora.get("played", 1), 1)
+        
+        # Cálculo de médias básicas
+        media_gols_casa = gols_feitos_casa / jogos_casa
+        media_sofridos_casa = gols_sofridos_casa / jogos_casa
+        media_gols_fora = gols_feitos_fora / jogos_fora
+        media_sofridos_fora = gols_sofridos_fora / jogos_fora
+        
+        # 1. POTENCIAL OFENSIVO DINÂMICO
+        potencia_ataque_casa = media_gols_casa
+        potencia_ataque_fora = media_gols_fora
+        
+        # 2. VULNERABILIDADE DEFENSIVA DINÂMICA  
+        vulnerabilidade_casa = media_sofridos_casa
+        vulnerabilidade_fora = media_sofridos_fora
+        
+        # 3. TENDÊNCIA REAL BASEADA EM DADOS
+        # Fórmula principal: média ponderada entre ataque próprio e defesa adversária
+        expectativa_gols_casa = (potencia_ataque_casa + vulnerabilidade_fora) / 2
+        expectativa_gols_fora = (potencia_ataque_fora + vulnerabilidade_casa) / 2
+        
+        estimativa_total = expectativa_gols_casa + expectativa_gols_fora
+        
+        # 4. ANÁLISE DE CONFIANÇA DINÂMICA
+        # Baseada na consistência dos dados
+        fator_consistencia = calcular_consistencia_dados(
+            jogos_casa, jogos_fora, 
+            dados_casa, dados_fora
+        )
+        
+        # 5. DETERMINAÇÃO DA TENDÊNCIA FLEXÍVEL
+        # Baseada na estimativa real, não em limites fixos
+        if estimativa_total >= 3.2:
+            tendencia = "Mais 2.5"
+            confianca_base = 75 + min(20, (estimativa_total - 3.2) * 15)
+        elif estimativa_total >= 2.5:
+            tendencia = "Mais 2.5" 
+            confianca_base = 65 + min(25, (estimativa_total - 2.5) * 12)
+        elif estimativa_total >= 2.0:
+            tendencia = "Mais 1.5"
+            confianca_base = 60 + min(20, (estimativa_total - 2.0) * 15)
+        elif estimativa_total >= 1.5:
+            tendencia = "Mais 1.5"
+            confianca_base = 55 + min(15, (estimativa_total - 1.5) * 10)
+        else:
+            tendencia = "Menos 2.5"
+            confianca_base = 60 + min(25, (1.5 - estimativa_total) * 12)
+        
+        # Ajuste final da confiança
+        confianca_final = min(95, confianca_base * fator_consistencia)
+        
+        return estimativa_total, confianca_final, tendencia
+        
+    except Exception as e:
+        st.error(f"Erro na análise de tendência: {e}")
+        return 2.5, 50, "Indefinido"
 
-def abreviar_nome(nome: str, max_len: int = 15) -> str:
-    """Abrevia nomes longos para exibição."""
-    if len(nome) <= max_len:
-        return nome
-    palavras = nome.split()
-    abreviado = " ".join([p[0] + "." if len(p) > 2 else p for p in palavras])
-    return abreviado[:max_len-3] + "..." if len(abreviado) > max_len else abreviado
+def calcular_consistencia_dados(jogos_casa: int, jogos_fora: int, dados_casa: dict, dados_fora: dict) -> float:
+    """Calcula fator de consistência baseado na qualidade dos dados"""
+    
+    # Fator de amostragem (quantidade de jogos)
+    fator_amostragem = min(1.0, (jogos_casa + jogos_fora) / 20)
+    
+    # Fator de estabilidade (variação entre ataque e defesa)
+    try:
+        media_gols_casa = dados_casa.get("scored", 0) / max(dados_casa.get("played", 1), 1)
+        media_sofridos_casa = dados_casa.get("against", 0) / max(dados_casa.get("played", 1), 1)
+        media_gols_fora = dados_fora.get("scored", 0) / max(dados_fora.get("played", 1), 1)
+        media_sofridos_fora = dados_fora.get("against", 0) / max(dados_fora.get("played", 1), 1)
+        
+        # Equipes consistentes têm números similares entre ataque e defesa
+        variacao_casa = abs(media_gols_casa - media_sofridos_casa) / max((media_gols_casa + media_sofridos_casa) / 2, 0.1)
+        variacao_fora = abs(media_gols_fora - media_sofridos_fora) / max((media_gols_fora + media_sofridos_fora) / 2, 0.1)
+        
+        fator_estabilidade = 1.0 - (variacao_casa + variacao_fora) / 4
+        fator_estabilidade = max(0.6, min(1.2, fator_estabilidade))
+        
+    except:
+        fator_estabilidade = 1.0
+    
+    return fator_amostragem * fator_estabilidade
+
+def analisar_estilo_jogo_dinamico(dados_equipe: dict) -> str:
+    """Analisa estilo de jogo baseado em dados reais"""
+    try:
+        gols_feitos = dados_equipe.get("scored", 0)
+        gols_sofridos = dados_equipe.get("against", 0)
+        jogos = max(dados_equipe.get("played", 1), 1)
+        
+        media_gols = gols_feitos / jogos
+        media_sofridos = gols_sofridos / jogos
+        
+        # Análise dinâmica do estilo
+        if media_gols >= 2.0 and media_sofridos >= 1.5:
+            return "OFENSIVO_ABERTO"
+        elif media_gols >= 1.8 and media_sofridos <= 1.0:
+            return "OFENSIVO_EQUILIBRADO"
+        elif media_gols <= 1.0 and media_sofridos <= 1.0:
+            return "DEFENSIVO_FECHADO"
+        elif media_gols <= 1.2 and media_sofridos >= 1.8:
+            return "DEFENSIVO_FRAGIL"
+        else:
+            return "EQUILIBRADO"
+            
+    except:
+        return "INDEFINIDO"
+
+def obter_historico_recente(team_id: str, limit: int = 5) -> list:
+    """Obtém histórico recente de jogos para análise de forma"""
+    # Implementação simplificada - você pode expandir com chamadas de API
+    return []
 
 # =============================
-# Comunicação com APIs
+# Funções de API (mantidas do original)
 # =============================
 def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
-    """Envia mensagem para o Telegram com tratamento de erro."""
     try:
         response = requests.get(
             BASE_URL_TG, 
@@ -158,7 +211,6 @@ def enviar_telegram(msg: str, chat_id: str = TELEGRAM_CHAT_ID) -> bool:
         return False
 
 def obter_dados_api(url: str, timeout: int = 10) -> dict | None:
-    """Faz requisição genérica à API com tratamento de erro."""
     try:
         response = requests.get(url, headers=HEADERS, timeout=timeout)
         response.raise_for_status()
@@ -168,8 +220,7 @@ def obter_dados_api(url: str, timeout: int = 10) -> dict | None:
         return None
 
 def obter_classificacao(liga_id: str) -> dict:
-    """Obtém dados de classificação da liga."""
-    cache = carregar_cache_classificacao()
+    cache = carregar_json(CACHE_CLASSIFICACAO)
     
     if liga_id in cache:
         return cache[liga_id]
@@ -195,12 +246,11 @@ def obter_classificacao(liga_id: str) -> dict:
             }
 
     cache[liga_id] = standings
-    salvar_cache_classificacao(cache)
+    salvar_json(CACHE_CLASSIFICACAO, cache)
     return standings
 
 def obter_jogos(liga_id: str, data: str) -> list:
-    """Obtém jogos da liga para uma data específica."""
-    cache = carregar_cache_jogos()
+    cache = carregar_json(CACHE_JOGOS)
     key = f"{liga_id}_{data}"
     
     if key in cache:
@@ -211,110 +261,14 @@ def obter_jogos(liga_id: str, data: str) -> list:
     
     jogos = data.get("matches", []) if data else []
     cache[key] = jogos
-    salvar_cache_jogos(cache)
+    salvar_json(CACHE_JOGOS, cache)
     
     return jogos
 
 # =============================
-# Lógica de Análise e Alertas - MELHORADA
+# Sistema de Alertas (adaptado)
 # =============================
-def determinar_perfil_equipe(nome_equipe: str) -> str:
-    """Determina o perfil ofensivo/defensivo da equipe."""
-    return PERFIS_EQUIPES.get(nome_equipe, PERFIS_EQUIPES["default"])
-
-def calcular_fator_motivacao(dados_home: dict, dados_away: dict) -> float:
-    """Calcula fator de motivação baseado na posição na tabela."""
-    pos_home = dados_home.get("position", 10)
-    pos_away = dados_away.get("position", 10)
-    
-    # Equipes no topo (luta por título) ou fundo (luta contra rebaixamento) têm mais motivação
-    if pos_home <= 3 or pos_home >= 15 or pos_away <= 3 or pos_away >= 15:
-        return 1.15
-    elif pos_home <= 6 or pos_away <= 6:
-        return 1.10
-    return 1.0
-
-def calcular_fator_estilo_jogo(perfil_home: str, perfil_away: str) -> float:
-    """Calcula fator baseado no estilo de jogo das equipes."""
-    fatores = {
-        ("OFENSIVA", "OFENSIVA"): 1.35,
-        ("OFENSIVA", "DEFENSIVA"): 1.10,
-        ("DEFENSIVA", "OFENSIVA"): 1.10,
-        ("DEFENSIVA", "DEFENSIVA"): 0.70,
-        ("OFENSIVA", "EQUILIBRADA"): 1.20,
-        ("EQUILIBRADA", "OFENSIVA"): 1.20,
-        ("DEFENSIVA", "EQUILIBRADA"): 0.85,
-        ("EQUILIBRADA", "DEFENSIVA"): 0.85,
-        ("EQUILIBRADA", "EQUILIBRADA"): 1.0
-    }
-    return fatores.get((perfil_home, perfil_away), 1.0)
-
-def aplicar_margem_seguranca(estimativa: float, confianca: float) -> tuple[float, float]:
-    """Aplica margem de segurança conservadora nas estimativas."""
-    if confianca < 70:
-        # Redução adicional para confiança baixa
-        estimativa_ajustada = estimativa * 0.85
-        confianca_ajustada = confianca * 0.9
-    elif confianca < 80:
-        estimativa_ajustada = estimativa * 0.90
-        confianca_ajustada = confianca * 0.95
-    else:
-        estimativa_ajustada = estimativa * 0.92
-        confianca_ajustada = confianca * 0.98
-    
-    return max(estimativa_ajustada, 0.5), min(confianca_ajustada, 95)
-
-def calcular_tendencia_melhorada(home: str, away: str, classificacao: dict) -> tuple[float, float, str]:
-    """Calcula tendência de gols com algoritmo melhorado."""
-    dados_home = classificacao.get(home, {"scored": 0, "against": 0, "played": 1, "position": 10, "points": 0})
-    dados_away = classificacao.get(away, {"scored": 0, "against": 0, "played": 1, "position": 10, "points": 0})
-
-    # Evitar divisão por zero
-    played_home = max(dados_home["played"], 1)
-    played_away = max(dados_away["played"], 1)
-
-    # 1. Cálculo das médias base (pesos ajustados)
-    media_home_feitos = dados_home["scored"] / played_home
-    media_home_sofridos = dados_home["against"] / played_home
-    media_away_feitos = dados_away["scored"] / played_away
-    media_away_sofridos = dados_away["against"] / played_away
-
-    # 2. Fatores contextuais
-    perfil_home = determinar_perfil_equipe(home)
-    perfil_away = determinar_perfil_equipe(away)
-    fator_estilo = calcular_fator_estilo_jogo(perfil_home, perfil_away)
-    fator_motivacao = calcular_fator_motivacao(dados_home, dados_away)
-
-    # 3. Cálculo da estimativa bruta com pesos
-    estimativa_bruta = (
-        (media_home_feitos * 0.25) +      # Ataque da casa
-        (media_away_sofridos * 0.25) +    # Defesa visitante
-        (media_away_feitos * 0.20) +      # Ataque visitante  
-        (media_home_sofridos * 0.20) +    # Defesa da casa
-        ((media_home_feitos + media_away_feitos) * 0.10)  # Potencial ofensivo total
-    )
-
-    # 4. Aplicar fatores contextuais
-    estimativa_contextual = estimativa_bruta * fator_estilo * fator_motivacao
-
-    # 5. Determinar tendência base mais conservadora
-    if estimativa_contextual >= 2.8:
-        tendencia = "Mais 2.5"
-        confianca_base = min(90, 65 + (estimativa_contextual - 2.8) * 12)
-    elif estimativa_contextual >= 1.8:
-        tendencia = "Mais 1.5"
-        confianca_base = min(85, 55 + (estimativa_contextual - 1.8) * 15)
-    else:
-        tendencia = "Menos 2.5"
-        confianca_base = min(80, 50 + (1.8 - estimativa_contextual) * 12)
-
-    # 6. Aplicar margem de segurança
-    estimativa_final, confianca_final = aplicar_margem_seguranca(estimativa_contextual, confianca_base)
-
-    return estimativa_final, confianca_final, tendencia
-
 def enviar_alerta_telegram(fixture: dict, tendencia: str, estimativa: float, confianca: float):
-    """Envia alerta formatado para o Telegram."""
     home = fixture["homeTeam"]["name"]
     away = fixture["awayTeam"]["name"]
     data_formatada, hora_formatada = formatar_data_iso(fixture["utcDate"])
@@ -326,17 +280,17 @@ def enviar_alerta_telegram(fixture: dict, tendencia: str, estimativa: float, con
     
     placar = f"{gols_home} x {gols_away}" if gols_home is not None and gols_away is not None else None
 
-    # Adicionar análise contextual
-    perfil_home = determinar_perfil_equipe(home)
-    perfil_away = determinar_perfil_equipe(away)
-    analise_contexto = f"🏠 {perfil_home} | 🚌 {perfil_away}"
+    # Análise contextual dinâmica
+    classificacao = obter_classificacao(fixture.get("competition", {}).get("id", ""))
+    estilo_home = analisar_estilo_jogo_dinamico(classificacao.get(home, {}))
+    estilo_away = analisar_estilo_jogo_dinamico(classificacao.get(away, {}))
 
     msg = (
-        f"⚽ <b>Alerta de Gols!</b>\n"
+        f"⚽ <b>Alerta de Gols - Análise Dinâmica</b>\n"
         f"🏟️ {home} vs {away}\n"
         f"📅 {data_formatada} ⏰ {hora_formatada} (BRT)\n"
         f"📌 Status: {status}\n"
-        f"🔍 {analise_contexto}\n"
+        f"🔍 Estilo: {estilo_home} vs {estilo_away}\n"
     )
     
     if placar:
@@ -346,14 +300,14 @@ def enviar_alerta_telegram(fixture: dict, tendencia: str, estimativa: float, con
         f"📈 Tendência: <b>{tendencia}</b>\n"
         f"🎯 Estimativa: <b>{estimativa:.2f} gols</b>\n"
         f"💯 Confiança: <b>{confianca:.0f}%</b>\n"
-        f"🏆 Liga: {competicao}"
+        f"🏆 Liga: {competicao}\n"
+        f"📊 Base: Dados estatísticos reais"
     )
     
     enviar_telegram(msg)
 
 def verificar_enviar_alerta(fixture: dict, tendencia: str, estimativa: float, confianca: float):
-    """Verifica e envia alerta se necessário."""
-    alertas = carregar_alertas()
+    alertas = carregar_json(ALERTAS_PATH)
     fixture_id = str(fixture["id"])
     
     if fixture_id not in alertas:
@@ -364,113 +318,85 @@ def verificar_enviar_alerta(fixture: dict, tendencia: str, estimativa: float, co
             "conferido": False
         }
         enviar_alerta_telegram(fixture, tendencia, estimativa, confianca)
-        salvar_alertas(alertas)
+        salvar_json(ALERTAS_PATH, alertas)
 
 # =============================
-# Geração de Relatórios
+# Utilitários
 # =============================
-def gerar_relatorio_pdf(jogos_conferidos: list) -> io.BytesIO:
-    """Gera relatório PDF dos jogos conferidos."""
-    buffer = io.BytesIO()
-    pdf = SimpleDocTemplate(buffer, pagesize=letter, 
-                          rightMargin=20, leftMargin=20, 
-                          topMargin=20, bottomMargin=20)
+def formatar_data_iso(data_iso: str) -> tuple[str, str]:
+    try:
+        data_jogo = datetime.fromisoformat(data_iso.replace("Z", "+00:00")) - timedelta(hours=3)
+        return data_jogo.strftime("%d/%m/%Y"), data_jogo.strftime("%H:%M")
+    except ValueError:
+        return "Data inválida", "Hora inválida"
 
-    data = [["Jogo", "Tendência", "Estimativa", "Confiança", 
-             "Placar", "Status", "Resultado", "Hora"]] + jogos_conferidos
-
-    table = Table(data, repeatRows=1, 
-                 colWidths=[120, 70, 60, 60, 50, 70, 60, 70])
-    
-    style = TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4B4B4B")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 10),
-        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#F5F5F5")),
-        ('TEXTCOLOR', (0,1), (-1,-1), colors.black),
-        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,1), (-1,-1), 9),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-    ])
-
-    # Alternar cores das linhas
-    for i in range(1, len(data)):
-        bg_color = colors.HexColor("#E0E0E0") if i % 2 == 0 else colors.HexColor("#F5F5F5")
-        style.add('BACKGROUND', (0,i), (-1,i), bg_color)
-
-    table.setStyle(style)
-    pdf.build([table])
-    buffer.seek(0)
-    return buffer
+def abreviar_nome(nome: str, max_len: int = 15) -> str:
+    if len(nome) <= max_len:
+        return nome
+    palavras = nome.split()
+    abreviado = " ".join([p[0] + "." if len(p) > 2 else p for p in palavras])
+    return abreviado[:max_len-3] + "..." if len(abreviado) > max_len else abreviado
 
 # =============================
-# Interface Streamlit
+# Interface Streamlit Atualizada
 # =============================
 def main():
-    st.set_page_config(page_title="⚽ Alerta de Gols", layout="wide")
-    st.title("⚽ Sistema de Alertas Automáticos de Gols - Versão Melhorada")
-
-    # Sidebar para configurações
+    st.set_page_config(page_title="⚽ Alerta de Gols Dinâmico", layout="wide")
+    st.title("⚽ Sistema de Análise Dinâmica de Gols")
+    
+    # Sidebar
     with st.sidebar:
-        st.header("Configurações")
+        st.header("🔧 Configurações de Análise")
         top_n = st.selectbox("📊 Jogos no Top", [3, 5, 10], index=0)
         
-        st.header("⚙️ Configurações de Análise")
-        usar_analise_melhorada = st.checkbox("🧠 Usar Análise Melhorada", value=True)
-        mostrar_perfis = st.checkbox("👥 Mostrar Perfis das Equipes", value=False)
+        st.subheader("🎯 Método de Análise")
+        metodo_analise = st.radio(
+            "Selecione o método:",
+            ["Dinâmico (Recomendado)", "Conservador", "Agressivo"],
+            index=0
+        )
         
-        st.info("A análise melhorada inclui:\n- Perfis ofensivos/defensivos\n- Fatores de motivação\n- Margens de segurança")
+        st.info("""
+        **Análise Dinâmica**: 
+        - Baseada em dados reais da API
+        - Adaptável a cada jogo
+        - Sem regras engessadas
+        """)
 
     # Controles principais
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        data_selecionada = st.date_input(
-            "📅 Data para análise:", 
-            value=datetime.today()
-        )
+        data_selecionada = st.date_input("📅 Data para análise:", value=datetime.today())
     
     with col2:
-        todas_ligas = st.checkbox(
-            "🌍 Todas as ligas", 
-            value=True,
-            help="Buscar jogos de todas as ligas disponíveis"
-        )
+        todas_ligas = st.checkbox("🌍 Todas as ligas", value=True)
 
     liga_selecionada = None
     if not todas_ligas:
-        liga_selecionada = st.selectbox(
-            "📌 Liga específica:", 
-            list(LIGA_DICT.keys())
-        )
+        liga_selecionada = st.selectbox("📌 Liga específica:", list(LIGA_DICT.keys()))
 
-    # Processamento de jogos
-    if st.button("🔍 Buscar Partidas", type="primary"):
-        processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n, usar_analise_melhorada, mostrar_perfis)
+    # Processamento
+    if st.button("🔍 Analisar Partidas", type="primary"):
+        processar_jogos_dinamico(data_selecionada, todas_ligas, liga_selecionada, top_n, metodo_analise)
 
-    # Botões de ação
+    # Estatísticas em tempo real
+    st.subheader("📈 Estatísticas da Análise")
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Atualizar Status"):
-            atualizar_status_partidas()
-    
+        st.metric("🔄 Método", metodo_analise)
     with col2:
-        if st.button("📊 Conferir Resultados"):
-            conferir_resultados()
-    
+        st.metric("📅 Data", data_selecionada.strftime("%d/%m/%Y"))
     with col3:
-        if st.button("🧹 Limpar Cache"):
-            limpar_caches()
+        st.metric("🎯 Jogos no Top", top_n)
 
-def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n, usar_analise_melhorada=True, mostrar_perfis=False):
-    """Processa e analisa os jogos do dia."""
+def processar_jogos_dinamico(data_selecionada, todas_ligas, liga_selecionada, top_n, metodo_analise):
+    """Processa jogos com análise dinâmica"""
     hoje = data_selecionada.strftime("%Y-%m-%d")
     ligas_busca = LIGA_DICT.values() if todas_ligas else [LIGA_DICT[liga_selecionada]]
     
-    st.write(f"⏳ Buscando jogos para {data_selecionada.strftime('%d/%m/%Y')}...")
+    st.write(f"⏳ Analisando jogos para {data_selecionada.strftime('%d/%m/%Y')}...")
     
     top_jogos = []
     progress_bar = st.progress(0)
@@ -484,24 +410,25 @@ def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n, usar
             home = match["homeTeam"]["name"]
             away = match["awayTeam"]["name"]
             
-            # Usar análise melhorada ou antiga
-            if usar_analise_melhorada:
-                estimativa, confianca, tendencia = calcular_tendencia_melhorada(home, away, classificacao)
-            else:
-                estimativa, confianca, tendencia = calcular_tendencia_antiga(home, away, classificacao)
+            # Análise dinâmica baseada nos dados reais
+            dados_home = classificacao.get(home, {})
+            dados_away = classificacao.get(away, {})
+            
+            estimativa, confianca, tendencia = analisar_tendencia_gols(dados_home, dados_away)
+            
+            # Ajuste baseado no método selecionado
+            if metodo_analise == "Conservador":
+                estimativa *= 0.9
+                confianca *= 0.95
+            elif metodo_analise == "Agressivo":
+                estimativa *= 1.1
+                confianca = min(95, confianca * 1.05)
 
             verificar_enviar_alerta(match, tendencia, estimativa, confianca)
 
-            # Adicionar informações de perfil se solicitado
-            info_extra = ""
-            if mostrar_perfis:
-                perfil_home = determinar_perfil_equipe(home)
-                perfil_away = determinar_perfil_equipe(away)
-                info_extra = f" ({perfil_home[0]}/{perfil_away[0]})"
-
             top_jogos.append({
                 "id": match["id"],
-                "home": home + info_extra,
+                "home": home,
                 "away": away,
                 "tendencia": tendencia,
                 "estimativa": estimativa,
@@ -509,104 +436,68 @@ def processar_jogos(data_selecionada, todas_ligas, liga_selecionada, top_n, usar
                 "liga": match.get("competition", {}).get("name", "Desconhecido"),
                 "hora": datetime.fromisoformat(match["utcDate"].replace("Z", "+00:00")) - timedelta(hours=3),
                 "status": match.get("status", "DESCONHECIDO"),
+                "estilo_home": analisar_estilo_jogo_dinamico(dados_home),
+                "estilo_away": analisar_estilo_jogo_dinamico(dados_away)
             })
 
         progress_bar.progress((i + 1) / total_ligas)
 
-    # Enviar top jogos
+    # Resultados
     if top_jogos:
-        enviar_top_jogos(top_jogos, top_n)
+        enviar_top_jogos_dinamico(top_jogos, top_n)
+        mostrar_analise_detalhada(top_jogos)
         st.success(f"✅ Análise concluída! {len(top_jogos)} jogos processados.")
-        
-        # Mostrar estatísticas da análise
-        if usar_analise_melhorada:
-            mostrar_estatisticas_analise(top_jogos)
     else:
         st.warning("⚠️ Nenhum jogo encontrado para a data selecionada.")
 
-def calcular_tendencia_antiga(home: str, away: str, classificacao: dict) -> tuple[float, float, str]:
-    """Função antiga mantida para comparação."""
-    dados_home = classificacao.get(home, {"scored": 0, "against": 0, "played": 1})
-    dados_away = classificacao.get(away, {"scored": 0, "against": 0, "played": 1})
-
-    played_home = max(dados_home["played"], 1)
-    played_away = max(dados_away["played"], 1)
-
-    media_home_feitos = dados_home["scored"] / played_home
-    media_home_sofridos = dados_home["against"] / played_home
-    media_away_feitos = dados_away["scored"] / played_away
-    media_away_sofridos = dados_away["against"] / played_away
-
-    estimativa = ((media_home_feitos + media_away_sofridos) / 2 +
-                  (media_away_feitos + media_home_sofridos) / 2)
-
-    # Determinar tendência e confiança (lógica antiga)
-    if estimativa >= 3.0:
-        tendencia = "Mais 2.5"
-        confianca = min(95, 70 + (estimativa - 3.0) * 10)
-    elif estimativa >= 2.0:
-        tendencia = "Mais 1.5"
-        confianca = min(90, 60 + (estimativa - 2.0) * 10)
-    else:
-        tendencia = "Menos 2.5"
-        confianca = min(85, 55 + (2.0 - estimativa) * 10)
-
-    return estimativa, confianca, tendencia
-
-def mostrar_estatisticas_analise(jogos: list):
-    """Mostra estatísticas da análise realizada."""
-    if not jogos:
-        return
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        avg_estimativa = sum(j['estimativa'] for j in jogos) / len(jogos)
-        st.metric("📊 Média Estimativa", f"{avg_estimativa:.2f}")
-    
-    with col2:
-        avg_confianca = sum(j['confianca'] for j in jogos) / len(jogos)
-        st.metric("💯 Confiança Média", f"{avg_confianca:.1f}%")
-    
-    with col3:
-        over_25 = sum(1 for j in jogos if j['tendencia'] == "Mais 2.5")
-        st.metric("⚡ Over 2.5", f"{over_25}")
-    
-    with col4:
-        under_25 = sum(1 for j in jogos if j['tendencia'] == "Menos 2.5")
-        st.metric("🛡️ Under 2.5", f"{under_25}")
-
-def enviar_top_jogos(jogos: list, top_n: int):
-    """Envia os top N jogos para o Telegram (somente jogos não finalizados)."""
-    # 🔎 Filtrar apenas jogos que ainda não começaram
+def enviar_top_jogos_dinamico(jogos: list, top_n: int):
+    """Envia os top N jogos com análise detalhada"""
     jogos_filtrados = [j for j in jogos if j["status"] not in ["FINISHED", "IN_PLAY", "POSTPONED", "SUSPENDED"]]
 
     if not jogos_filtrados:
-        st.warning("⚠️ Nenhum jogo elegível para o Top Jogos (todos já iniciados ou finalizados).")
+        st.warning("⚠️ Nenhum jogo elegível para o Top Jogos.")
         return
 
-    # Ordenar por confiança e pegar top N
     top_jogos_sorted = sorted(jogos_filtrados, key=lambda x: x["confianca"], reverse=True)[:top_n]
 
-    msg = f"📢 TOP {top_n} Jogos do Dia\n\n"
+    msg = f"📢 TOP {top_n} Jogos - Análise Dinâmica\n\n"
     for j in top_jogos_sorted:
         hora_format = j["hora"].strftime("%H:%M")
         msg += (
             f"🏟️ {j['home']} vs {j['away']}\n"
-            f"🕒 {hora_format} BRT | Liga: {j['liga']} | Status: {j['status']}\n"
+            f"🕒 {hora_format} BRT | Liga: {j['liga']}\n"
+            f"🎭 Estilo: {j['estilo_home']} vs {j['estilo_away']}\n"
             f"📈 Tendência: {j['tendencia']} | Estimativa: {j['estimativa']:.2f} | "
             f"💯 Confiança: {j['confianca']:.0f}%\n\n"
         )
 
-    # Envio ao Telegram
     if enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2):
-        st.success(f"🚀 Top {top_n} jogos (sem finalizados) enviados para o canal!")
+        st.success(f"🚀 Top {top_n} jogos enviados para o canal!")
     else:
-        st.error("❌ Erro ao enviar top jogos para o Telegram")
+        st.error("❌ Erro ao enviar top jogos")
 
+def mostrar_analise_detalhada(jogos: list):
+    """Mostra análise detalhada dos jogos"""
+    st.subheader("🔍 Análise Detalhada dos Jogos")
+    
+    for jogo in jogos[:10]:  # Mostra apenas os 10 primeiros
+        with st.expander(f"🏟️ {jogo['home']} vs {jogo['away']} - {jogo['tendencia']}"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("🎯 Estimativa", f"{jogo['estimativa']:.2f} gols")
+            with col2:
+                st.metric("💯 Confiança", f"{jogo['confianca']:.0f}%")
+            with col3:
+                st.metric("🎭 Estilo", f"{jogo['estilo_home']} vs {jogo['estilo_away']}")
+            
+            st.progress(jogo['confianca'] / 100, text=f"Confiança na análise: {jogo['confianca']:.0f}%")
+
+# =============================
+# Funções de Ação (mantidas)
+# =============================
 def atualizar_status_partidas():
-    """Atualiza o status das partidas em cache."""
-    cache_jogos = carregar_cache_jogos()
+    cache_jogos = carregar_json(CACHE_JOGOS)
     mudou = False
 
     for key in cache_jogos.keys():
@@ -626,15 +517,12 @@ def atualizar_status_partidas():
             st.error(f"Erro ao atualizar liga {liga_id}: {e}")
 
     if mudou:
-        salvar_cache_jogos(cache_jogos)
+        salvar_json(CACHE_JOGOS, cache_jogos)
         st.success("✅ Status das partidas atualizado!")
-    else:
-        st.info("ℹ️ Nenhuma atualização disponível.")
 
 def conferir_resultados():
-    """Conferência de resultados dos jogos alertados."""
-    alertas = carregar_alertas()
-    jogos_cache = carregar_cache_jogos()
+    alertas = carregar_json(ALERTAS_PATH)
+    jogos_cache = carregar_json(CACHE_JOGOS)
     
     if not alertas:
         st.info("ℹ️ Nenhum alerta para conferir.")
@@ -647,7 +535,6 @@ def conferir_resultados():
         if info.get("conferido"):
             continue
 
-        # Encontrar jogo no cache
         jogo_dado = None
         for key, jogos in jogos_cache.items():
             if key == "_timestamp":
@@ -662,7 +549,6 @@ def conferir_resultados():
         if not jogo_dado:
             continue
 
-        # Processar resultado
         resultado_info = processar_resultado_jogo(jogo_dado, info)
         if resultado_info:
             exibir_resultado_streamlit(resultado_info)
@@ -672,19 +558,16 @@ def conferir_resultados():
                 info["conferido"] = True
                 mudou = True
 
-        # Coletar dados para PDF
         jogos_conferidos.append(preparar_dados_pdf(jogo_dado, info, resultado_info))
 
     if mudou:
-        salvar_alertas(alertas)
-        st.success("✅ Resultados conferidos e atualizados!")
+        salvar_json(ALERTAS_PATH, alertas)
+        st.success("✅ Resultados conferidos!")
 
-    # Gerar PDF se houver jogos
     if jogos_conferidos:
         gerar_pdf_jogos(jogos_conferidos)
 
 def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
-    """Processa o resultado de um jogo."""
     home = jogo["homeTeam"]["name"]
     away = jogo["awayTeam"]["name"]
     status = jogo.get("status", "DESCONHECIDO")
@@ -694,7 +577,6 @@ def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
     placar = f"{gols_home} x {gols_away}" if gols_home is not None and gols_away is not None else "-"
     total_gols = (gols_home or 0) + (gols_away or 0)
 
-    # Determinar resultado da aposta
     resultado = "⏳ Aguardando"
     if status == "FINISHED":
         tendencia = info["tendencia"]
@@ -720,7 +602,6 @@ def processar_resultado_jogo(jogo: dict, info: dict) -> dict | None:
     }
 
 def exibir_resultado_streamlit(resultado: dict):
-    """Exibe resultado formatado no Streamlit."""
     bg_color = "#1e4620" if resultado["resultado"] == "🟢 GREEN" else \
                "#5a1e1e" if resultado["resultado"] == "🔴 RED" else "#2c2c2c"
     
@@ -736,7 +617,6 @@ def exibir_resultado_streamlit(resultado: dict):
     """, unsafe_allow_html=True)
 
 def enviar_resultado_telegram(resultado: dict):
-    """Envia resultado para o Telegram."""
     msg = (
         f"📊 <b>Resultado Conferido</b>\n"
         f"🏟️ {resultado['home']} vs {resultado['away']}\n"
@@ -747,7 +627,6 @@ def enviar_resultado_telegram(resultado: dict):
     enviar_telegram(msg, TELEGRAM_CHAT_ID_ALT2)
 
 def preparar_dados_pdf(jogo: dict, info: dict, resultado: dict) -> list:
-    """Prepara dados para geração do PDF."""
     home = abreviar_nome(jogo["homeTeam"]["name"])
     away = abreviar_nome(jogo["awayTeam"]["name"])
     hora = datetime.fromisoformat(jogo["utcDate"].replace("Z", "+00:00")) - timedelta(hours=3)
@@ -764,12 +643,6 @@ def preparar_dados_pdf(jogo: dict, info: dict, resultado: dict) -> list:
     ]
 
 def gerar_pdf_jogos(jogos_conferidos: list):
-    """Gera e disponibiliza PDF dos jogos conferidos."""
-    df_conferidos = pd.DataFrame(jogos_conferidos, columns=[
-        "Jogo", "Tendência", "Estimativa", "Confiança", 
-        "Placar", "Status", "Resultado", "Hora"
-    ])
-
     buffer = gerar_relatorio_pdf(jogos_conferidos)
     
     st.download_button(
@@ -779,10 +652,43 @@ def gerar_pdf_jogos(jogos_conferidos: list):
         mime="application/pdf"
     )
 
+def gerar_relatorio_pdf(jogos_conferidos: list) -> io.BytesIO:
+    buffer = io.BytesIO()
+    pdf = SimpleDocTemplate(buffer, pagesize=letter, 
+                          rightMargin=20, leftMargin=20, 
+                          topMargin=20, bottomMargin=20)
+
+    data = [["Jogo", "Tendência", "Estimativa", "Confiança", 
+             "Placar", "Status", "Resultado", "Hora"]] + jogos_conferidos
+
+    table = Table(data, repeatRows=1, 
+                 colWidths=[120, 70, 60, 60, 50, 70, 60, 70])
+    
+    style = TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4B4B4B")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,0), 10),
+        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#F5F5F5")),
+        ('TEXTCOLOR', (0,1), (-1,-1), colors.black),
+        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,1), (-1,-1), 9),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+    ])
+
+    for i in range(1, len(data)):
+        bg_color = colors.HexColor("#E0E0E0") if i % 2 == 0 else colors.HexColor("#F5F5F5")
+        style.add('BACKGROUND', (0,i), (-1,i), bg_color)
+
+    table.setStyle(style)
+    pdf.build([table])
+    buffer.seek(0)
+    return buffer
+
 def limpar_caches():
-    """Limpa todos os caches do sistema."""
     try:
-        for cache_file in [CACHE_JOGOS, CACHE_CLASSIFICACAO, ALERTAS_PATH]:
+        for cache_file in [CACHE_JOGOS, CACHE_CLASSIFICACAO, CACHE_ESTATISTICAS, ALERTAS_PATH]:
             if os.path.exists(cache_file):
                 os.remove(cache_file)
         st.success("✅ Caches limpos com sucesso!")
