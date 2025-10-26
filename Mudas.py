@@ -6,7 +6,6 @@ import logging
 from collections import Counter, deque
 from alertas import enviar_previsao, enviar_resultado
 from streamlit_autorefresh import st_autorefresh
-import base64
 
 # =============================
 # Configurações
@@ -16,11 +15,10 @@ API_URL = "https://api.casinoscores.com/svc-evolution-game-events/api/xxxtremeli
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # =============================
-# ESTRATÉGIAS MIDAS - ADICIONADAS
+# ESTRATÉGIAS MIDAS
 # =============================
-class MidasStrategies:
+class EstrategiasMidas:
     def __init__(self):
-        # Terminais da roleta (último dígito)
         self.terminais = {
             '0': [0, 10, 20, 30],
             '1': [1, 11, 21, 31],
@@ -33,14 +31,7 @@ class MidasStrategies:
             '8': [8, 18, 28],
             '9': [9, 19, 29]
         }
-
-        # Race da roleta (ordem física)
-        self.race = [
-            5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3,
-            10, 23, 8, 30, 11, 36, 13, 27, 6, 34, 17, 25, 2, 21, 4, 19, 15, 32, 0
-        ]
-
-        # Vizinhos no race (baseado no PDF)
+        
         self.vizinhos_race = {
             '33': [1, 20, 36, 11, 30, 4, 21, 2, 14, 31, 9],
             '21': [2, 25, 28, 12, 35, 9, 22, 18, 0, 32, 15],
@@ -54,177 +45,69 @@ class MidasStrategies:
             '23': [10, 5, 1, 20, 14, 11, 30, 8]
         }
 
-        self.historico_gatilhos = deque(maxlen=10)
-
     def get_vizinhos_race(self, numero):
-        """Retorna os vizinhos no race para um número específico"""
-        numero_str = str(numero)
-        return self.vizinhos_race.get(numero_str, [])
+        return self.vizinhos_race.get(str(numero), [])
 
-    def estrategia_padrao_zero(self, ultimos_numeros):
-        """Padrão do Zero - Gatilho: terminal 0"""
-        trigger = self.terminais['0']
-        
-        # Verifica se algum número do terminal 0 saiu nos últimos 5 números
-        gatilho_ativado = any(num in trigger for num in ultimos_numeros[-5:])
-        
-        if gatilho_ativado:
+    def analisar_estrategias_midas(self, ultimos_numeros):
+        if len(ultimos_numeros) < 5:
+            return []
+
+        estrategias_ativas = []
+
+        # Padrão do Zero
+        if any(num in self.terminais['0'] for num in ultimos_numeros[-5:]):
             numeros_apostar = self.terminais['0'].copy()
-            # Adiciona vizinhos do race para cada número do terminal
             for num in self.terminais['0']:
                 numeros_apostar.extend(self.get_vizinhos_race(num))
-            
-            return {
+            estrategias_ativas.append({
                 'nome': 'Padrão do Zero',
-                'numeros_apostar': list(set(numeros_apostar)),  # Remove duplicatas
-                'gatilho': 'Terminal 0 (0,10,20,30)',
-                'repeticoes': 2
-            }
-        return None
+                'numeros_apostar': list(set(numeros_apostar)),
+                'gatilho': 'Terminal 0 (0,10,20,30)'
+            })
 
-    def estrategia_padrao_sete(self, ultimos_numeros):
-        """Padrão do Sete - Gatilho: terminal 7"""
-        trigger = self.terminais['7']
-        
-        gatilho_ativado = any(num in trigger for num in ultimos_numeros[-5:])
-        
-        if gatilho_ativado:
+        # Padrão do Sete
+        if any(num in self.terminais['7'] for num in ultimos_numeros[-5:]):
             numeros_apostar = self.terminais['7'].copy()
             for num in self.terminais['7']:
                 numeros_apostar.extend(self.get_vizinhos_race(num))
-            
-            return {
+            estrategias_ativas.append({
                 'nome': 'Padrão do Sete',
                 'numeros_apostar': list(set(numeros_apostar)),
-                'gatilho': 'Terminal 7 (7,17,27)',
-                'repeticoes': 2
-            }
-        return None
+                'gatilho': 'Terminal 7 (7,17,27)'
+            })
 
-    def estrategia_padrao_cinco(self, ultimos_numeros):
-        """Padrão do Cinco - Gatilho: terminal 5"""
-        trigger = self.terminais['5']
-        
-        gatilho_ativado = any(num in trigger for num in ultimos_numeros[-5:])
-        
-        if gatilho_ativado:
+        # Padrão do Cinco
+        if any(num in self.terminais['5'] for num in ultimos_numeros[-5:]):
             numeros_apostar = self.terminais['5'].copy()
             for num in self.terminais['5']:
                 numeros_apostar.extend(self.get_vizinhos_race(num))
-            
-            return {
+            estrategias_ativas.append({
                 'nome': 'Padrão do Cinco',
                 'numeros_apostar': list(set(numeros_apostar)),
-                'gatilho': 'Terminal 5 (5,15,25,35)',
-                'repeticoes': 2
-            }
-        return None
+                'gatilho': 'Terminal 5 (5,15,25,35)'
+            })
 
-    def estrategia_padrao_gemeos(self, ultimos_numeros):
-        """Padrão Gêmeos - Gatilho: números 11, 22, 33"""
-        trigger = [11, 22, 33]
-        
-        gatilho_ativado = any(num in trigger for num in ultimos_numeros[-5:])
-        
-        if gatilho_ativado:
-            numeros_apostar = trigger.copy()
-            for num in trigger:
+        # Padrão Gêmeos
+        if any(num in [11, 22, 33] for num in ultimos_numeros[-5:]):
+            numeros_apostar = [11, 22, 33].copy()
+            for num in [11, 22, 33]:
                 numeros_apostar.extend(self.get_vizinhos_race(num))
-            
-            return {
+            estrategias_ativas.append({
                 'nome': 'Padrão Gêmeos',
                 'numeros_apostar': list(set(numeros_apostar)),
-                'gatilho': 'Gêmeos (11,22,33)',
-                'repeticoes': 2
-            }
-        return None
+                'gatilho': 'Gêmeos (11,22,33)'
+            })
 
-    def analisar_estrategias(self, ultimos_numeros):
-        """Analisa todas as estratégias e retorna as ativas"""
-        if len(ultimos_numeros) < 5:
-            return []
-            
-        estrategias_ativas = []
-        
-        # Verifica cada estratégia
-        estrategia_zero = self.estrategia_padrao_zero(ultimos_numeros)
-        if estrategia_zero:
-            estrategias_ativas.append(estrategia_zero)
-            
-        estrategia_sete = self.estrategia_padrao_sete(ultimos_numeros)
-        if estrategia_sete:
-            estrategias_ativas.append(estrategia_sete)
-            
-        estrategia_cinco = self.estrategia_padrao_cinco(ultimos_numeros)
-        if estrategia_cinco:
-            estrategias_ativas.append(estrategia_cinco)
-            
-        estrategia_gemeos = self.estrategia_padrao_gemeos(ultimos_numeros)
-        if estrategia_gemeos:
-            estrategias_ativas.append(estrategia_gemeos)
-            
         return estrategias_ativas
 
 # =============================
-# Funções auxiliares
+# ESTRATÉGIA TERMINAIS DOMINANTES
 # =============================
-def tocar_som_moeda():
-    som_base64 = (
-        "SUQzAwAAAAAAF1RTU0UAAAAPAAADTGF2ZjU2LjI2LjEwNAAAAAAAAAAAAAAA//tQxAADBQAB"
-        "VAAAAnEAAACcQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        "AAAAAAAAAAAAAAAAAAAAAAAA//sQxAADAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC"
-        "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC"
-        "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC"
-        "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC"
-    )
-    st.markdown(
-        f"""
-        <audio autoplay>
-            <source src="data:audio/mp3;base64,{som_base64}" type="audio/mp3">
-        </audio>
-        """,
-        unsafe_allow_html=True,
-    )
-
-def salvar_resultado_em_arquivo(historico, caminho=HISTORICO_PATH):
-    try:
-        with open(caminho, "w") as f:
-            json.dump(historico, f, indent=2)
-    except Exception as e:
-        logging.error(f"Erro ao salvar histórico: {e}")
-
-# ===== API CORRETA =====
-def fetch_latest_result():
-    try:
-        response = requests.get(API_URL, headers=HEADERS, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        game_data = data.get("data", {})
-        result = game_data.get("result", {})
-        outcome = result.get("outcome", {})
-        number = outcome.get("number")
-        timestamp = game_data.get("startedAt")
-        return {"number": number, "timestamp": timestamp}
-    except Exception as e:
-        logging.error(f"Erro ao buscar resultado: {e}")
-        return None
-
-# =============================
-# Estratégia baseada em terminais dominantes + vizinhos físicos Race
-# =============================
-class EstrategiaRoleta:
+class EstrategiaTerminaisDominantes:
     def __init__(self, janela=12):
         self.janela = janela
         self.historico = deque(maxlen=janela+1)
-
-        # ordem física da roleta Race (europeia, 37 casas)
-        self.roleta = [
-            0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27,
-            13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33,
-            1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12,
-            35, 3, 26
-        ]
+        self.roleta = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
 
     def extrair_terminal(self, numero):
         return numero % 10
@@ -242,13 +125,12 @@ class EstrategiaRoleta:
         return [t for t, _ in contagem.most_common(2)]
 
     def adicionar_vizinhos_fisicos(self, numeros):
-        """Expande cada número com 2 vizinhos físicos antes e 2 depois (ordem Race)."""
         conjunto = set()
         for n in numeros:
             if n not in self.roleta:
                 continue
             idx = self.roleta.index(n)
-            for offset in range(-2, 3):  # 2 antes até 2 depois
+            for offset in range(-2, 3):
                 vizinho = self.roleta[(idx + offset) % len(self.roleta)]
                 conjunto.add(vizinho)
         return conjunto
@@ -263,14 +145,8 @@ class EstrategiaRoleta:
         dominantes = self.calcular_dominantes()
         terminal_13 = self.extrair_terminal(numero_13)
 
-        # Critério A → número repetido
         condicao_a = numero_13 in ultimos_12
-
-        # Critério B → terminal repetido
         condicao_b = terminal_13 in [self.extrair_terminal(n) for n in ultimos_12]
-
-        # Critério C → não repetiu nem número nem terminal
-        condicao_c = not condicao_a and not condicao_b
 
         if condicao_a or condicao_b:
             jogar_nos_terminais = {}
@@ -280,286 +156,150 @@ class EstrategiaRoleta:
 
             return {
                 "entrada": True,
+                "estrategia": "Terminais Dominantes",
                 "criterio": "A" if condicao_a else "B",
                 "numero_13": numero_13,
                 "dominantes": dominantes,
-                "jogar_nos_terminais": jogar_nos_terminais
+                "numeros_apostar": list(set().union(*jogar_nos_terminais.values()))
             }
-
-        elif condicao_c:
-            return {
-                "entrada": False,
-                "criterio": "C",
-                "numero_13": numero_13,
-                "dominantes": dominantes
-            }
-
-        else:
-            return {
-                "entrada": False,
-                "numero_13": numero_13,
-                "dominantes": dominantes
-            }
+        return None
 
 # =============================
-# App Streamlit
+# GESTOR PRINCIPAL
 # =============================
-st.set_page_config(page_title="IA Roleta — Terminais Dominantes + Midas", layout="centered")
-st.title("🎯 IA Roleta XXXtreme — Estratégias Midas + Terminais")
+class GestorEstrategias:
+    def __init__(self):
+        self.terminais_dominantes = EstrategiaTerminaisDominantes()
+        self.midas = EstrategiasMidas()
+        
+    def adicionar_numero(self, numero):
+        self.terminais_dominantes.adicionar_numero(numero)
+        
+    def analisar_todas_estrategias(self):
+        todas_estrategias = []
+        
+        # 1. Terminais Dominantes
+        entrada_terminais = self.terminais_dominantes.verificar_entrada()
+        if entrada_terminais and entrada_terminais.get("entrada"):
+            todas_estrategias.append(entrada_terminais)
+        
+        # 2. Midas
+        historico_numeros = list(self.terminais_dominantes.historico)
+        estrategias_midas = self.midas.analisar_estrategias_midas(historico_numeros)
+        for estrategia in estrategias_midas:
+            todas_estrategias.append({
+                "estrategia": estrategia['nome'],
+                "numeros_apostar": estrategia['numeros_apostar'],
+                "logica": estrategia['gatilho']
+            })
+        
+        return todas_estrategias
+
+# =============================
+# FUNÇÕES AUXILIARES
+# =============================
+def tocar_som_moeda():
+    st.markdown("""<audio autoplay><source src="" type="audio/mp3"></audio>""", unsafe_allow_html=True)
+
+def salvar_resultado_em_arquivo(historico, caminho=HISTORICO_PATH):
+    try:
+        with open(caminho, "w") as f:
+            json.dump(historico, f, indent=2)
+    except Exception as e:
+        logging.error(f"Erro ao salvar histórico: {e}")
+
+def fetch_latest_result():
+    try:
+        response = requests.get(API_URL, headers=HEADERS, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        game_data = data.get("data", {})
+        result = game_data.get("result", {})
+        outcome = result.get("outcome", {})
+        number = outcome.get("number")
+        timestamp = game_data.get("startedAt")
+        return {"number": number, "timestamp": timestamp}
+    except Exception as e:
+        logging.error(f"Erro ao buscar resultado: {e}")
+        return None
+
+# =============================
+# APP STREAMLIT
+# =============================
+st.set_page_config(page_title="IA Roleta — Todas as Estratégias", layout="centered")
+st.title("🎯 IA Roleta — Todas as Estratégias Ativas")
 
 # --- Estado ---
-if "rodadas_bloqueadas" not in st.session_state:
-    st.session_state.rodadas_bloqueadas = 0
-    
 if "historico" not in st.session_state:
     st.session_state.historico = json.load(open(HISTORICO_PATH)) if os.path.exists(HISTORICO_PATH) else []
 
-if "estrategia" not in st.session_state:
-    st.session_state.estrategia = EstrategiaRoleta(janela=12)
+if "gestor" not in st.session_state:
+    st.session_state.gestor = GestorEstrategias()
 
-# INICIALIZAÇÃO DAS ESTRATÉGIAS MIDAS - ADICIONADO
-if "midas_strategies" not in st.session_state:
-    st.session_state.midas_strategies = MidasStrategies()
+if "estrategias_ativas" not in st.session_state:
+    st.session_state.estrategias_ativas = []
 
-# Seleção de estratégia
-estrategia_selecionada = st.sidebar.selectbox(
-    "🎯 Selecione a Estratégia:",
-    ["Terminais Dominantes", "Estratégias Midas"]
-)
+if "acertos" not in st.session_state:
+    st.session_state.acertos = 0
 
-# Pré-carrega a estratégia com até 13 últimos números já salvos
-if "estrategia_inicializada" not in st.session_state:
+if "erros" not in st.session_state:
+    st.session_state.erros = 0
+
+# --- Inicialização ---
+if "inicializado" not in st.session_state:
     for h in st.session_state.historico[-13:]:
         try:
-            st.session_state.estrategia.adicionar_numero(int(h["number"]))
+            st.session_state.gestor.adicionar_numero(int(h["number"]))
         except Exception:
             pass
-    st.session_state.estrategia_inicializada = True
-
-# Previsão/resultado & métricas
-for k, v in {
-    "terminais_previstos": None,
-    "criterio": None,
-    "previsao_enviada": False,
-    "resultado_enviado": False,
-    "previsao_base_timestamp": None,
-    "acertos": 0,
-    "erros": 0,
-    "midas_estrategias_ativas": [],  # ADICIONADO
-    "midas_numeros_apostar": []      # ADICIONADO
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+    st.session_state.inicializado = True
 
 # --- Entrada manual ---
-st.subheader("✍️ Inserir Sorteios Manualmente")
-entrada = st.text_area("Digite números (0–36), separados por espaço — até 100:", height=100, key="entrada_manual")
-if st.button("Adicionar Sorteios"):
+st.subheader("✍️ Inserir Sorteios")
+entrada = st.text_input("Digite números (0-36) separados por espaço:")
+if st.button("Adicionar") and entrada:
     try:
         nums = [int(n) for n in entrada.split() if n.isdigit() and 0 <= int(n) <= 36]
-        if len(nums) > 100:
-            st.warning("Limite de 100 números.")
-        else:
-            for n in nums:
-                item = {"number": n, "timestamp": f"manual_{len(st.session_state.historico)}"}
-                st.session_state.historico.append(item)
-                st.session_state.estrategia.adicionar_numero(n)
-
-                # GREEN/RED atualizado com vizinhos
-                if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
-                    if estrategia_selecionada == "Terminais Dominantes":
-                        terminais = st.session_state.terminais_previstos or []
-                        numeros_validos = set()
-                        for t in terminais:
-                            base = [num for num in range(37) if num % 10 == t]
-                            numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
-                        green = n in numeros_validos
-                    else:
-                        # Estratégias Midas
-                        green = n in st.session_state.midas_numeros_apostar
-
-                    msg = f"Resultado: {n} | {'🟢 GREEN' if green else '🔴 RED'}"
-                    enviar_resultado(msg)
-                    st.session_state.resultado_enviado = True
-                    st.session_state.previsao_enviada = False
-                    if green:
-                        st.session_state.acertos += 1
-                        tocar_som_moeda()
-                    else:
-                        st.session_state.erros += 1
-
-            salvar_resultado_em_arquivo(st.session_state.historico)
-            st.success(f"{len(nums)} números adicionados.")
+        for n in nums:
+            item = {"number": n, "timestamp": f"manual_{len(st.session_state.historico)}"}
+            st.session_state.historico.append(item)
+            st.session_state.gestor.adicionar_numero(n)
+        salvar_resultado_em_arquivo(st.session_state.historico)
+        st.success(f"{len(nums)} números adicionados!")
     except Exception as e:
-        st.error(f"Erro ao adicionar números: {e}")
+        st.error(f"Erro: {e}")
 
 # --- Atualização automática ---
-st_autorefresh(interval=3000, key="refresh_dominantes")
+st_autorefresh(interval=3000, key="refresh")
 
-# Busca resultado mais recente da API correta
+# --- Buscar resultado da API ---
 resultado = fetch_latest_result()
 ultimo_ts = st.session_state.historico[-1]["timestamp"] if st.session_state.historico else None
 
-# FIX: Add proper validation for numero_atual
-numero_atual = None
-ts_atual = None
-
 if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo_ts:
     numero_atual = resultado.get("number")
-    ts_atual = resultado.get("timestamp")
-
-    # Validate that we have a valid number before proceeding
     if numero_atual is not None:
-        # Atualiza histórico e estratégia
         st.session_state.historico.append(resultado)
-        try:
-            st.session_state.estrategia.adicionar_numero(int(numero_atual))
-        except Exception:
-            pass
+        st.session_state.gestor.adicionar_numero(int(numero_atual))
         salvar_resultado_em_arquivo(st.session_state.historico)
 
-        # GREEN/RED atualizado com vizinhos - FIX: Add proper validation
-        if st.session_state.previsao_enviada and not st.session_state.resultado_enviado:
-            if estrategia_selecionada == "Terminais Dominantes":
-                terminais = st.session_state.terminais_previstos or []
-                numeros_validos = set()
-                for t in terminais:
-                    base = [num for num in range(37) if num % 10 == t]
-                    numeros_validos.update(st.session_state.estrategia.adicionar_vizinhos_fisicos(base))
-                
-                # FIX: Safe conversion with error handling
-                try:
-                    green = int(numero_atual) in numeros_validos
-                except (ValueError, TypeError):
-                    green = False
-            else:
-                # Estratégias Midas
-                try:
-                    green = int(numero_atual) in st.session_state.midas_numeros_apostar
-                except (ValueError, TypeError):
-                    green = False
+# --- Analisar estratégias ---
+st.session_state.estrategias_ativas = st.session_state.gestor.analisar_todas_estrategias()
 
-            msg = f"Resultado: {numero_atual} | {'🟢 GREEN' if green else '🔴 RED'}"
-            enviar_resultado(msg)
-            st.session_state.resultado_enviado = True
-            st.session_state.previsao_enviada = False
-            if green:
-                st.session_state.acertos += 1
-                tocar_som_moeda()
-            else:
-                st.session_state.erros += 1
-
-# =============================
-# Verifica nova entrada (AMBAS AS ESTRATÉGIAS)
-# =============================
-if estrategia_selecionada == "Terminais Dominantes":
-    # ESTRATÉGIA ORIGINAL
-    entrada_info = None
-    if "estrategia" in st.session_state:
-        entrada_info = st.session_state.estrategia.verificar_entrada()
-
-    if entrada_info:
-        dominantes = entrada_info.get("dominantes", [])
-
-        # --- Critérios A/B: entrar na aposta ---
-        if entrada_info.get("entrada") and not st.session_state.previsao_enviada:
-            st.session_state.terminais_previstos = dominantes
-            st.session_state.criterio = entrada_info.get("criterio")
-            st.session_state.previsao_base_timestamp = ts_atual
-            st.session_state.resultado_enviado = False
-            st.session_state.previsao_enviada = True
-
-            # Monta números que compõem cada terminal dominante
-            linhas_numeros = []
-            for t in dominantes:
-                numeros_terminal = [n for n in range(37) if n % 10 == t]
-                linhas_numeros.append(" ".join(str(n) for n in numeros_terminal))
-
-            msg_alerta = "\n".join(linhas_numeros)
-            enviar_previsao(msg_alerta)
-
-        # --- Critério C: 13º número não bate com os 12 anteriores ---
-        elif (entrada_info or {}).get("criterio") == "C":
-            st.session_state.previsao_enviada = False
-            st.session_state.terminais_previstos = None
-            st.session_state.criterio = None
-            msg_alerta = "⏳ Nenhum terminal\nAguardando próximo giro..."
-            enviar_previsao(msg_alerta)
-
-else:
-    # ESTRATÉGIAS MIDAS - NOVAS
-    if st.session_state.historico:
-        ultimos_numeros = [int(h["number"]) for h in st.session_state.historico[-10:]]
-        
-        # Analisa estratégias Midas
-        estrategias_ativas = st.session_state.midas_strategies.analisar_estrategias(ultimos_numeros)
-        st.session_state.midas_estrategias_ativas = estrategias_ativas
-        
-        # Se há estratégias ativas e ainda não enviou previsão
-        if estrategias_ativas and not st.session_state.previsao_enviada:
-            # Pega a primeira estratégia ativa (poderia escolher por prioridade)
-            estrategia = estrategias_ativas[0]
-            st.session_state.midas_numeros_apostar = estrategia['numeros_apostar']
-            st.session_state.previsao_enviada = True
-            st.session_state.resultado_enviado = False
-            
-            # Envia alerta
-            msg_alerta = f"{estrategia['nome']} - Gatilho: {estrategia['gatilho']}\n"
-            msg_alerta += f"Números: {', '.join(map(str, estrategia['numeros_apostar']))}"
-            enviar_previsao(msg_alerta)
-
-# =============================
-# Interface - ATUALIZADA
-# =============================
-st.subheader("🔁 Últimos 10 Números")
+# --- Interface ---
+st.subheader("🔁 Últimos Números")
 st.write(" ".join(str(h["number"]) for h in st.session_state.historico[-10:]))
 
-st.subheader("🔮 Previsão de Entrada")
+st.subheader("🎯 Estratégias Ativas")
 
-if estrategia_selecionada == "Terminais Dominantes":
-    # Interface original
-    if st.session_state.terminais_previstos:
-        if st.session_state.criterio:
-            st.write(f"🎯 Terminais dominantes: {st.session_state.terminais_previstos} (Critério {st.session_state.criterio})")
-        else:
-            st.write(f"🎯 Terminais dominantes: {st.session_state.terminais_previstos}")
-    else:
-        st.info("🔎 Aguardando próximo número para calcular dominantes.")
+if st.session_state.estrategias_ativas:
+    for i, estrategia in enumerate(st.session_state.estrategias_ativas):
+        with st.expander(f"✅ {estrategia['estrategia']}", expanded=True):
+            st.write(f"**Lógica:** {estrategia.get('logica', estrategia.get('criterio', 'N/A'))}")
+            st.write(f"**Números para apostar ({len(estrategia['numeros_apostar'])}):**")
+            st.write(", ".join(map(str, sorted(estrategia['numeros_apostar']))))
 else:
-    # Interface Midas
-    if st.session_state.midas_estrategias_ativas:
-        for estrategia in st.session_state.midas_estrategias_ativas:
-            with st.expander(f"🎯 {estrategia['nome']} - ATIVA", expanded=True):
-                st.write(f"**Gatilho:** {estrategia['gatilho']}")
-                st.write(f"**Números para apostar ({len(estrategia['numeros_apostar'])}):**")
-                st.write(", ".join(map(str, sorted(estrategia['numeros_apostar']))))
-                st.write(f"**Repetições:** {estrategia['repeticoes']}")
-    else:
-        st.info("🔎 Aguardando gatilhos para as estratégias Midas...")
-
-# =============================
-# Informações das Estratégias Midas - NOVA SEÇÃO
-# =============================
-with st.expander("📚 Estratégias Midas - Como Funcionam"):
-    st.write("""
-    **Padrão do Zero**
-    - Gatilho: Aparição de números do Terminal 0 (0,10,20,30)
-    - Entrada: Aposta no Terminal 0 + 2 vizinhos no Race
-    
-    **Padrão do Sete**
-    - Gatilho: Aparição de números do Terminal 7 (7,17,27)
-    - Entrada: Aposta no Terminal 7 + 2 vizinhos no Race
-    
-    **Padrão do Cinco**
-    - Gatilho: Aparição de números do Terminal 5 (5,15,25,35)
-    - Entrada: Aposta no Terminal 5 + 2 vizinhos no Race
-    
-    **Padrão Gêmeos**
-    - Gatilho: Aparição dos números 11, 22, 33
-    - Entrada: Aposta nos Gêmeos + 2 vizinhos no Race
-    
-    *Repetir a entrada 2 vezes caso não acerte na primeira*
-    """)
+    st.info("🔎 Aguardando gatilhos para as estratégias...")
 
 st.subheader("📊 Desempenho")
 total = st.session_state.acertos + st.session_state.erros
@@ -567,10 +307,10 @@ taxa = (st.session_state.acertos / total * 100) if total > 0 else 0.0
 col1, col2, col3 = st.columns(3)
 col1.metric("🟢 GREEN", st.session_state.acertos)
 col2.metric("🔴 RED", st.session_state.erros)
-col3.metric("✅ Taxa de acerto", f"{taxa:.1f}%")
+col3.metric("✅ Taxa", f"{taxa:.1f}%")
 
 # --- Download histórico ---
 if os.path.exists(HISTORICO_PATH):
     with open(HISTORICO_PATH, "r") as f:
         conteudo = f.read()
-    st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_coluna_duzia.json")
+    st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_roleta.json")
