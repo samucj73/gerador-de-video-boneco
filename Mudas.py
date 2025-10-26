@@ -26,28 +26,28 @@ class RoletaInteligente:
             '6': [6, 16, 26, 36], '7': [7, 17, 27], '8': [8, 18, 28], '9': [9, 19, 29]
         }
         self.vizinhos_race = {
-            '0': [32, 15, 19, 4, 21, 2], '32': [0, 15, 19, 4, 21, 2],
-            '15': [0, 32, 19, 4, 21, 2], '19': [0, 32, 15, 4, 21, 2],
-            '4': [0, 32, 15, 19, 21, 2], '21': [0, 32, 15, 19, 4, 2],
-            '2': [0, 32, 15, 19, 4, 21], '25': [17, 34, 6, 27, 13, 36],
-            '17': [25, 34, 6, 27, 13, 36], '34': [25, 17, 6, 27, 13, 36],
-            '6': [25, 17, 34, 27, 13, 36], '27': [25, 17, 34, 6, 13, 36],
-            '13': [25, 17, 34, 6, 27, 36], '36': [25, 17, 34, 6, 27, 13],
-            '11': [30, 8, 23, 10, 5, 24], '30': [11, 8, 23, 10, 5, 24],
-            '8': [11, 30, 23, 10, 5, 24], '23': [11, 30, 8, 10, 5, 24],
-            '10': [11, 30, 8, 23, 5, 24], '5': [11, 30, 8, 23, 10, 24],
-            '24': [11, 30, 8, 23, 10, 5], '16': [33, 1, 20, 14, 31, 9],
-            '33': [16, 1, 20, 14, 31, 9], '1': [16, 33, 20, 14, 31, 9],
-            '20': [16, 33, 1, 14, 31, 9], '14': [16, 33, 1, 20, 31, 9],
-            '31': [16, 33, 1, 20, 14, 9], '9': [16, 33, 1, 20, 14, 31],
-            '22': [18, 29, 7, 28, 12, 35], '18': [22, 29, 7, 28, 12, 35],
-            '29': [22, 18, 7, 28, 12, 35], '7': [22, 18, 29, 28, 12, 35],
-            '28': [22, 18, 29, 7, 12, 35], '12': [22, 18, 29, 7, 28, 35],
-            '35': [22, 18, 29, 7, 28, 12], '3': [26, 0, 32, 15, 19, 4],
-            '26': [3, 0, 32, 15, 19, 4]
+            '0': [32, 15, 19, 4, 21, 2, 25, 17], '32': [0, 15, 19, 4, 21, 2, 25, 17],
+            '15': [0, 32, 19, 4, 21, 2, 25, 17], '19': [0, 32, 15, 4, 21, 2, 25, 17],
+            '4': [0, 32, 15, 19, 21, 2, 25, 17], '21': [0, 32, 15, 19, 4, 2, 25, 17],
+            '2': [0, 32, 15, 19, 4, 21, 25, 17], '25': [17, 34, 6, 27, 13, 36, 11, 30],
+            '17': [25, 34, 6, 27, 13, 36, 11, 30], '34': [25, 17, 6, 27, 13, 36, 11, 30],
+            '6': [25, 17, 34, 27, 13, 36, 11, 30], '27': [25, 17, 34, 6, 13, 36, 11, 30],
+            '13': [25, 17, 34, 6, 27, 36, 11, 30], '36': [25, 17, 34, 6, 27, 13, 11, 30],
+            '11': [30, 8, 23, 10, 5, 24, 16, 33], '30': [11, 8, 23, 10, 5, 24, 16, 33],
+            '8': [11, 30, 23, 10, 5, 24, 16, 33], '23': [11, 30, 8, 10, 5, 24, 16, 33],
+            '10': [11, 30, 8, 23, 5, 24, 16, 33], '5': [11, 30, 8, 23, 10, 24, 16, 33],
+            '24': [11, 30, 8, 23, 10, 5, 16, 33], '16': [33, 1, 20, 14, 31, 9, 22, 18],
+            '33': [16, 1, 20, 14, 31, 9, 22, 18], '1': [16, 33, 20, 14, 31, 9, 22, 18],
+            '20': [16, 33, 1, 14, 31, 9, 22, 18], '14': [16, 33, 1, 20, 31, 9, 22, 18],
+            '31': [16, 33, 1, 20, 14, 9, 22, 18], '9': [16, 33, 1, 20, 14, 31, 22, 18],
+            '22': [18, 29, 7, 28, 12, 35, 3, 26], '18': [22, 29, 7, 28, 12, 35, 3, 26],
+            '29': [22, 18, 7, 28, 12, 35, 3, 26], '7': [22, 18, 29, 28, 12, 35, 3, 26],
+            '28': [22, 18, 29, 7, 12, 35, 3, 26], '12': [22, 18, 29, 7, 28, 35, 3, 26],
+            '35': [22, 18, 29, 7, 28, 12, 3, 26], '3': [26, 0, 32, 15, 19, 4, 21, 2],
+            '26': [3, 0, 32, 15, 19, 4, 21, 2]
         }
 
-    def get_vizinhos_proximos(self, numero, quantidade=4):
+    def get_vizinhos_proximos(self, numero, quantidade=6):
         """Retorna os vizinhos mais próximos no race"""
         if str(numero) not in self.vizinhos_race:
             return []
@@ -60,7 +60,7 @@ class RoletaInteligente:
         return self.terminais.get(str(terminal), [])
 
 # =============================
-# ESTRATÉGIA INTELIGENTE REVISADA
+# ESTRATÉGIA INTELIGENTE COM 10 NÚMEROS
 # =============================
 class EstrategiaRoletaRevisada:
     def __init__(self):
@@ -76,7 +76,7 @@ class EstrategiaRoletaRevisada:
         self.historico.append(numero)
 
     def analisar_padrao_inteligente(self):
-        """Estratégia mais conservadora e focada - MÁXIMO 6 NÚMEROS"""
+        """Estratégia mais conservadora e focada - ATÉ 10 NÚMEROS"""
         if len(self.historico) < 8:
             return None
 
@@ -84,8 +84,8 @@ class EstrategiaRoletaRevisada:
         padrao = self._identificar_padrao_assertivo(ultimos)
         
         if padrao:
-            # Limitar a 6 números no máximo
-            numeros_apostar = padrao['numeros_apostar'][:6]
+            # Limitar a 10 números no máximo
+            numeros_apostar = padrao['numeros_apostar'][:10]
             return {
                 'nome': padrao['nome'],
                 'numeros_apostar': numeros_apostar,
@@ -97,20 +97,25 @@ class EstrategiaRoletaRevisada:
     def _identificar_padrao_assertivo(self, ultimos):
         """Identifica padrões com maior probabilidade real"""
         
-        # PADRÃO 1: Repetição de Terminal com Confirmação
+        # PADRÃO 1: Repetição de Terminal com Confirmação (ATÉ 10 NÚMEROS)
         terminal_padrao = self._verificar_repeticao_terminal_confirmada(ultimos)
         if terminal_padrao:
             return terminal_padrao
         
-        # PADRÃO 2: Sequência no Race
+        # PADRÃO 2: Sequência no Race (ATÉ 10 NÚMEROS)
         sequencia_padrao = self._verificar_sequencia_race(ultimos)
         if sequencia_padrao:
             return sequencia_padrao
         
-        # PADRÃO 3: Zona Quente
+        # PADRÃO 3: Zona Quente (ATÉ 10 NÚMEROS)
         zona_padrao = self._verificar_zona_quente(ultimos)
         if zona_padrao:
             return zona_padrao
+        
+        # PADRÃO 4: Padrões Midas (ATÉ 10 NÚMEROS)
+        midas_padrao = self._verificar_padroes_midas(ultimos)
+        if midas_padrao:
+            return midas_padrao
         
         return None
 
@@ -128,10 +133,10 @@ class EstrategiaRoletaRevisada:
             if count >= 3:
                 numeros_terminal = self.roleta.get_numeros_por_terminal(terminal)
                 
-                # Adicionar apenas 2 vizinhos do último número do mesmo terminal
+                # Adicionar mais vizinhos (6 em vez de 2) para chegar a ~10 números
                 ultimo_numero = ultimos[-1]
                 if self.roleta.get_terminal(ultimo_numero) == terminal:
-                    vizinhos = self.roleta.get_vizinhos_proximos(ultimo_numero, 2)
+                    vizinhos = self.roleta.get_vizinhos_proximos(ultimo_numero, 6)
                     numeros_apostar = list(set(numeros_terminal + vizinhos))
                     
                     return {
@@ -143,7 +148,7 @@ class EstrategiaRoletaRevisada:
         return None
 
     def _verificar_sequencia_race(self, ultimos):
-        """Verifica sequências próximas no race"""
+        """Verifica sequências próximas no race - ATÉ 10 NÚMEROS"""
         if len(ultimos) < 4:
             return None
             
@@ -157,31 +162,34 @@ class EstrategiaRoletaRevisada:
         # Verificar proximidade (máximo 5 posições de diferença)
         diferencas = [abs(posicoes[i] - posicoes[i-1]) for i in range(1, len(posicoes))]
         if all(diff <= 5 for diff in diferencas):
-            # Apostar nos vizinhos do último número
+            # Apostar nos vizinhos do último número (mais vizinhos - 8 em vez de 4)
             ultimo_numero = ultimos[-1]
-            vizinhos = self.roleta.get_vizinhos_proximos(ultimo_numero, 4)
+            vizinhos = self.roleta.get_vizinhos_proximos(ultimo_numero, 8)
+            
+            # Adicionar também os números da sequência
+            numeros_apostar = list(set(vizinhos + ultimos_3))
             
             return {
                 'nome': 'Sequência Race',
-                'numeros_apostar': vizinhos + [ultimo_numero],
+                'numeros_apostar': numeros_apostar,
                 'gatilho': f'Sequência próxima no Race: {ultimos_3}',
                 'confianca': 'Média'
             }
         return None
 
     def _verificar_zona_quente(self, ultimos):
-        """Identifica zonas quentes baseadas em frequência"""
+        """Identifica zonas quentes baseadas em frequência - ATÉ 10 NÚMEROS"""
         if len(ultimos) < 10:
             return None
             
         ultimos_10 = ultimos[-10:]
         
-        # Agrupar por quadrantes no race
+        # Agrupar por quadrantes no race (agora com mais números)
         quadrantes = {
-            'Q1': self.roleta.race[0:9],   # 0-32-15-19-4-21-2-25-17
-            'Q2': self.roleta.race[9:18],  # 34-6-27-13-36-11-30-8-23
-            'Q3': self.roleta.race[18:27], # 10-5-24-16-33-1-20-14-31
-            'Q4': self.roleta.race[27:]    # 9-22-18-29-7-28-12-35-3-26
+            'Q1': self.roleta.race[0:10],   # Primeiros 10 números
+            'Q2': self.roleta.race[10:20],  # Próximos 10 números  
+            'Q3': self.roleta.race[20:30],  # Próximos 10 números
+            'Q4': self.roleta.race[30:]     # Últimos números
         }
         
         # Contar frequência por quadrante
@@ -195,9 +203,10 @@ class EstrategiaRoletaRevisada:
         if freq_quadrantes[quadrante_quente] >= 4:  # Pelo menos 40% dos números
             numeros_quadrante = quadrantes[quadrante_quente]
             
-            # Pegar apenas os 4 números centrais do quadrante
-            centro = len(numeros_quadrante) // 2
-            numeros_apostar = numeros_quadrante[centro-2:centro+2]
+            # Pegar mais números do quadrante (até 8) + 2 vizinhos do último número
+            ultimo_numero = ultimos[-1]
+            vizinhos = self.roleta.get_vizinhos_proximos(ultimo_numero, 2)
+            numeros_apostar = list(set(numeros_quadrante[:8] + vizinhos))
             
             return {
                 'nome': 'Zona Quente',
@@ -205,6 +214,80 @@ class EstrategiaRoletaRevisada:
                 'gatilho': f'Quadrante {quadrante_quente} ({freq_quadrantes[quadrante_quente]}/10 números)',
                 'confianca': 'Média'
             }
+        return None
+
+    def _verificar_padroes_midas(self, ultimos):
+        """Implementa os padrões Midas do PDF - ATÉ 10 NÚMEROS"""
+        if len(ultimos) < 5:
+            return None
+            
+        ultimo_numero = ultimos[-1]
+        historico_recente = ultimos[-5:]
+        
+        # Padrão do Zero
+        if ultimo_numero in [0, 10, 20, 30]:
+            count_zero = sum(1 for n in historico_recente if n in [0, 10, 20, 30])
+            if count_zero >= 2:
+                numeros_zero = [0, 10, 20, 30]
+                vizinhos = []
+                for num in numeros_zero:
+                    vizinhos.extend(self.roleta.get_vizinhos_proximos(num, 3))
+                numeros_apostar = list(set(numeros_zero + vizinhos))
+                return {
+                    'nome': 'Padrão do Zero',
+                    'numeros_apostar': numeros_apostar,
+                    'gatilho': f'Terminal 0 ativado ({count_zero}x)',
+                    'confianca': 'Média'
+                }
+
+        # Padrão do Sete
+        if ultimo_numero in [7, 17, 27]:
+            count_sete = sum(1 for n in historico_recente if n in [7, 17, 27])
+            if count_sete >= 2:
+                numeros_sete = [7, 17, 27]
+                vizinhos = []
+                for num in numeros_sete:
+                    vizinhos.extend(self.roleta.get_vizinhos_proximos(num, 4))
+                numeros_apostar = list(set(numeros_sete + vizinhos))
+                return {
+                    'nome': 'Padrão do Sete',
+                    'numeros_apostar': numeros_apostar,
+                    'gatilho': f'Terminal 7 ativado ({count_sete}x)',
+                    'confianca': 'Média'
+                }
+
+        # Padrão do Cinco
+        if ultimo_numero in [5, 15, 25, 35]:
+            count_cinco = sum(1 for n in historico_recente if n in [5, 15, 25, 35])
+            if count_cinco >= 2:
+                numeros_cinco = [5, 15, 25, 35]
+                vizinhos = []
+                for num in numeros_cinco:
+                    vizinhos.extend(self.roleta.get_vizinhos_proximos(num, 3))
+                numeros_apostar = list(set(numeros_cinco + vizinhos))
+                return {
+                    'nome': 'Padrão do Cinco',
+                    'numeros_apostar': numeros_apostar,
+                    'gatilho': f'Terminal 5 ativado ({count_cinco}x)',
+                    'confianca': 'Média'
+                }
+
+        # Padrão Gêmeos
+        if ultimo_numero in [11, 22, 33]:
+            count_gemeos = sum(1 for n in historico_recente if n in [11, 22, 33])
+            if count_gemeos >= 2:
+                numeros_gemeos = [11, 22, 33]
+                vizinhos = []
+                for num in numeros_gemeos:
+                    vizinhos.extend(self.roleta.get_vizinhos_proximos(num, 4))
+                numeros_apostar = list(set(numeros_gemeos + vizinhos))
+                return {
+                    'nome': 'Padrão Gêmeos',
+                    'numeros_apostar': numeros_apostar,
+                    'gatilho': f'Gêmeos ativado ({count_gemeos}x)',
+                    'confianca': 'Média'
+                }
+
         return None
 
 # =============================
@@ -280,8 +363,8 @@ def fetch_latest_result():
 # =============================
 # APLICAÇÃO STREAMLIT
 # =============================
-st.set_page_config(page_title="IA Roleta — Estratégia Revisada", layout="centered")
-st.title("🎯 IA Roleta — Estratégia Inteligente Revisada")
+st.set_page_config(page_title="IA Roleta — Estratégia 10 Números", layout="centered")
+st.title("🎯 IA Roleta — Estratégia com 10 Números")
 
 # Inicialização
 if "sistema" not in st.session_state:
@@ -339,7 +422,7 @@ else:
     st.info("⏳ Analisando padrões para nova previsão...")
 
 # Desempenho
-st.subheader("📈 Desempenho Inteligente")
+st.subheader("📈 Desempenho com 10 Números")
 
 total = sistema.acertos + sistema.erros
 taxa = (sistema.acertos / total * 100) if total > 0 else 0.0
