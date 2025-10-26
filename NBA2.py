@@ -444,8 +444,6 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
     page = 1
     max_pages = 3
     
-    st.info(f"📊 Buscando estatísticas 2024-2025 do time {team_id}...")
-    
     while page <= max_pages:
         params = {
             "team_ids[]": team_id,
@@ -1232,7 +1230,7 @@ def exibir_aba_analise():
     
     with st.sidebar:
         st.subheader("Controles de Análise")
-        top_n = st.slider("Número de jogos para analisar", 1, 10, 5)
+        top_n = st.slider("Número de jogos para analisar", 1, 20, 10)
         janela = st.slider("Jogos recentes para análise", 8, 20, 15)
         enviar_auto = st.checkbox("Enviar alertas automaticamente para Telegram", value=True)
         
@@ -1283,6 +1281,17 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
         st.error("❌ Nenhum jogo encontrado para esta data")
         return
     
+    # CORREÇÃO: Mostrar todos os jogos disponíveis
+    st.info(f"📋 Encontrados {len(jogos)} jogos para {data_sel.strftime('%d/%m/%Y')}")
+    
+    # Mostra lista de jogos encontrados
+    st.subheader("🏀 Jogos Encontrados na API")
+    for i, jogo in enumerate(jogos):
+        home_team = jogo['home_team']['full_name']
+        away_team = jogo['visitor_team']['full_name']
+        status = jogo.get('status', 'SCHEDULED')
+        st.write(f"{i+1}. {away_team} @ {home_team} - {status}")
+    
     jogos = jogos[:top_n]
     
     status_text.text(f"📊 Analisando {len(jogos)} jogos com dados 2024-2025...")
@@ -1299,7 +1308,7 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
             
             home_team = jogo['home_team']['full_name']
             away_team = jogo['visitor_team']['full_name']
-            status_text.text(f"🔍 Analisando: {home_team} vs {away_team} ({i+1}/{len(jogos)})")
+            status_text.text(f"🔍 Analisando: {away_team} @ {home_team} ({i+1}/{len(jogos)})")
             
             home_id = jogo["home_team"]["id"]
             away_id = jogo["visitor_team"]["id"]
@@ -1335,10 +1344,11 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
                 if enviado and enviar_auto:
                     alertas_enviados += 1
                 
-                # Exibe resultado
+                # Exibe resultado - CORREÇÃO: Formatação correta
                 col1, col2, col3 = st.columns([3, 2, 1])
                 with col1:
-                    st.write(f"**{home_team}** vs **{away_team}**")
+                    st.write(f"**{away_team}**")
+                    st.write(f"**@ {home_team}**")
                     st.write(f"📍 **Status:** {jogo.get('status', 'SCHEDULED')}")
                 
                 with col2:
@@ -1365,7 +1375,7 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
                 })
                 
             except Exception as e:
-                st.error(f"❌ Erro ao analisar {home_team} vs {away_team}: {e}")
+                st.error(f"❌ Erro ao analisar {away_team} @ {home_team}: {e}")
                 continue
     
     progress_placeholder.empty()
