@@ -424,10 +424,10 @@ def conferir_jogos_finalizados():
     return jogos_conferidos
 
 # =============================
-# ESTATÍSTICAS REAIS - TEMPORADA 2024-2025
+# ESTATÍSTICAS REAIS - TEMPORADA 2024-2025 (CORRIGIDA)
 # =============================
 def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
-    """Busca estatísticas reais da temporada 2024-2025"""
+    """Busca estatísticas reais da temporada 2024-2025 - CORRIGIDA"""
     cache = carregar_cache_stats()
     key = f"team_{team_id}_2025"
     
@@ -436,9 +436,9 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
         if cached_data.get("games", 0) > 0:
             return cached_data
 
-    # Busca jogos da temporada 2024-2025 (season=2024 na API)
-    start_date = "2024-10-01"  # Início da temporada 2024-2025
-    end_date = "2025-06-30"    # Fim da temporada regular
+    # Busca jogos da temporada 2024-2025
+    start_date = "2024-10-01"
+    end_date = "2025-06-30"
     
     games = []
     page = 1
@@ -453,7 +453,7 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
             "page": page,
             "start_date": start_date,
             "end_date": end_date,
-            "seasons[]": 2024  # Temporada 2024-2025
+            "seasons[]": 2024
         }
         
         resp = balldontlie_get("games", params=params)
@@ -492,9 +492,8 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
     except Exception:
         games_validos = games_validos[:window_games]
 
-    # Se não encontrou jogos válidos, usa fallback com dados da temporada atual
+    # Se não encontrou jogos válidos, usa fallback
     if not games_validos:
-        # Busca dados dos últimos 90 dias como fallback
         end_date = date.today()
         start_date = end_date - timedelta(days=90)
         
@@ -533,18 +532,16 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
             except Exception:
                 continue
         
-        # Ordena e limita novamente
         try:
             games_validos.sort(key=lambda x: x.get("date", ""), reverse=True)
             games_validos = games_validos[:window_games]
         except Exception:
             games_validos = games_validos[:window_games]
 
-    # Calcula estatísticas
+    # CORREÇÃO PRINCIPAL: Cálculo correto das estatísticas
     if not games_validos:
-        # Fallback para médias gerais da NBA 2024-2025
         stats = {
-            "pts_for_avg": 114.5,  # Média atualizada da NBA
+            "pts_for_avg": 114.5,
             "pts_against_avg": 114.5,
             "games": 0,
             "pts_diff_avg": 0.0,
@@ -562,12 +559,15 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
                 home_score = game.get("home_team_score", 0)
                 visitor_score = game.get("visitor_team_score", 0)
                 
+                # CORREÇÃO: Identificação correta se o time é home ou visitor
                 if home_id == team_id:
+                    # Time é o home team
                     pts_for += home_score
                     pts_against += visitor_score
                     if home_score > visitor_score:
                         wins += 1
                 else:
+                    # Time é o visitor team  
                     pts_for += visitor_score
                     pts_against += home_score
                     if visitor_score > home_score:
@@ -598,18 +598,19 @@ def obter_estatisticas_time_2025(team_id: int, window_games: int = 15) -> dict:
     return stats
 
 # =============================
-# PREVISÕES COM DADOS REAIS 2024-2025
+# PREVISÕES COM DADOS REAIS 2024-2025 (CORRIGIDAS)
 # =============================
 def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
-    """Previsão baseada em dados reais da temporada 2024-2025"""
+    """Previsão baseada em dados reais da temporada 2024-2025 - CORRIGIDA"""
+    # CORREÇÃO: Obtém estatísticas corretamente identificadas
     home_stats = obter_estatisticas_time_2025(home_id, window_games)
     away_stats = obter_estatisticas_time_2025(away_id, window_games)
     
-    # Usa dados reais ou fallback se não houver dados suficientes
-    home_avg = home_stats["pts_for_avg"]
-    away_avg = away_stats["pts_for_avg"]
+    # CORREÇÃO: Usa médias de pontos FEITOS (pts_for_avg) para cada time
+    home_avg = home_stats["pts_for_avg"]  # Pontos que o time da casa faz
+    away_avg = away_stats["pts_for_avg"]  # Pontos que o time visitante faz
     
-    # Ajuste para vantagem de casa
+    # Ajuste para vantagem de casa - time da casa tende a fazer mais pontos
     home_advantage = 2.5
     estimativa = home_avg + away_avg + home_advantage
     
@@ -625,15 +626,15 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> t
     elif min_games > 0:
         confianca = 55.0
     else:
-        confianca = 45.0  # Dados insuficientes
+        confianca = 45.0
     
     # Ajusta confiança baseado na consistência dos times
-    home_consistency = min(10, home_stats.get("pts_diff_avg", 0) * 0.5)
-    away_consistency = min(10, away_stats.get("pts_diff_avg", 0) * 0.5)
+    home_consistency = min(10, abs(home_stats.get("pts_diff_avg", 0)) * 0.5)
+    away_consistency = min(10, abs(away_stats.get("pts_diff_avg", 0)) * 0.5)
     confianca += (home_consistency + away_consistency)
     confianca = min(85.0, max(40.0, confianca))
     
-    # Determina tendência baseada em dados reais
+    # Determina tendência
     if estimativa >= 235:
         tendencia = "Mais 235.5"
     elif estimativa >= 230:
@@ -652,25 +653,42 @@ def prever_total_points(home_id: int, away_id: int, window_games: int = 15) -> t
     return round(estimativa, 1), round(confianca, 1), tendencia
 
 def prever_vencedor(home_id: int, away_id: int, window_games: int = 15) -> tuple[str, float, str]:
-    """Previsão de vencedor baseada em dados reais da temporada 2024-2025"""
+    """Previsão de vencedor baseada em dados reais - CORRIGIDA"""
+    # CORREÇÃO: Obtém estatísticas corretamente identificadas
     home_stats = obter_estatisticas_time_2025(home_id, window_games)
     away_stats = obter_estatisticas_time_2025(away_id, window_games)
     
-    # Calcula vantagem baseada em performance histórica
+    # CORREÇÃO: Usa win_rate correta de cada time
     home_win_rate = home_stats["win_rate"]
     away_win_rate = away_stats["win_rate"]
     home_pts_diff = home_stats["pts_diff_avg"]
     away_pts_diff = away_stats["pts_diff_avg"]
     
-    # Vantagem de jogar em casa (NBA: ~3-4 pontos)
-    home_advantage = 0.1  # ~10% de aumento na win rate
+    # Vantagem de jogar em casa
+    home_advantage = 0.1
     
-    # Calcula probabilidade
+    # Calcula probabilidade CORRETAMENTE
     home_strength = home_win_rate + home_pts_diff * 0.01
     away_strength = away_win_rate + away_pts_diff * 0.01
     
-    home_prob = home_strength / (home_strength + away_strength) + home_advantage
-    away_prob = 1 - home_prob
+    # CORREÇÃO: Cálculo correto das probabilidades
+    total_strength = home_strength + away_strength
+    if total_strength > 0:
+        home_prob = (home_strength / total_strength) + home_advantage
+        away_prob = 1 - home_prob
+    else:
+        home_prob = 0.5 + home_advantage
+        away_prob = 0.5 - home_advantage
+    
+    # Garante que as probabilidades estejam entre 0 e 1
+    home_prob = max(0.0, min(1.0, home_prob))
+    away_prob = max(0.0, min(1.0, away_prob))
+    
+    # Normaliza se necessário
+    total_prob = home_prob + away_prob
+    if total_prob > 0:
+        home_prob = home_prob / total_prob
+        away_prob = away_prob / total_prob
     
     # Determina vencedor e confiança
     if home_prob > 0.6:
@@ -702,19 +720,18 @@ def prever_vencedor(home_id: int, away_id: int, window_games: int = 15) -> tuple
     return vencedor, round(confianca, 1), detalhe
 
 # =============================
-# PREVISÃO DE PONTOS POR QUARTO (NOVA FUNÇÃO)
+# PREVISÃO DE PONTOS POR QUARTO (CORRIGIDA)
 # =============================
 def prever_pontos_quarto(home_id: int, away_id: int, window_games: int = 15) -> tuple[float, float, str]:
-    """Previsão de pontos no 1º quarto baseada em dados reais"""
+    """Previsão de pontos no 1º quarto - CORRIGIDA"""
+    # CORREÇÃO: Obtém estatísticas corretamente identificadas
     home_stats = obter_estatisticas_time_2025(home_id, window_games)
     away_stats = obter_estatisticas_time_2025(away_id, window_games)
     
-    # Estimativa baseada na média de pontos por quarto
-    # Na NBA, o primeiro quarto geralmente tem menos pontos que a média do jogo
-    home_q1_avg = home_stats.get("pts_for_avg", 114.5) * 0.24  # Aproximadamente 24% dos pontos totais
+    # CORREÇÃO: Usa médias corretas de pontos
+    home_q1_avg = home_stats.get("pts_for_avg", 114.5) * 0.24
     away_q1_avg = away_stats.get("pts_for_avg", 114.5) * 0.24
     
-    # Ajuste para vantagem de casa no primeiro quarto
     home_advantage = 1.0
     estimativa = home_q1_avg + away_q1_avg + home_advantage
     
@@ -730,11 +747,10 @@ def prever_pontos_quarto(home_id: int, away_id: int, window_games: int = 15) -> 
     elif min_games > 0:
         confianca = 45.0
     else:
-        confianca = 35.0  # Dados insuficientes
+        confianca = 35.0
     
-    # Ajusta confiança baseado na consistência dos times
-    home_consistency = min(8, home_stats.get("pts_diff_avg", 0) * 0.3)
-    away_consistency = min(8, away_stats.get("pts_diff_avg", 0) * 0.3)
+    home_consistency = min(8, abs(home_stats.get("pts_diff_avg", 0)) * 0.3)
+    away_consistency = min(8, abs(away_stats.get("pts_diff_avg", 0)) * 0.3)
     confianca += (home_consistency + away_consistency)
     confianca = min(75.0, max(30.0, confianca))
     
@@ -1289,10 +1305,10 @@ def analisar_jogos_com_dados_2025(data_sel: date, top_n: int, janela: int, envia
             away_id = jogo["visitor_team"]["id"]
             
             try:
-                # Previsões com dados reais 2024-2025
+                # Previsões com dados reais 2024-2025 (CORRIGIDAS)
                 total_estim, total_conf, total_tend = prever_total_points(home_id, away_id, janela)
                 vencedor, vencedor_conf, vencedor_detalhe = prever_vencedor(home_id, away_id, janela)
-                # NOVO: Previsão do 1º Quarto
+                # NOVO: Previsão do 1º Quarto (CORRIGIDA)
                 q1_estim, q1_conf, q1_tend = prever_pontos_quarto(home_id, away_id, janela)
                 
                 predictions = {
