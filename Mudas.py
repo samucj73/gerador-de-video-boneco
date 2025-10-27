@@ -517,16 +517,26 @@ class EstrategiaZonasOtimizada:
             
         return score
 
-    def treinar_modelo_ml(self):
-        """Treina o modelo de ML se estiver ativo"""
+    def treinar_modelo_ml(self, historico_completo=None):
+        """Treina o modelo de ML - VERSÃO CORRIGIDA"""
         if self.usar_ml and self.ml:
-            # Extrair apenas números do histórico
-            historico_numeros = []
-            for item in list(self.historico):
-                if isinstance(item, dict) and 'number' in item:
-                    historico_numeros.append(item['number'])
-                elif isinstance(item, (int, float)):
-                    historico_numeros.append(int(item))
+            # Usar histórico completo se fornecido, caso contrário usar self.historico
+            if historico_completo is not None:
+                # Extrair números do histórico completo
+                historico_numeros = []
+                for item in historico_completo:
+                    if isinstance(item, dict) and 'number' in item:
+                        historico_numeros.append(item['number'])
+                    elif isinstance(item, (int, float)):
+                        historico_numeros.append(int(item))
+            else:
+                # Usar apenas o histórico local (limitado)
+                historico_numeros = []
+                for item in list(self.historico):
+                    if isinstance(item, dict) and 'number' in item:
+                        historico_numeros.append(item['number'])
+                    elif isinstance(item, (int, float)):
+                        historico_numeros.append(int(item))
             
             if len(historico_numeros) >= self.ml.min_training_samples:
                 success, message = self.ml.treinar_modelo(historico_numeros)
@@ -703,10 +713,10 @@ class SistemaRoletaCompleto:
         # Reinstanciar a estratégia de zonas com a nova configuração ML
         self.estrategia_zonas = EstrategiaZonasOtimizada(usar_ml=usar_ml)
 
-    def treinar_modelo_ml(self):
+    def treinar_modelo_ml(self, historico_completo=None):
         """Treina o modelo de ML - VERSÃO CORRIGIDA"""
         if self.usar_ml:
-            return self.estrategia_zonas.treinar_modelo_ml()
+            return self.estrategia_zonas.treinar_modelo_ml(historico_completo)
         return False, "ML não está ativado"
 
     def processar_novo_numero(self, numero):
@@ -865,7 +875,8 @@ if usar_ml:
                 if st.button("🚀 Treinar Modelo ML", type="primary", use_container_width=True):
                     with st.spinner("Treinando modelo ML... Isso pode levar alguns segundos"):
                         try:
-                            success, message = st.session_state.sistema.treinar_modelo_ml()
+                            # CORREÇÃO: Passar o histórico completo para o treinamento
+                            success, message = st.session_state.sistema.treinar_modelo_ml(st.session_state.historico)
                             if success:
                                 st.success(f"✅ {message}")
                                 st.balloons()
@@ -879,9 +890,12 @@ if usar_ml:
                 if st.button("📈 Ver Dados", use_container_width=True):
                     st.write("**Estatísticas dos Dados:**")
                     st.write(f"- Total: {len(numeros_lista)} números")
-                    st.write(f"- Média: {np.mean(numeros_lista):.1f}")
-                    st.write(f"- Desvio Padrão: {np.std(numeros_lista):.1f}")
-                    st.write(f"- Últimos 10: {numeros_lista[-10:]}")
+                    if numeros_lista:
+                        st.write(f"- Média: {np.mean(numeros_lista):.1f}")
+                        st.write(f"- Desvio Padrão: {np.std(numeros_lista):.1f}")
+                        st.write(f"- Últimos 10: {numeros_lista[-10:]}")
+                    else:
+                        st.write("- Nenhum dado disponível")
         
         else:
             st.warning(f"📥 Colete mais {100 - numeros_disponiveis} números para treinar o ML")
