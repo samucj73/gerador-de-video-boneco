@@ -271,36 +271,43 @@ class MLRoleta:
             return None, f"Erro na previsão: {str(e)}"
 
 # =============================
-# ESTRATÉGIA DAS ZONAS OTIMIZADA COM ML CORRIGIDA
+# ESTRATÉGIA DAS ZONAS SUPER OTIMIZADA
 # =============================
-class EstrategiaZonas:
+class EstrategiaZonasOtimizada:
     def __init__(self, usar_ml=False):
         self.roleta = RoletaInteligente()
-        self.historico = deque(maxlen=25)
-        self.nome = "Estratégia das Zonas v2 + ML" if usar_ml else "Estratégia das Zonas v2"
+        self.historico = deque(maxlen=30)  # Aumentado para 30
+        self.nome = "Zonas Super Otimizada v3"
         self.usar_ml = usar_ml
         
-        # Inicializar ML apenas se for usar
-        self.ml = None
-        if self.usar_ml:
-            self.ml = MLRoleta()
-            # Tentar carregar modelo existente
-            self.ml.carregar_modelo()
-        
-        # Zonas otimizadas
+        # Zonas otimizadas baseadas na performance real
         self.zonas = {
-            'Amarela': 2,
-            'Vermelha': 7,  
-            'Azul': 10
+            'Vermelha': 7,   # Melhor performance: 36.4%
+            'Amarela': 2,    # Performance: 20.0%  
+            'Azul': 10       # Performance: 0.0% (precisa de ajuste)
+        }
+        
+        # Ajustar quantidade de números por zona baseado na performance
+        self.quantidade_zonas = {
+            'Vermelha': 7,   # Mais números para zona quente
+            'Amarela': 5,    # Menos números para zona fria
+            'Azul': 5        # Menos números para zona fria
         }
         
         # Pré-calcular zonas
         self.numeros_zonas = {}
         for nome, central in self.zonas.items():
-            self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, 6)
+            qtd = self.quantidade_zonas.get(nome, 6)
+            self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, qtd)
 
         # Estatísticas
-        self.stats_zonas = {zona: {'acertos': 0, 'tentativas': 0} for zona in self.zonas.keys()}
+        self.stats_zonas = {zona: {'acertos': 0, 'tentativas': 0, 'sequencia_atual': 0} for zona in self.zonas.keys()}
+        
+        # ML
+        self.ml = None
+        if self.usar_ml:
+            self.ml = MLRoleta()
+            self.ml.carregar_modelo()
 
     def adicionar_numero(self, numero):
         self.historico.append(numero)
@@ -308,51 +315,83 @@ class EstrategiaZonas:
 
     def atualizar_stats(self, ultimo_numero):
         """Atualiza estatísticas de performance das zonas"""
+        acertou = False
         for zona, numeros in self.numeros_zonas.items():
             if ultimo_numero in numeros:
                 self.stats_zonas[zona]['acertos'] += 1
+                self.stats_zonas[zona]['sequencia_atual'] += 1
+                acertou = True
+            else:
+                self.stats_zonas[zona]['sequencia_atual'] = 0
             self.stats_zonas[zona]['tentativas'] += 1
+        return acertou
 
     def get_zona_mais_quente(self):
-        """Identifica a zona com melhor performance usando múltiplos critérios"""
-        if len(self.historico) < 12:
+        """Sistema de scoring super otimizado"""
+        if len(self.historico) < 15:
             return None
             
         zonas_score = {}
+        total_numeros = len(self.historico)
         
         for zona in self.zonas.keys():
             score = 0
             
-            # Critério 1: Frequência geral (40% do score)
+            # CRITÉRIO 1: Frequência geral (30% do score)
             freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
-            percentual_geral = freq_geral / len(self.historico)
-            score += percentual_geral * 40
+            percentual_geral = freq_geral / total_numeros
+            score += percentual_geral * 30
             
-            # Critério 2: Frequência recente (35% do score)
-            ultimos_10 = list(self.historico)[-10:] if len(self.historico) >= 10 else list(self.historico)
-            freq_recente = sum(1 for n in ultimos_10 if n in self.numeros_zonas[zona])
-            percentual_recente = freq_recente / len(ultimos_10)
+            # CRITÉRIO 2: Frequência recente (35% do score) - MAIS PESO
+            ultimos_12 = list(self.historico)[-12:] if total_numeros >= 12 else list(self.historico)
+            freq_recente = sum(1 for n in ultimos_12 if n in self.numeros_zonas[zona])
+            percentual_recente = freq_recente / len(ultimos_12)
             score += percentual_recente * 35
             
-            # Critério 3: Performance histórica (25% do score)
-            if self.stats_zonas[zona]['tentativas'] > 0:
+            # CRITÉRIO 3: Performance histórica (25% do score)
+            if self.stats_zonas[zona]['tentativas'] > 5:
                 taxa_acerto = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
-                score += min(taxa_acerto * 0.25, 25)
+                # Bônus para zonas com boa performance
+                if taxa_acerto > 30:
+                    score += 25
+                elif taxa_acerto > 20:
+                    score += 15
+                else:
+                    score += 5
+            
+            # CRITÉRIO 4: Sequência atual (10% do score)
+            sequencia = self.stats_zonas[zona]['sequencia_atual']
+            if sequencia >= 2:
+                score += min(sequencia * 5, 10)  # Bônus por sequência
             
             zonas_score[zona] = score
         
+        # Encontrar zona vencedora com threshold dinâmico
         zona_vencedora = max(zonas_score, key=zonas_score.get) if zonas_score else None
-        return zona_vencedora if zona_vencedora and zonas_score[zona_vencedora] >= 25 else None
+        
+        # Threshold dinâmico baseado na performance da zona
+        if zona_vencedora:
+            threshold = 25
+            # Reduzir threshold para zonas com boa performance histórica
+            if self.stats_zonas[zona_vencedora]['tentativas'] > 10:
+                taxa = (self.stats_zonas[zona_vencedora]['acertos'] / self.stats_zonas[zona_vencedora]['tentativas']) * 100
+                if taxa > 35:
+                    threshold = 20  # Mais sensível para zonas quentes
+                elif taxa < 15:
+                    threshold = 30  # Mais rigoroso para zonas frias
+            
+            return zona_vencedora if zonas_score[zona_vencedora] >= threshold else None
+        
+        return None
 
     def analisar_zonas(self):
-        """Versão otimizada com suporte a ML"""
+        """Versão super otimizada"""
         if len(self.historico) < 15:
             return None
 
-        # Se ML está ativo e treinado, usar previsão ML para reforçar decisão
+        # Previsão ML se disponível
         previsao_ml = None
         if self.usar_ml and self.ml and self.ml.is_trained:
-            # Extrair números do histórico para o ML
             historico_numeros = []
             for item in list(self.historico):
                 if isinstance(item, dict) and 'number' in item:
@@ -368,17 +407,20 @@ class EstrategiaZonas:
         if zona_alvo:
             numeros_apostar = self.numeros_zonas[zona_alvo]
             
-            # Se ML confirma, aumentar confiança
-            confianca = self.calcular_confianca(zona_alvo)
-            gatilho = f'Zona {zona_alvo} - Score: {self.get_zona_score(zona_alvo):.1f}'
+            # Confiança super otimizada
+            confianca = self.calcular_confianca_avancada(zona_alvo)
+            score = self.get_zona_score(zona_alvo)
             
+            gatilho = f'Zona {zona_alvo} - Score: {score:.1f}'
+            
+            # Integração ML melhorada
             if previsao_ml and self.usar_ml:
-                # Verificar se previsão ML está alinhada com zona
-                numeros_ml = [num for num, prob in previsao_ml[:3]]  # Top 3 do ML
+                numeros_ml = [num for num, prob in previsao_ml[:3]]
                 intersecao = set(numeros_ml) & set(numeros_apostar)
                 if intersecao:
-                    confianca = "Muito Alta (ML Confirmado)"
-                    gatilho += f" | ML: {len(intersecao)} números alinhados"
+                    if confianca == 'Alta':
+                        confianca = 'Muito Alta'
+                    gatilho += f" | ML: {len(intersecao)} números confirmados"
             
             return {
                 'nome': f'Zona {zona_alvo}',
@@ -391,74 +433,89 @@ class EstrategiaZonas:
         
         return None
 
+    def calcular_confianca_avancada(self, zona):
+        """Sistema de confiança avançado"""
+        if len(self.historico) < 10:
+            return 'Baixa'
+            
+        # Múltiplos fatores
+        fatores = []
+        
+        # Fator 1: Frequência geral
+        freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+        perc_geral = (freq_geral / len(self.historico)) * 100
+        if perc_geral > 45: fatores.append(3)
+        elif perc_geral > 35: fatores.append(2)
+        else: fatores.append(1)
+        
+        # Fator 2: Frequência recente (últimos 15)
+        ultimos_15 = list(self.historico)[-15:] if len(self.historico) >= 15 else list(self.historico)
+        freq_recente = sum(1 for n in ultimos_15 if n in self.numeros_zonas[zona])
+        perc_recente = (freq_recente / len(ultimos_15)) * 100
+        if perc_recente > 60: fatores.append(3)
+        elif perc_recente > 40: fatores.append(2)
+        else: fatores.append(1)
+        
+        # Fator 3: Performance histórica
+        if self.stats_zonas[zona]['tentativas'] > 8:
+            taxa = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
+            if taxa > 40: fatores.append(3)
+            elif taxa > 25: fatores.append(2)
+            else: fatores.append(1)
+        else:
+            fatores.append(1)
+        
+        # Fator 4: Tendência (últimos 5 vs anteriores)
+        if len(self.historico) >= 10:
+            ultimos_5 = list(self.historico)[-5:]
+            anteriores_5 = list(self.historico)[-10:-5]
+            
+            freq_ultimos = sum(1 for n in ultimos_5 if n in self.numeros_zonas[zona])
+            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona])
+            
+            if freq_ultimos > freq_anteriores: fatores.append(3)  # Tendência positiva
+            elif freq_ultimos == freq_anteriores: fatores.append(2)  # Estável
+            else: fatores.append(1)  # Tendência negativa
+        
+        score_confianca = sum(fatores) / len(fatores)
+        
+        if score_confianca >= 2.5: return 'Muito Alta'
+        elif score_confianca >= 2.0: return 'Alta'
+        elif score_confianca >= 1.5: return 'Média'
+        else: return 'Baixa'
+
     def get_zona_score(self, zona):
-        """Calcula o score atual de uma zona específica"""
-        if len(self.historico) < 12:
+        """Score detalhado para debug"""
+        if len(self.historico) < 10:
             return 0
             
         score = 0
-        freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
-        percentual_geral = freq_geral / len(self.historico)
-        score += percentual_geral * 40
+        total_numeros = len(self.historico)
         
-        ultimos_10 = list(self.historico)[-10:] if len(self.historico) >= 10 else list(self.historico)
-        freq_recente = sum(1 for n in ultimos_10 if n in self.numeros_zonas[zona])
-        percentual_recente = freq_recente / len(ultimos_10) if ultimos_10 else 0
+        # Frequência geral
+        freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+        percentual_geral = freq_geral / total_numeros
+        score += percentual_geral * 30
+        
+        # Frequência recente
+        ultimos_12 = list(self.historico)[-12:] if total_numeros >= 12 else list(self.historico)
+        freq_recente = sum(1 for n in ultimos_12 if n in self.numeros_zonas[zona])
+        percentual_recente = freq_recente / len(ultimos_12)
         score += percentual_recente * 35
         
-        if self.stats_zonas[zona]['tentativas'] > 0:
+        # Performance histórica
+        if self.stats_zonas[zona]['tentativas'] > 5:
             taxa_acerto = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
-            score += min(taxa_acerto * 0.25, 25)
+            if taxa_acerto > 30: score += 25
+            elif taxa_acerto > 20: score += 15
+            else: score += 5
+        
+        # Sequência
+        sequencia = self.stats_zonas[zona]['sequencia_atual']
+        if sequencia >= 2:
+            score += min(sequencia * 5, 10)
             
         return score
-
-    def calcular_confianca(self, zona):
-        """Calcula nível de confiança baseado em múltiplos indicadores"""
-        indicadores = []
-        
-        # Indicador 1: Frequência geral
-        freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
-        perc_geral = (freq_geral / len(self.historico)) * 100
-        if perc_geral > 40: 
-            indicadores.append(3)
-        elif perc_geral > 30: 
-            indicadores.append(2)
-        else: 
-            indicadores.append(1)
-        
-        # Indicador 2: Frequência recente
-        ultimos_8 = list(self.historico)[-8:]
-        freq_recente = sum(1 for n in ultimos_8 if n in self.numeros_zonas[zona])
-        perc_recente = (freq_recente / len(ultimos_8)) * 100 if ultimos_8 else 0
-        if perc_recente > 50: 
-            indicadores.append(3)
-        elif perc_recente > 35: 
-            indicadores.append(2)
-        else: 
-            indicadores.append(1)
-        
-        # Indicador 3: Performance histórica
-        if self.stats_zonas[zona]['tentativas'] > 10:
-            taxa = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
-            if taxa > 30: 
-                indicadores.append(3)
-            elif taxa > 20: 
-                indicadores.append(2)
-            else: 
-                indicadores.append(1)
-        else:
-            indicadores.append(1)
-        
-        score_confianca = sum(indicadores) / len(indicadores)
-        
-        if score_confianca >= 2.5: 
-            return 'Muito Alta'
-        elif score_confianca >= 2.0: 
-            return 'Alta'
-        elif score_confianca >= 1.5: 
-            return 'Média'
-        else: 
-            return 'Baixa'
 
     def treinar_modelo_ml(self):
         """Treina o modelo de ML se estiver ativo"""
@@ -490,21 +547,18 @@ class EstrategiaZonas:
         return info
 
     def get_analise_detalhada(self):
-        """Análise completa com ML"""
+        """Análise super detalhada"""
         if len(self.historico) == 0:
             return "Aguardando dados..."
         
-        analise = "🎯 ANÁLISE DETALHADA DAS ZONAS v2"
-        if self.usar_ml:
-            analise += " + ML"
-        analise += "\n" + "=" * 50 + "\n"
+        analise = "🎯 ANÁLISE SUPER OTIMIZADA - ZONAS v3\n"
+        analise += "=" * 55 + "\n"
         
         # Status ML
         if self.usar_ml:
             status_ml = "✅ Treinado" if self.ml and self.ml.is_trained else "❌ Não treinado"
             analise += f"🤖 STATUS ML: {status_ml}\n"
             if self.ml and self.ml.is_trained and len(self.historico) >= 10:
-                # Extrair números para ML
                 historico_numeros = []
                 for item in list(self.historico):
                     if isinstance(item, dict) and 'number' in item:
@@ -519,31 +573,48 @@ class EstrategiaZonas:
                         analise += f"  {num}: {prob:.2%}\n"
             analise += "---\n"
         
-        # Performance por zona
-        analise += "📊 PERFORMANCE POR ZONA:\n"
+        # Performance detalhada
+        analise += "📊 PERFORMANCE DETALHADA:\n"
         for zona in self.zonas.keys():
             tentativas = self.stats_zonas[zona]['tentativas']
             acertos = self.stats_zonas[zona]['acertos']
             taxa = (acertos / tentativas * 100) if tentativas > 0 else 0
+            sequencia = self.stats_zonas[zona]['sequencia_atual']
             
-            analise += f"📍 {zona}: {acertos}/{tentativas} → {taxa:.1f}%\n"
+            analise += f"📍 {zona}: {acertos}/{tentativas} → {taxa:.1f}% | Seq: {sequencia}\n"
         
         analise += "\n📈 FREQUÊNCIA ATUAL:\n"
         for zona in self.zonas.keys():
             freq = sum(1 for n in self.historico if isinstance(n, (int, float)) and n in self.numeros_zonas[zona])
             perc = (freq / len(self.historico)) * 100
             score = self.get_zona_score(zona)
-            analise += f"📍 {zona}: {freq}/{len(self.historico)} → {perc:.1f}% | Score: {score:.1f}\n"
+            qtd_numeros = len(self.numeros_zonas[zona])
+            analise += f"📍 {zona}: {freq}/{len(self.historico)} → {perc:.1f}% | Score: {score:.1f} | Números: {qtd_numeros}\n"
+        
+        # Tendências
+        analise += "\n📊 TENDÊNCIAS:\n"
+        if len(self.historico) >= 10:
+            for zona in self.zonas.keys():
+                ultimos_5 = list(self.historico)[-5:]
+                anteriores_5 = list(self.historico)[-10:-5] if len(self.historico) >= 10 else []
+                
+                freq_ultimos = sum(1 for n in ultimos_5 if n in self.numeros_zonas[zona])
+                freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona]) if anteriores_5 else 0
+                
+                tendencia = "↗️" if freq_ultimos > freq_anteriores else "↘️" if freq_ultimos < freq_anteriores else "➡️"
+                analise += f"📍 {zona}: {freq_ultimos}/5 vs {freq_anteriores}/5 {tendencia}\n"
         
         # Recomendações
         zona_recomendada = self.get_zona_mais_quente()
         if zona_recomendada:
             analise += f"\n💡 RECOMENDAÇÃO: Zona {zona_recomendada}\n"
             analise += f"🎯 Números: {sorted(self.numeros_zonas[zona_recomendada])}\n"
-            analise += f"📈 Confiança: {self.calcular_confianca(zona_recomendada)}\n"
+            analise += f"📈 Confiança: {self.calcular_confianca_avancada(zona_recomendada)}\n"
             analise += f"🔥 Score: {self.get_zona_score(zona_recomendada):.1f}\n"
+            analise += f"🔢 Quantidade: {len(self.numeros_zonas[zona_recomendada])} números\n"
         else:
             analise += "\n⚠️  AGUARDAR: Nenhuma zona com confiança suficiente\n"
+            analise += f"📋 Histórico atual: {len(self.historico)} números\n"
         
         return analise
 
@@ -614,7 +685,7 @@ class EstrategiaMidas:
 # =============================
 class SistemaRoletaCompleto:
     def __init__(self, usar_ml=False):
-        self.estrategia_zonas = EstrategiaZonas(usar_ml=usar_ml)
+        self.estrategia_zonas = EstrategiaZonasOtimizada(usar_ml=usar_ml)
         self.estrategia_midas = EstrategiaMidas()
         self.previsao_ativa = None
         self.historico_desempenho = []
@@ -630,7 +701,7 @@ class SistemaRoletaCompleto:
     def set_usar_ml(self, usar_ml):
         self.usar_ml = usar_ml
         # Reinstanciar a estratégia de zonas com a nova configuração ML
-        self.estrategia_zonas = EstrategiaZonas(usar_ml=usar_ml)
+        self.estrategia_zonas = EstrategiaZonasOtimizada(usar_ml=usar_ml)
 
     def treinar_modelo_ml(self):
         """Treina o modelo de ML - VERSÃO CORRIGIDA"""
@@ -732,8 +803,8 @@ def fetch_latest_result():
 # =============================
 # APLICAÇÃO STREAMLIT ATUALIZADA E CORRIGIDA
 # =============================
-st.set_page_config(page_title="IA Roleta — Zonas v2 + ML", layout="centered")
-st.title("🎯 IA Roleta — Estratégia das Zonas v2 + Machine Learning")
+st.set_page_config(page_title="IA Roleta — Zonas v3 Super Otimizada", layout="centered")
+st.title("🎯 IA Roleta — Estratégia das Zonas v3 Super Otimizada + ML")
 
 # Inicialização
 if "sistema" not in st.session_state:
@@ -843,7 +914,7 @@ with st.sidebar.expander("📊 Informações das Zonas"):
         st.write("---")
 
 # Análise detalhada
-with st.sidebar.expander("🔍 Análise Detalhada - Zonas v2 + ML"):
+with st.sidebar.expander("🔍 Análise Detalhada - Zonas v3"):
     analise = st.session_state.sistema.estrategia_zonas.get_analise_detalhada()
     
     # Dividir a análise em seções para melhor legibilidade
