@@ -37,15 +37,15 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# ESTRATÉGIA DAS ZONAS REVISADA
+# ESTRATÉGIA DAS ZONAS OTIMIZADA (VERSÃO 2.0)
 # =============================
 class EstrategiaZonas:
     def __init__(self):
         self.roleta = RoletaInteligente()
-        self.historico = deque(maxlen=20)
-        self.nome = "Estratégia das Zonas"
+        self.historico = deque(maxlen=25)  # Aumentado para 25
+        self.nome = "Estratégia das Zonas v2"
         
-        # Definir as zonas conforme descrito
+        # Zonas otimizadas
         self.zonas = {
             'Amarela': 2,   # Número central da zona amarela
             'Vermelha': 7,  # Número central da zona vermelha  
@@ -57,43 +57,148 @@ class EstrategiaZonas:
         for nome, central in self.zonas.items():
             self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, 6)
 
+        # Estatísticas de performance por zona
+        self.stats_zonas = {zona: {'acertos': 0, 'tentativas': 0} for zona in self.zonas.keys()}
+
     def adicionar_numero(self, numero):
         self.historico.append(numero)
+        self.atualizar_stats(numero)
+
+    def atualizar_stats(self, ultimo_numero):
+        """Atualiza estatísticas de performance das zonas"""
+        # Verificar se havia previsão ativa e atualizar stats
+        for zona, numeros in self.numeros_zonas.items():
+            if ultimo_numero in numeros:
+                self.stats_zonas[zona]['acertos'] += 1
+            self.stats_zonas[zona]['tentativas'] += 1
+
+    def get_zona_mais_quente(self):
+        """Identifica a zona com melhor performance usando múltiplos critérios"""
+        if len(self.historico) < 12:  # Aumentado o mínimo
+            return None
+            
+        # Sistema de pontuação multi-critério
+        zonas_score = {}
+        
+        for zona in self.zonas.keys():
+            score = 0
+            
+            # Critério 1: Frequência geral (40% do score)
+            freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+            percentual_geral = freq_geral / len(self.historico)
+            score += percentual_geral * 40
+            
+            # Critério 2: Frequência recente (35% do score)
+            ultimos_10 = list(self.historico)[-10:] if len(self.historico) >= 10 else list(self.historico)
+            freq_recente = sum(1 for n in ultimos_10 if n in self.numeros_zonas[zona])
+            percentual_recente = freq_recente / len(ultimos_10) if ultimos_10 else 0
+            score += percentual_recente * 35
+            
+            # Critério 3: Performance histórica (25% do score)
+            if self.stats_zonas[zona]['tentativas'] > 0:
+                taxa_acerto = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
+                score += min(taxa_acerto * 0.25, 25)  # Normalizado para 25%
+            
+            zonas_score[zona] = score
+        
+        # Retorna a zona com maior score, desde que atinja threshold mínimo
+        zona_vencedora = max(zonas_score, key=zonas_score.get) if zonas_score else None
+        return zona_vencedora if zona_vencedora and zonas_score[zona_vencedora] >= 25 else None
 
     def analisar_zonas(self):
-        """Analisa os últimos sorteios e identifica a próxima zona provável - CRITÉRIO MAIS SENSÍVEL"""
-        if len(self.historico) < 8:  # Reduzido para 8 números mínimos
+        """Versão otimizada com múltiplos critérios"""
+        if len(self.historico) < 15:  # Aumentei o mínimo para mais confiabilidade
             return None
 
-        # Contar frequência das zonas nos últimos sorteios
-        frequencia_zonas = {zona: 0 for zona in self.zonas.keys()}
+        zona_alvo = self.get_zona_mais_quente()
         
-        for numero in self.historico:
-            for zona, numeros in self.numeros_zonas.items():
-                if numero in numeros:
-                    frequencia_zonas[zona] += 1
-                    break
-
-        # Encontrar a zona mais frequente
-        zona_mais_frequente = max(frequencia_zonas, key=frequencia_zonas.get)
-        frequencia_maxima = frequencia_zonas[zona_mais_frequente]
-
-        # CRITÉRIO MAIS SENSÍVEL: 25% dos números ou pelo menos 3 números
-        total_numeros = len(self.historico)
-        percentual_minimo = 0.25  # Reduzido para 25%
-        minimo_absoluto = 3       # Pelo menos 3 números
-        
-        if frequencia_maxima >= max(total_numeros * percentual_minimo, minimo_absoluto):
-            numeros_apostar = self.numeros_zonas[zona_mais_frequente]
+        if zona_alvo:
+            numeros_apostar = self.numeros_zonas[zona_alvo]
+            
+            # Calcular confiança baseada em múltiplos fatores
+            confianca = self.calcular_confianca(zona_alvo)
             
             return {
-                'nome': f'Zona {zona_mais_frequente}',
+                'nome': f'Zona {zona_alvo}',
                 'numeros_apostar': numeros_apostar,
-                'gatilho': f'Zona {zona_mais_frequente} ({frequencia_maxima}/{total_numeros} números)',
-                'confianca': 'Alta' if frequencia_maxima >= total_numeros * 0.4 else 'Média'
+                'gatilho': f'Zona {zona_alvo} - Score: {self.get_zona_score(zona_alvo):.1f} - Conf: {confianca}',
+                'confianca': confianca,
+                'zona': zona_alvo
             }
         
         return None
+
+    def get_zona_score(self, zona):
+        """Calcula o score atual de uma zona específica"""
+        if len(self.historico) < 12:
+            return 0
+            
+        score = 0
+        # Frequência geral
+        freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+        percentual_geral = freq_geral / len(self.historico)
+        score += percentual_geral * 40
+        
+        # Frequência recente
+        ultimos_10 = list(self.historico)[-10:] if len(self.historico) >= 10 else list(self.historico)
+        freq_recente = sum(1 for n in ultimos_10 if n in self.numeros_zonas[zona])
+        percentual_recente = freq_recente / len(ultimos_10) if ultimos_10 else 0
+        score += percentual_recente * 35
+        
+        # Performance histórica
+        if self.stats_zonas[zona]['tentativas'] > 0:
+            taxa_acerto = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
+            score += min(taxa_acerto * 0.25, 25)
+            
+        return score
+
+    def calcular_confianca(self, zona):
+        """Calcula nível de confiança baseado em múltiplos indicadores"""
+        indicadores = []
+        
+        # Indicador 1: Frequência geral
+        freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+        perc_geral = (freq_geral / len(self.historico)) * 100
+        if perc_geral > 40: 
+            indicadores.append(3)
+        elif perc_geral > 30: 
+            indicadores.append(2)
+        else: 
+            indicadores.append(1)
+        
+        # Indicador 2: Frequência recente
+        ultimos_8 = list(self.historico)[-8:]
+        freq_recente = sum(1 for n in ultimos_8 if n in self.numeros_zonas[zona])
+        perc_recente = (freq_recente / len(ultimos_8)) * 100 if ultimos_8 else 0
+        if perc_recente > 50: 
+            indicadores.append(3)
+        elif perc_recente > 35: 
+            indicadores.append(2)
+        else: 
+            indicadores.append(1)
+        
+        # Indicador 3: Performance histórica
+        if self.stats_zonas[zona]['tentativas'] > 10:
+            taxa = (self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas']) * 100
+            if taxa > 30: 
+                indicadores.append(3)
+            elif taxa > 20: 
+                indicadores.append(2)
+            else: 
+                indicadores.append(1)
+        else:
+            indicadores.append(1)  # Default se não há dados suficientes
+        
+        score_confianca = sum(indicadores) / len(indicadores)
+        
+        if score_confianca >= 2.5: 
+            return 'Muito Alta'
+        elif score_confianca >= 2.0: 
+            return 'Alta'
+        elif score_confianca >= 1.5: 
+            return 'Média'
+        else: 
+            return 'Baixa'
 
     def get_info_zonas(self):
         """Retorna informações sobre as zonas para display"""
@@ -106,29 +211,49 @@ class EstrategiaZonas:
             }
         return info
 
-    def get_analise_atual(self):
-        """Retorna análise atual para debug"""
+    def get_analise_detalhada(self):
+        """Análise completa com insights acionáveis"""
         if len(self.historico) == 0:
-            return "Histórico vazio"
+            return "Aguardando dados..."
         
-        frequencia_zonas = {zona: 0 for zona in self.zonas.keys()}
+        analise = "🎯 ANÁLISE DETALHADA DAS ZONAS v2\n"
+        analise += "=" * 50 + "\n"
         
-        for numero in self.historico:
-            for zona, numeros in self.numeros_zonas.items():
-                if numero in numeros:
-                    frequencia_zonas[zona] += 1
-                    break
+        # Performance por zona
+        analise += "📊 PERFORMANCE POR ZONA:\n"
+        for zona in self.zonas.keys():
+            tentativas = self.stats_zonas[zona]['tentativas']
+            acertos = self.stats_zonas[zona]['acertos']
+            taxa = (acertos / tentativas * 100) if tentativas > 0 else 0
+            
+            analise += f"📍 {zona}: {acertos}/{tentativas} → {taxa:.1f}%\n"
         
-        analise = f"Histórico: {list(self.historico)}\n"
-        analise += f"Total números: {len(self.historico)}\n"
-        analise += "Frequência por zona:\n"
-        for zona, freq in frequencia_zonas.items():
-            analise += f"  {zona}: {freq} números\n"
+        analise += "\n📈 FREQUÊNCIA ATUAL:\n"
+        for zona in self.zonas.keys():
+            freq = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+            perc = (freq / len(self.historico)) * 100
+            score = self.get_zona_score(zona)
+            analise += f"📍 {zona}: {freq}/{len(self.historico)} → {perc:.1f}% | Score: {score:.1f}\n"
+        
+        # Recomendações
+        zona_recomendada = self.get_zona_mais_quente()
+        if zona_recomendada:
+            analise += f"\n💡 RECOMENDAÇÃO: Zona {zona_recomendada}\n"
+            analise += f"🎯 Números: {sorted(self.numeros_zonas[zona_recomendada])}\n"
+            analise += f"📈 Confiança: {self.calcular_confianca(zona_recomendada)}\n"
+            analise += f"🔥 Score: {self.get_zona_score(zona_recomendada):.1f}\n"
+        else:
+            analise += "\n⚠️  AGUARDAR: Nenhuma zona com confiança suficiente\n"
+            analise += f"📋 Mínimo necessário: Score 25+ | Histórico: {len(self.historico)}/15 números\n"
         
         return analise
 
+    def get_analise_atual(self):
+        """Mantido para compatibilidade - usa a nova análise detalhada"""
+        return self.get_analise_detalhada()
+
 # =============================
-# ESTRATÉGIA MIDAS (EXISTENTE)
+# ESTRATÉGIA MIDAS (EXISTENTE - MANTIDA)
 # =============================
 class EstrategiaMidas:
     def __init__(self):
@@ -285,8 +410,8 @@ def fetch_latest_result():
 # =============================
 # APLICAÇÃO STREAMLIT
 # =============================
-st.set_page_config(page_title="IA Roleta — Estratégia das Zonas", layout="centered")
-st.title("🎯 IA Roleta — Estratégia das Zonas + Midas")
+st.set_page_config(page_title="IA Roleta — Estratégia das Zonas v2", layout="centered")
+st.title("🎯 IA Roleta — Estratégia das Zonas v2 + Midas")
 
 # Inicialização
 if "sistema" not in st.session_state:
@@ -315,10 +440,10 @@ with st.sidebar.expander("📊 Informações das Zonas"):
         st.write(f"Total: {dados['quantidade']} números")
         st.write("---")
 
-# DEBUG: Análise atual das zonas
-with st.sidebar.expander("🔍 Debug - Análise Zonas"):
-    analise = st.session_state.sistema.estrategia_zonas.get_analise_atual()
-    st.text_area("Análise atual:", analise, height=200)
+# DEBUG: Análise detalhada das zonas
+with st.sidebar.expander("🔍 Análise Detalhada - Zonas v2"):
+    analise = st.session_state.sistema.estrategia_zonas.get_analise_detalhada()
+    st.text_area("Análise detalhada:", analise, height=400)
 
 # Entrada manual
 st.subheader("✍️ Inserir Sorteios")
