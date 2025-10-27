@@ -352,7 +352,16 @@ class EstrategiaZonas:
         # Se ML está ativo e treinado, usar previsão ML para reforçar decisão
         previsao_ml = None
         if self.usar_ml and self.ml and self.ml.is_trained:
-            previsao_ml, msg_ml = self.ml.prever_proximo_numero(list(self.historico))
+            # Extrair números do histórico para o ML
+            historico_numeros = []
+            for item in list(self.historico):
+                if isinstance(item, dict) and 'number' in item:
+                    historico_numeros.append(item['number'])
+                elif isinstance(item, (int, float)):
+                    historico_numeros.append(int(item))
+            
+            if len(historico_numeros) >= 10:
+                previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros)
             
         zona_alvo = self.get_zona_mais_quente()
         
@@ -759,30 +768,70 @@ st.session_state.sistema.set_modo_estrategia(modo_estrategia)
 
 # Treinamento ML - APENAS se ML estiver ativado
 if usar_ml:
-    with st.sidebar.expander("🧠 Treinamento ML"):
-        # Calcular quantidade de números disponíveis
+    with st.sidebar.expander("🧠 Treinamento ML", expanded=True):
+        # Calcular quantidade de números disponíveis de forma mais robusta
         numeros_disponiveis = 0
-        for item in st.session_state.historico:
-            if isinstance(item, dict) and 'number' in item:
-                numeros_disponiveis += 1
-            elif isinstance(item, (int, float)):
-                numeros_disponiveis += 1
-                
-        st.write(f"📊 Números disponíveis: {numeros_disponiveis}")
-        st.write(f"🎯 Mínimo necessário: 100 números")
+        numeros_lista = []
         
-        if st.button("Treinar Modelo ML", disabled=numeros_disponiveis < 100):
-            with st.spinner("Treinando modelo ML..."):
-                success, message = st.session_state.sistema.treinar_modelo_ml()
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-        elif numeros_disponiveis < 100:
-            st.warning(f"Colete mais {100 - numeros_disponiveis} números para treinar o ML")
-
-# Restante do código mantido igual...
-# [Manter as outras seções da interface...]
+        for item in st.session_state.historico:
+            if isinstance(item, dict) and 'number' in item and item['number'] is not None:
+                numeros_disponiveis += 1
+                numeros_lista.append(item['number'])
+            elif isinstance(item, (int, float)) and item is not None:
+                numeros_disponiveis += 1
+                numeros_lista.append(int(item))
+                
+        st.write(f"📊 **Números disponíveis:** {numeros_disponiveis}")
+        st.write(f"🎯 **Mínimo necessário:** 100 números")
+        st.write(f"✅ **Status:** {'Dados suficientes' if numeros_disponiveis >= 100 else 'Coletando dados...'}")
+        
+        # Informações adicionais sobre o treinamento
+        if numeros_disponiveis >= 100:
+            st.success("✨ **Pronto para treinar!**")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🚀 Treinar Modelo ML", type="primary", use_container_width=True):
+                    with st.spinner("Treinando modelo ML... Isso pode levar alguns segundos"):
+                        try:
+                            success, message = st.session_state.sistema.treinar_modelo_ml()
+                            if success:
+                                st.success(f"✅ {message}")
+                                st.balloons()
+                            else:
+                                st.error(f"❌ {message}")
+                        except Exception as e:
+                            st.error(f"💥 Erro no treinamento: {str(e)}")
+            
+            with col2:
+                # Botão para ver estatísticas dos dados
+                if st.button("📈 Ver Dados", use_container_width=True):
+                    st.write("**Estatísticas dos Dados:**")
+                    st.write(f"- Total: {len(numeros_lista)} números")
+                    st.write(f"- Média: {np.mean(numeros_lista):.1f}")
+                    st.write(f"- Desvio Padrão: {np.std(numeros_lista):.1f}")
+                    st.write(f"- Últimos 10: {numeros_lista[-10:]}")
+        
+        else:
+            st.warning(f"📥 Colete mais {100 - numeros_disponiveis} números para treinar o ML")
+            
+        # Mostrar status atual do ML
+        st.write("---")
+        st.write("**Status do ML:**")
+        if st.session_state.sistema.estrategia_zonas.ml and st.session_state.sistema.estrategia_zonas.ml.is_trained:
+            st.success("✅ Modelo ML treinado e ativo")
+            # Tentar fazer uma previsão de exemplo
+            if len(numeros_lista) >= 10:
+                try:
+                    previsao, msg = st.session_state.sistema.estrategia_zonas.ml.prever_proximo_numero(numeros_lista[-20:])  # Últimos 20 para previsão
+                    if previsao:
+                        st.write("**Última previsão ML (exemplo):**")
+                        for i, (num, prob) in enumerate(previsao[:3]):  # Top 3
+                            st.write(f"{i+1}. Número {num}: {prob:.2%}")
+                except Exception as e:
+                    st.write("🔍 Aguardando mais dados para previsão")
+        else:
+            st.info("🤖 ML aguardando treinamento")
 
 # Informações sobre as Zonas
 with st.sidebar.expander("📊 Informações das Zonas"):
@@ -796,7 +845,18 @@ with st.sidebar.expander("📊 Informações das Zonas"):
 # Análise detalhada
 with st.sidebar.expander("🔍 Análise Detalhada - Zonas v2 + ML"):
     analise = st.session_state.sistema.estrategia_zonas.get_analise_detalhada()
-    st.text_area("Análise detalhada:", analise, height=500, key="analise_detalhada")
+    
+    # Dividir a análise em seções para melhor legibilidade
+    secoes = analise.split('---')
+    for i, secao in enumerate(secoes):
+        if 'STATUS ML' in secao or 'PREVISÃO ML' in secao:
+            st.info(secao)
+        elif 'RECOMENDAÇÃO' in secao:
+            st.success(secao)
+        elif 'AGUARDAR' in secao:
+            st.warning(secao)
+        else:
+            st.text(secao)
 
 # Entrada manual
 st.subheader("✍️ Inserir Sorteios")
