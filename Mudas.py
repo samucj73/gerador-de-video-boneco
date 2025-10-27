@@ -64,7 +64,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# MÓDULO DE MACHINE LEARNING
+# MÓDULO DE MACHINE LEARNING CORRIGIDO
 # =============================
 class MLRoleta:
     def __init__(self):
@@ -74,95 +74,108 @@ class MLRoleta:
         self.feature_names = []
         self.is_trained = False
         self.min_training_samples = 100
+        self.model_loaded = False
         
     def extrair_features(self, historico, numero_alvo=None):
         """Extrai features avançadas do histórico para ML"""
         if len(historico) < 10:
             return None, None
             
-        features = []
-        feature_names = []
-        
-        # Últimos k números (sequência temporal)
-        k = 10
-        ultimos_numeros = list(historico)[-k:]
-        
-        # 1. Features básicas dos últimos números
-        for i in range(min(k, len(ultimos_numeros))):
-            features.append(ultimos_numeros[i])
-            feature_names.append(f"ultimo_{i+1}")
-        
-        # 2. Estatísticas de janelamento
-        features.extend([
-            np.mean(ultimos_numeros),
-            np.std(ultimos_numeros),
-            np.median(ultimos_numeros),
-            max(ultimos_numeros),
-            min(ultimos_numeros)
-        ])
-        feature_names.extend(["media_janela", "desvio_janela", "mediana_janela", "max_janela", "min_janela"])
-        
-        # 3. Posições físicas na roda
-        posicoes = [self.roleta.get_posicao_race(n) for n in ultimos_numeros]
-        features.extend([
-            np.mean(posicoes),
-            np.std(posicoes),
-            (posicoes[-1] - posicoes[0]) % len(self.roleta.race)  # Distância percorrida
-        ])
-        feature_names.extend(["media_posicoes", "desvio_posicoes", "distancia_percorrida"])
-        
-        # 4. Contagens por categorias
-        # Cores (0=verde, 1=vermelho, 2=preto)
-        vermelhos = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
-        pretos = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
-        
-        count_vermelhos = sum(1 for n in ultimos_numeros if n in vermelhos)
-        count_pretos = sum(1 for n in ultimos_numeros if n in pretos)
-        count_verde = sum(1 for n in ultimos_numeros if n == 0)
-        
-        features.extend([count_vermelhos, count_pretos, count_verde])
-        feature_names.extend(["count_vermelhos", "count_pretos", "count_verde"])
-        
-        # 5. Duplas e colunas
-        count_duzia_1 = sum(1 for n in ultimos_numeros if 1 <= n <= 12)
-        count_duzia_2 = sum(1 for n in ultimos_numeros if 13 <= n <= 24)
-        count_duzia_3 = sum(1 for n in ultimos_numeros if 25 <= n <= 36)
-        
-        features.extend([count_duzia_1, count_duzia_2, count_duzia_3])
-        feature_names.extend(["duzia_1", "duzia_2", "duzia_3"])
-        
-        # 6. Transições e padrões
-        transicoes = []
-        for i in range(1, len(ultimos_numeros)):
-            transicoes.append(abs(ultimos_numeros[i] - ultimos_numeros[i-1]))
-        
-        if transicoes:
-            features.extend([np.mean(transicoes), np.std(transicoes)])
+        try:
+            features = []
+            feature_names = []
+            
+            # Últimos k números (sequência temporal)
+            k = 10
+            ultimos_numeros = list(historico)[-k:]
+            
+            # 1. Features básicas dos últimos números
+            for i in range(min(k, len(ultimos_numeros))):
+                features.append(ultimos_numeros[i])
+                feature_names.append(f"ultimo_{i+1}")
+            
+            # 2. Estatísticas de janelamento
+            features.extend([
+                np.mean(ultimos_numeros),
+                np.std(ultimos_numeros) if len(ultimos_numeros) > 1 else 0,
+                np.median(ultimos_numeros),
+                max(ultimos_numeros),
+                min(ultimos_numeros)
+            ])
+            feature_names.extend(["media_janela", "desvio_janela", "mediana_janela", "max_janela", "min_janela"])
+            
+            # 3. Posições físicas na roda
+            posicoes = [self.roleta.get_posicao_race(n) for n in ultimos_numeros if n is not None]
+            if posicoes:
+                features.extend([
+                    np.mean(posicoes),
+                    np.std(posicoes) if len(posicoes) > 1 else 0,
+                    (posicoes[-1] - posicoes[0]) % len(self.roleta.race) if len(posicoes) > 1 else 0
+                ])
+            else:
+                features.extend([0, 0, 0])
+            feature_names.extend(["media_posicoes", "desvio_posicoes", "distancia_percorrida"])
+            
+            # 4. Contagens por categorias
+            vermelhos = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
+            pretos = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
+            
+            count_vermelhos = sum(1 for n in ultimos_numeros if n in vermelhos)
+            count_pretos = sum(1 for n in ultimos_numeros if n in pretos)
+            count_verde = sum(1 for n in ultimos_numeros if n == 0)
+            
+            features.extend([count_vermelhos, count_pretos, count_verde])
+            feature_names.extend(["count_vermelhos", "count_pretos", "count_verde"])
+            
+            # 5. Duplas e colunas
+            count_duzia_1 = sum(1 for n in ultimos_numeros if 1 <= n <= 12)
+            count_duzia_2 = sum(1 for n in ultimos_numeros if 13 <= n <= 24)
+            count_duzia_3 = sum(1 for n in ultimos_numeros if 25 <= n <= 36)
+            
+            features.extend([count_duzia_1, count_duzia_2, count_duzia_3])
+            feature_names.extend(["duzia_1", "duzia_2", "duzia_3"])
+            
+            # 6. Transições e padrões
+            transicoes = []
+            for i in range(1, len(ultimos_numeros)):
+                transicoes.append(abs(ultimos_numeros[i] - ultimos_numeros[i-1]))
+            
+            if transicoes:
+                features.extend([
+                    np.mean(transicoes),
+                    np.std(transicoes) if len(transicoes) > 1 else 0
+                ])
+            else:
+                features.extend([0, 0])
             feature_names.extend(["media_transicoes", "desvio_transicoes"])
-        
-        # 7. Tempo desde último zero
-        tempo_zero = 0
-        for i, num in enumerate(reversed(ultimos_numeros)):
-            if num == 0:
-                tempo_zero = i + 1
-                break
-        features.append(tempo_zero)
-        feature_names.append("tempo_desde_zero")
-        
-        # 8. Frequência de zonas
-        zonas = {
-            'Amarela': self.roleta.get_vizinhos_zona(2, 6),
-            'Vermelha': self.roleta.get_vizinhos_zona(7, 6),
-            'Azul': self.roleta.get_vizinhos_zona(10, 6)
-        }
-        
-        for zona, numeros in zonas.items():
-            count = sum(1 for n in ultimos_numeros if n in numeros)
-            features.append(count)
-            feature_names.append(f"zona_{zona}")
-        
-        self.feature_names = feature_names
-        return features, feature_names
+            
+            # 7. Tempo desde último zero
+            tempo_zero = 0
+            for i, num in enumerate(reversed(ultimos_numeros)):
+                if num == 0:
+                    tempo_zero = i + 1
+                    break
+            features.append(tempo_zero)
+            feature_names.append("tempo_desde_zero")
+            
+            # 8. Frequência de zonas
+            zonas = {
+                'Amarela': self.roleta.get_vizinhos_zona(2, 6),
+                'Vermelha': self.roleta.get_vizinhos_zona(7, 6),
+                'Azul': self.roleta.get_vizinhos_zona(10, 6)
+            }
+            
+            for zona, numeros in zonas.items():
+                count = sum(1 for n in ultimos_numeros if n in numeros)
+                features.append(count)
+                feature_names.append(f"zona_{zona}")
+            
+            self.feature_names = feature_names
+            return features, feature_names
+            
+        except Exception as e:
+            logging.error(f"Erro ao extrair features: {e}")
+            return None, None
     
     def preparar_dados_treinamento(self, historico_completo):
         """Prepara dados de treinamento do histórico completo"""
@@ -170,13 +183,12 @@ class MLRoleta:
         y = []
         
         for i in range(20, len(historico_completo)):
-            # Usar janela de 20 números para prever o próximo
             janela = historico_completo[:i]
             features, _ = self.extrair_features(janela)
             
-            if features and i < len(historico_completo):
+            if features is not None and i < len(historico_completo):
                 X.append(features)
-                y.append(historico_completo[i])  # Próximo número
+                y.append(historico_completo[i])
         
         return np.array(X), np.array(y)
     
@@ -203,7 +215,8 @@ class MLRoleta:
                 n_estimators=100,
                 max_depth=10,
                 min_samples_split=5,
-                random_state=42
+                random_state=42,
+                n_jobs=-1
             )
             
             self.model.fit(X_train_scaled, y_train)
@@ -230,9 +243,10 @@ class MLRoleta:
                 self.model = joblib.load(ML_MODEL_PATH)
                 self.scaler = joblib.load(SCALER_PATH)
                 self.is_trained = True
+                self.model_loaded = True
                 return True
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"Erro ao carregar modelo: {e}")
         return False
     
     def prever_proximo_numero(self, historico):
@@ -250,14 +264,14 @@ class MLRoleta:
             
             # Top 5 números mais prováveis
             top_5_indices = np.argsort(probabilidades)[-5:][::-1]
-            top_5_numeros = [(num, probabilidades[i]) for i, num in enumerate(top_5_indices)]
+            top_5_numeros = [(idx, probabilidades[idx]) for idx in top_5_indices]
             
             return top_5_numeros, "Previsão ML realizada"
         except Exception as e:
             return None, f"Erro na previsão: {str(e)}"
 
 # =============================
-# ESTRATÉGIA DAS ZONAS OTIMIZADA COM ML
+# ESTRATÉGIA DAS ZONAS OTIMIZADA COM ML CORRIGIDA
 # =============================
 class EstrategiaZonas:
     def __init__(self, usar_ml=False):
@@ -266,8 +280,11 @@ class EstrategiaZonas:
         self.nome = "Estratégia das Zonas v2 + ML" if usar_ml else "Estratégia das Zonas v2"
         self.usar_ml = usar_ml
         
+        # Inicializar ML apenas se for usar
+        self.ml = None
         if self.usar_ml:
             self.ml = MLRoleta()
+            # Tentar carregar modelo existente
             self.ml.carregar_modelo()
         
         # Zonas otimizadas
@@ -334,7 +351,7 @@ class EstrategiaZonas:
 
         # Se ML está ativo e treinado, usar previsão ML para reforçar decisão
         previsao_ml = None
-        if self.usar_ml and self.ml.is_trained:
+        if self.usar_ml and self.ml and self.ml.is_trained:
             previsao_ml, msg_ml = self.ml.prever_proximo_numero(list(self.historico))
             
         zona_alvo = self.get_zona_mais_quente()
@@ -346,7 +363,7 @@ class EstrategiaZonas:
             confianca = self.calcular_confianca(zona_alvo)
             gatilho = f'Zona {zona_alvo} - Score: {self.get_zona_score(zona_alvo):.1f}'
             
-            if previsao_ml:
+            if previsao_ml and self.usar_ml:
                 # Verificar se previsão ML está alinhada com zona
                 numeros_ml = [num for num, prob in previsao_ml[:3]]  # Top 3 do ML
                 intersecao = set(numeros_ml) & set(numeros_apostar)
@@ -360,7 +377,7 @@ class EstrategiaZonas:
                 'gatilho': gatilho,
                 'confianca': confianca,
                 'zona': zona_alvo,
-                'previsao_ml': previsao_ml
+                'previsao_ml': previsao_ml if self.usar_ml else None
             }
         
         return None
@@ -436,11 +453,21 @@ class EstrategiaZonas:
 
     def treinar_modelo_ml(self):
         """Treina o modelo de ML se estiver ativo"""
-        if self.usar_ml:
-            historico_numeros = [h for h in list(self.historico) if h is not None]
-            success, message = self.ml.treinar_modelo(historico_numeros)
-            return success, message
-        return False, "ML não está ativado"
+        if self.usar_ml and self.ml:
+            # Extrair apenas números do histórico
+            historico_numeros = []
+            for item in list(self.historico):
+                if isinstance(item, dict) and 'number' in item:
+                    historico_numeros.append(item['number'])
+                elif isinstance(item, (int, float)):
+                    historico_numeros.append(int(item))
+            
+            if len(historico_numeros) >= self.ml.min_training_samples:
+                success, message = self.ml.treinar_modelo(historico_numeros)
+                return success, message
+            else:
+                return False, f"Histórico insuficiente: {len(historico_numeros)}/{self.ml.min_training_samples} números"
+        return False, "ML não está ativado ou inicializado"
 
     def get_info_zonas(self):
         """Retorna informações sobre as zonas para display"""
@@ -458,15 +485,25 @@ class EstrategiaZonas:
         if len(self.historico) == 0:
             return "Aguardando dados..."
         
-        analise = "🎯 ANÁLISE DETALHADA DAS ZONAS v2 + ML\n"
-        analise += "=" * 50 + "\n"
+        analise = "🎯 ANÁLISE DETALHADA DAS ZONAS v2"
+        if self.usar_ml:
+            analise += " + ML"
+        analise += "\n" + "=" * 50 + "\n"
         
         # Status ML
         if self.usar_ml:
-            status_ml = "✅ Treinado" if self.ml.is_trained else "❌ Não treinado"
+            status_ml = "✅ Treinado" if self.ml and self.ml.is_trained else "❌ Não treinado"
             analise += f"🤖 STATUS ML: {status_ml}\n"
-            if self.ml.is_trained and len(self.historico) >= 10:
-                previsao_ml, msg = self.ml.prever_proximo_numero(list(self.historico))
+            if self.ml and self.ml.is_trained and len(self.historico) >= 10:
+                # Extrair números para ML
+                historico_numeros = []
+                for item in list(self.historico):
+                    if isinstance(item, dict) and 'number' in item:
+                        historico_numeros.append(item['number'])
+                    elif isinstance(item, (int, float)):
+                        historico_numeros.append(int(item))
+                
+                previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros)
                 if previsao_ml:
                     analise += "📊 PREVISÃO ML (Top 5):\n"
                     for num, prob in previsao_ml:
@@ -484,7 +521,7 @@ class EstrategiaZonas:
         
         analise += "\n📈 FREQUÊNCIA ATUAL:\n"
         for zona in self.zonas.keys():
-            freq = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+            freq = sum(1 for n in self.historico if isinstance(n, (int, float)) and n in self.numeros_zonas[zona])
             perc = (freq / len(self.historico)) * 100
             score = self.get_zona_score(zona)
             analise += f"📍 {zona}: {freq}/{len(self.historico)} → {perc:.1f}% | Score: {score:.1f}\n"
@@ -564,7 +601,7 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# SISTEMA DE GESTÃO ATUALIZADO COM ML
+# SISTEMA DE GESTÃO ATUALIZADO COM ML CORRIGIDO
 # =============================
 class SistemaRoletaCompleto:
     def __init__(self, usar_ml=False):
@@ -583,20 +620,25 @@ class SistemaRoletaCompleto:
 
     def set_usar_ml(self, usar_ml):
         self.usar_ml = usar_ml
-        self.estrategia_zonas.usar_ml = usar_ml
-        if usar_ml:
-            self.estrategia_zonas.ml.carregar_modelo()
+        # Reinstanciar a estratégia de zonas com a nova configuração ML
+        self.estrategia_zonas = EstrategiaZonas(usar_ml=usar_ml)
 
     def treinar_modelo_ml(self):
-        """Treina o modelo de ML"""
+        """Treina o modelo de ML - VERSÃO CORRIGIDA"""
         if self.usar_ml:
             return self.estrategia_zonas.treinar_modelo_ml()
         return False, "ML não está ativado"
 
     def processar_novo_numero(self, numero):
+        # Extrair número se for um dicionário
+        if isinstance(numero, dict) and 'number' in numero:
+            numero_real = numero['number']
+        else:
+            numero_real = numero
+            
         # Conferir previsão anterior se existir
         if self.previsao_ativa:
-            acerto = numero in self.previsao_ativa['numeros_apostar']
+            acerto = numero_real in self.previsao_ativa['numeros_apostar']
             
             # Atualizar contador de estratégias
             nome_estrategia = self.previsao_ativa['nome']
@@ -612,7 +654,7 @@ class SistemaRoletaCompleto:
                 self.erros += 1
             
             self.historico_desempenho.append({
-                'numero': numero,
+                'numero': numero_real,
                 'acerto': acerto,
                 'estrategia': nome_estrategia,
                 'previsao': self.previsao_ativa['numeros_apostar']
@@ -621,8 +663,8 @@ class SistemaRoletaCompleto:
             self.previsao_ativa = None
         
         # Adicionar número a todas as estratégias
-        self.estrategia_zonas.adicionar_numero(numero)
-        self.estrategia_midas.adicionar_numero(numero)
+        self.estrategia_zonas.adicionar_numero(numero_real)
+        self.estrategia_midas.adicionar_numero(numero_real)
         
         # Verificar nova estratégia
         nova_estrategia = None
@@ -644,8 +686,9 @@ class SistemaRoletaCompleto:
             msg += f"🔢 Números: {', '.join(map(str, sorted(nova_estrategia['numeros_apostar'])))}"
             
             # Adicionar info ML se disponível
-            if 'previsao_ml' in nova_estrategia and nova_estrategia['previsao_ml']:
-                msg += f"\n🤖 ML: {[num for num, prob in nova_estrategia['previsao_ml'][:3]]}"
+            if self.usar_ml and 'previsao_ml' in nova_estrategia and nova_estrategia['previsao_ml']:
+                numeros_ml = [num for num, prob in nova_estrategia['previsao_ml'][:3]]
+                msg += f"\n🤖 ML: {numeros_ml}"
                 
             enviar_previsao(msg)
 
@@ -678,7 +721,7 @@ def fetch_latest_result():
         return None
 
 # =============================
-# APLICAÇÃO STREAMLIT ATUALIZADA
+# APLICAÇÃO STREAMLIT ATUALIZADA E CORRIGIDA
 # =============================
 st.set_page_config(page_title="IA Roleta — Zonas v2 + ML", layout="centered")
 st.title("🎯 IA Roleta — Estratégia das Zonas v2 + Machine Learning")
@@ -688,7 +731,14 @@ if "sistema" not in st.session_state:
     st.session_state.sistema = SistemaRoletaCompleto(usar_ml=False)
 
 if "historico" not in st.session_state:
-    st.session_state.historico = json.load(open(HISTORICO_PATH)) if os.path.exists(HISTORICO_PATH) else []
+    if os.path.exists(HISTORICO_PATH):
+        try:
+            with open(HISTORICO_PATH, "r") as f:
+                st.session_state.historico = json.load(f)
+        except:
+            st.session_state.historico = []
+    else:
+        st.session_state.historico = []
 
 # Sidebar - Configurações Avançadas
 st.sidebar.title("⚙️ Configurações Avançadas")
@@ -707,17 +757,32 @@ modo_estrategia = st.sidebar.selectbox(
 # Aplicar modo selecionado
 st.session_state.sistema.set_modo_estrategia(modo_estrategia)
 
-# Treinamento ML
+# Treinamento ML - APENAS se ML estiver ativado
 if usar_ml:
     with st.sidebar.expander("🧠 Treinamento ML"):
-        st.write(f"📊 Dados disponíveis: {len(st.session_state.historico)}")
-        if st.button("Treinar Modelo ML"):
-            with st.spinner("Treinando modelo..."):
+        # Calcular quantidade de números disponíveis
+        numeros_disponiveis = 0
+        for item in st.session_state.historico:
+            if isinstance(item, dict) and 'number' in item:
+                numeros_disponiveis += 1
+            elif isinstance(item, (int, float)):
+                numeros_disponiveis += 1
+                
+        st.write(f"📊 Números disponíveis: {numeros_disponiveis}")
+        st.write(f"🎯 Mínimo necessário: 100 números")
+        
+        if st.button("Treinar Modelo ML", disabled=numeros_disponiveis < 100):
+            with st.spinner("Treinando modelo ML..."):
                 success, message = st.session_state.sistema.treinar_modelo_ml()
                 if success:
                     st.success(message)
                 else:
                     st.error(message)
+        elif numeros_disponiveis < 100:
+            st.warning(f"Colete mais {100 - numeros_disponiveis} números para treinar o ML")
+
+# Restante do código mantido igual...
+# [Manter as outras seções da interface...]
 
 # Informações sobre as Zonas
 with st.sidebar.expander("📊 Informações das Zonas"):
@@ -731,10 +796,7 @@ with st.sidebar.expander("📊 Informações das Zonas"):
 # Análise detalhada
 with st.sidebar.expander("🔍 Análise Detalhada - Zonas v2 + ML"):
     analise = st.session_state.sistema.estrategia_zonas.get_analise_detalhada()
-    st.text_area("Análise detalhada:", analise, height=500)
-
-# Resto do código mantido igual...
-# [Manter todas as outras seções da interface Streamlit...]
+    st.text_area("Análise detalhada:", analise, height=500, key="analise_detalhada")
 
 # Entrada manual
 st.subheader("✍️ Inserir Sorteios")
@@ -757,19 +819,25 @@ st_autorefresh(interval=3000, key="refresh")
 
 # Buscar resultado da API
 resultado = fetch_latest_result()
-ultimo_ts = st.session_state.historico[-1]["timestamp"] if st.session_state.historico else None
+if st.session_state.historico:
+    ultimo_ts = st.session_state.historico[-1].get("timestamp") if st.session_state.historico else None
+else:
+    ultimo_ts = None
 
 if resultado and resultado.get("timestamp") and resultado["timestamp"] != ultimo_ts:
     numero_atual = resultado.get("number")
     if numero_atual is not None:
         st.session_state.historico.append(resultado)
-        st.session_state.sistema.processar_novo_numero(numero_atual)
+        st.session_state.sistema.processar_novo_numero(resultado)
         salvar_resultado_em_arquivo(st.session_state.historico)
 
-# Interface principal (mantida igual)
+# Interface principal
 st.subheader("🔁 Últimos Números")
 if st.session_state.historico:
-    st.write(" ".join(str(h["number"]) for h in st.session_state.historico[-10:]))
+    # Mostrar apenas os últimos 10 números
+    ultimos_10 = st.session_state.historico[-10:]
+    numeros_str = " ".join(str(item['number'] if isinstance(item, dict) else item) for item in ultimos_10)
+    st.write(numeros_str)
 else:
     st.write("Nenhum número registrado")
 
@@ -785,7 +853,7 @@ if sistema.previsao_ativa:
     st.write(", ".join(map(str, sorted(previsao['numeros_apostar']))))
     
     # Mostrar previsão ML se disponível
-    if 'previsao_ml' in previsao and previsao['previsao_ml']:
+    if sistema.usar_ml and 'previsao_ml' in previsao and previsao['previsao_ml']:
         st.write("**🤖 Previsão ML (Top 5):**")
         for num, prob in previsao['previsao_ml']:
             st.write(f"  {num}: {prob:.2%}")
@@ -794,7 +862,7 @@ if sistema.previsao_ativa:
 else:
     st.info(f"🎲 Analisando padrões ({modo_estrategia})...")
 
-# Desempenho (mantido igual)
+# Desempenho
 st.subheader("📈 Desempenho")
 
 total = sistema.acertos + sistema.erros
