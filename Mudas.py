@@ -37,7 +37,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# ESTRATÉGIA DAS ZONAS
+# ESTRATÉGIA DAS ZONAS REVISADA
 # =============================
 class EstrategiaZonas:
     def __init__(self):
@@ -61,11 +61,11 @@ class EstrategiaZonas:
         self.historico.append(numero)
 
     def analisar_zonas(self):
-        """Analisa os últimos 20 sorteios e identifica a próxima zona provável"""
-        if len(self.historico) < 10:  # Mínimo de 10 números para análise
+        """Analisa os últimos sorteios e identifica a próxima zona provável - CRITÉRIO MAIS SENSÍVEL"""
+        if len(self.historico) < 8:  # Reduzido para 8 números mínimos
             return None
 
-        # Contar frequência das zonas nos últimos 20 sorteios
+        # Contar frequência das zonas nos últimos sorteios
         frequencia_zonas = {zona: 0 for zona in self.zonas.keys()}
         
         for numero in self.historico:
@@ -78,11 +78,12 @@ class EstrategiaZonas:
         zona_mais_frequente = max(frequencia_zonas, key=frequencia_zonas.get)
         frequencia_maxima = frequencia_zonas[zona_mais_frequente]
 
-        # Só entra se a zona mais frequente tiver pelo menos 30% dos números
+        # CRITÉRIO MAIS SENSÍVEL: 25% dos números ou pelo menos 3 números
         total_numeros = len(self.historico)
-        percentual_minimo = 0.3  # 30%
+        percentual_minimo = 0.25  # Reduzido para 25%
+        minimo_absoluto = 3       # Pelo menos 3 números
         
-        if frequencia_maxima >= total_numeros * percentual_minimo:
+        if frequencia_maxima >= max(total_numeros * percentual_minimo, minimo_absoluto):
             numeros_apostar = self.numeros_zonas[zona_mais_frequente]
             
             return {
@@ -104,6 +105,27 @@ class EstrategiaZonas:
                 'central': self.zonas[zona]
             }
         return info
+
+    def get_analise_atual(self):
+        """Retorna análise atual para debug"""
+        if len(self.historico) == 0:
+            return "Histórico vazio"
+        
+        frequencia_zonas = {zona: 0 for zona in self.zonas.keys()}
+        
+        for numero in self.historico:
+            for zona, numeros in self.numeros_zonas.items():
+                if numero in numeros:
+                    frequencia_zonas[zona] += 1
+                    break
+        
+        analise = f"Histórico: {list(self.historico)}\n"
+        analise += f"Total números: {len(self.historico)}\n"
+        analise += "Frequência por zona:\n"
+        for zona, freq in frequencia_zonas.items():
+            analise += f"  {zona}: {freq} números\n"
+        
+        return analise
 
 # =============================
 # ESTRATÉGIA MIDAS (EXISTENTE)
@@ -292,6 +314,11 @@ with st.sidebar.expander("📊 Informações das Zonas"):
         st.write(f"Números: {', '.join(map(str, dados['numeros']))}")
         st.write(f"Total: {dados['quantidade']} números")
         st.write("---")
+
+# DEBUG: Análise atual das zonas
+with st.sidebar.expander("🔍 Debug - Análise Zonas"):
+    analise = st.session_state.sistema.estrategia_zonas.get_analise_atual()
+    st.text_area("Análise atual:", analise, height=200)
 
 # Entrada manual
 st.subheader("✍️ Inserir Sorteios")
