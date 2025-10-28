@@ -75,21 +75,31 @@ API_URL = "https://api.casinoscores.com/svc-evolution-game-events/api/xxxtremeli
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 # =============================
-# CLASSE PRINCIPAL DA ROLETA
+# CLASSE PRINCIPAL DA ROLETA ATUALIZADA
 # =============================
 class RoletaInteligente:
     def __init__(self):
+        # ORDEM FÍSICA DA ROLETA EUROPEIA (sentido horário)
         self.race = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
         
     def get_vizinhos_zona(self, numero_central, quantidade=6):
-        """Retorna 6 vizinhos antes e 6 depois do número central no race"""
+        """Retorna 6 vizinhos antes e 6 depois do número central no race (ordem física)"""
         if numero_central not in self.race:
             return []
         
         posicao = self.race.index(numero_central)
         vizinhos = []
         
-        for offset in range(-quantidade, quantidade + 1):
+        # 6 números ANTES (sentido anti-horário)
+        for offset in range(-quantidade, 0):
+            vizinho = self.race[(posicao + offset) % len(self.race)]
+            vizinhos.append(vizinho)
+        
+        # Número central
+        vizinhos.append(numero_central)
+        
+        # 6 números DEPOIS (sentido horário)  
+        for offset in range(1, quantidade + 1):
             vizinho = self.race[(posicao + offset) % len(self.race)]
             vizinhos.append(vizinho)
         
@@ -115,7 +125,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# MÓDULO DE MACHINE LEARNING CORRIGIDO
+# MÓDULO DE MACHINE LEARNING ATUALIZADO
 # =============================
 class MLRoleta:
     def __init__(self):
@@ -126,6 +136,7 @@ class MLRoleta:
         self.is_trained = False
         self.min_training_samples = 100
         self.model_loaded = False
+        self.contador_treinamento = 0
         
     def extrair_features(self, historico, numero_alvo=None):
         """Extrai features avançadas do histórico para ML"""
@@ -209,11 +220,11 @@ class MLRoleta:
             features.append(tempo_zero)
             feature_names.append("tempo_desde_zero")
             
-            # 8. Frequência de zonas
+            # 8. Frequência de zonas (ATUALIZADO - 6 antes e 6 depois)
             zonas = {
-                'Amarela': self.roleta.get_vizinhos_zona(2, 6),
-                'Vermelha': self.roleta.get_vizinhos_zona(7, 6),
-                'Azul': self.roleta.get_vizinhos_zona(10, 6)
+                'Amarela': self.roleta.get_vizinhos_zona(2, 6),   # 6 antes + 6 depois + central = 13 números
+                'Vermelha': self.roleta.get_vizinhos_zona(7, 6),  # 6 antes + 6 depois + central = 13 números
+                'Azul': self.roleta.get_vizinhos_zona(10, 6)      # 6 antes + 6 depois + central = 13 números
             }
             
             for zona, numeros in zonas.items():
@@ -277,12 +288,13 @@ class MLRoleta:
             accuracy = accuracy_score(y_test, y_pred)
             
             self.is_trained = True
+            self.contador_treinamento += 1
             
             # Salvar modelo e scaler
             joblib.dump(self.model, ML_MODEL_PATH)
             joblib.dump(self.scaler, SCALER_PATH)
             
-            return True, f"Modelo treinado com {len(X)} amostras. Acurácia: {accuracy:.2%}"
+            return True, f"Modelo treinado ({self.contador_treinamento}º) com {len(X)} amostras. Acurácia: {accuracy:.2%}"
             
         except Exception as e:
             return False, f"Erro no treinamento: {str(e)}"
@@ -301,7 +313,7 @@ class MLRoleta:
         return False
     
     def prever_proximo_numero(self, historico):
-        """Faz previsão usando ML - MODIFICADO para top 20"""
+        """Faz previsão usando ML - TOP 20"""
         if not self.is_trained:
             return None, "Modelo não treinado"
         
@@ -313,7 +325,7 @@ class MLRoleta:
             features_scaled = self.scaler.transform([features])
             probabilidades = self.model.predict_proba(features_scaled)[0]
             
-            # MODIFICADO: Top 20 números mais prováveis (era top 12)
+            # Top 20 números mais prováveis
             top_20_indices = np.argsort(probabilidades)[-20:][::-1]
             top_20_numeros = [(idx, probabilidades[idx]) for idx in top_20_indices]
             
@@ -321,30 +333,38 @@ class MLRoleta:
         except Exception as e:
             return None, f"Erro na previsão: {str(e)}"
 
+    def verificar_treinamento_automatico(self, historico_completo):
+        """Verifica se é hora de retreinar o modelo (a cada 10 sorteios)"""
+        if len(historico_completo) >= self.min_training_samples:
+            # Verificar se passaram 10 sorteios desde o último treinamento
+            if len(historico_completo) % 10 == 0 and len(historico_completo) > 0:
+                return self.treinar_modelo(historico_completo)
+        return False, "Aguardando próximo ciclo de treinamento"
+
 # =============================
-# ESTRATÉGIA DAS ZONAS ULTRA OTIMIZADA v4
+# ESTRATÉGIA DAS ZONAS ATUALIZADA - 6 VIZINHOS ANTES E 6 DEPOIS
 # =============================
 class EstrategiaZonasOtimizada:
     def __init__(self):
         self.roleta = RoletaInteligente()
         self.historico = deque(maxlen=35)
-        self.nome = "Zonas Ultra Otimizada v4"
+        self.nome = "Zonas Ultra Otimizada v5"
         
-        # Zonas otimizadas baseadas na performance REAL
+        # Zonas com 6 vizinhos antes e 6 depois (total 13 números por zona)
         self.zonas = {
             'Vermelha': 7,   # Performance: 38.4% 🏆
             'Azul': 10,      # Performance: 27.8% 📈  
             'Amarela': 2     # Performance: 26.5% 📈
         }
         
-        # Quantidade DINÂMICA baseada na performance
+        # TODAS as zonas agora com 6 vizinhos antes e 6 depois
         self.quantidade_zonas = {
-            'Vermelha': 6,   # Reduzida para mais foco (era 7)
-            'Azul': 5,       # Mantida (performance média)
-            'Amarela': 4     # Reduzida para mais foco (era 5)
+            'Vermelha': 6,   # 6 antes + 6 depois + central = 13 números
+            'Azul': 6,       # 6 antes + 6 depois + central = 13 números
+            'Amarela': 6     # 6 antes + 6 depois + central = 13 números
         }
         
-        # Pré-calcular zonas
+        # Pré-calcular zonas com 13 números cada
         self.numeros_zonas = {}
         for nome, central in self.zonas.items():
             qtd = self.quantidade_zonas.get(nome, 6)
@@ -397,18 +417,18 @@ class EstrategiaZonasOtimizada:
         for zona in self.zonas.keys():
             score = 0
             
-            # CRITÉRIO 1: Frequência geral (25% do score) - REDUZIDO
+            # CRITÉRIO 1: Frequência geral (25% do score)
             freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
             percentual_geral = freq_geral / total_numeros
             score += percentual_geral * 25
             
-            # CRITÉRIO 2: Frequência recente (35% do score) - MANTIDO
+            # CRITÉRIO 2: Frequência recente (35% do score)
             ultimos_15 = list(self.historico)[-15:] if total_numeros >= 15 else list(self.historico)
             freq_recente = sum(1 for n in ultimos_15 if n in self.numeros_zonas[zona])
             percentual_recente = freq_recente / len(ultimos_15)
             score += percentual_recente * 35
             
-            # CRITÉRIO 3: Performance histórica REAL (30% do score) - AUMENTADO
+            # CRITÉRIO 3: Performance histórica REAL (30% do score)
             if self.stats_zonas[zona]['tentativas'] > 10:
                 taxa_acerto = self.stats_zonas[zona]['performance_media']
                 # Bônus PROGRESSIVO baseado na performance real
@@ -456,7 +476,7 @@ class EstrategiaZonasOtimizada:
         return None
 
     def analisar_zonas(self):
-        """Versão ULTRA otimizada"""
+        """Versão ULTRA otimizada com 13 números por zona"""
         if len(self.historico) < 15:
             return None
             
@@ -606,16 +626,19 @@ class EstrategiaZonasOtimizada:
             info[zona] = {
                 'numeros': sorted(numeros),
                 'quantidade': len(numeros),
-                'central': self.zonas[zona]
+                'central': self.zonas[zona],
+                'descricao': f"6 antes + 6 depois do {self.zonas[zona]}"
             }
         return info
 
     def get_analise_detalhada(self):
-        """Análise ULTRA detalhada"""
+        """Análise ULTRA detalhada com 13 números por zona"""
         if len(self.historico) == 0:
             return "Aguardando dados..."
         
-        analise = "🎯 ANÁLISE ULTRA OTIMIZADA - ZONAS v4\n"
+        analise = "🎯 ANÁLISE ULTRA OTIMIZADA - ZONAS v5\n"
+        analise += "=" * 55 + "\n"
+        analise += "🔧 CONFIGURAÇÃO: 6 antes + 6 depois (13 números/zona)\n"
         analise += "=" * 55 + "\n"
         
         # Performance ULTRA detalhada
@@ -739,7 +762,7 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# ESTRATÉGIA ML (MODIFICADA - TOP 20)
+# ESTRATÉGIA ML ATUALIZADA - TREINAMENTO AUTOMÁTICO A CADA 10 SORTEIOS
 # =============================
 class EstrategiaML:
     def __init__(self):
@@ -748,22 +771,23 @@ class EstrategiaML:
         self.nome = "Machine Learning"
         self.ml.carregar_modelo()
         self.roleta = RoletaInteligente()
+        self.contador_sorteios = 0
         
-        # Definir as zonas para análise (mesmas da estratégia de zonas)
+        # Definir as zonas para análise (ATUALIZADO - 6 antes e 6 depois)
         self.zonas_ml = {
             'Vermelha': 7,
             'Azul': 10,  
             'Amarela': 2
         }
         
-        # Quantidade de vizinhos para cada zona
+        # TODAS as zonas agora com 6 vizinhos antes e 6 depois
         self.quantidade_zonas_ml = {
             'Vermelha': 6,
-            'Azul': 5,
-            'Amarela': 4
+            'Azul': 6,
+            'Amarela': 6
         }
         
-        # Pré-calcular números das zonas
+        # Pré-calcular números das zonas (13 números cada)
         self.numeros_zonas_ml = {}
         for nome, central in self.zonas_ml.items():
             qtd = self.quantidade_zonas_ml.get(nome, 6)
@@ -771,22 +795,47 @@ class EstrategiaML:
 
     def adicionar_numero(self, numero):
         self.historico.append(numero)
+        self.contador_sorteios += 1
+        
+        # Verificar treinamento automático a cada 10 sorteios
+        if self.contador_sorteios >= 10:
+            self.contador_sorteios = 0
+            self.treinar_automatico()
 
-    def analisar_ml(self):
-        """Estratégia ML modificada - Analisa top 20 números e identifica zona predominante"""
-        if len(self.historico) < 10:
-            return None
+    def treinar_automatico(self):
+        """Treinamento automático a cada 10 sorteios"""
+        historico_numeros = self.extrair_numeros_historico()
+        
+        if len(historico_numeros) >= self.ml.min_training_samples:
+            try:
+                success, message = self.ml.treinar_modelo(historico_numeros)
+                if success:
+                    logging.info(f"✅ Treinamento automático ML: {message}")
+                    enviar_resultado(f"🤖 ML retreinado automaticamente: {message}")
+                else:
+                    logging.warning(f"⚠️ Treinamento automático falhou: {message}")
+            except Exception as e:
+                logging.error(f"❌ Erro no treinamento automático: {e}")
 
-        if not self.ml.is_trained:
-            return None
-
-        # Extrair números do histórico
+    def extrair_numeros_historico(self):
+        """Extrai números do histórico para treinamento"""
         historico_numeros = []
         for item in list(self.historico):
             if isinstance(item, dict) and 'number' in item:
                 historico_numeros.append(item['number'])
             elif isinstance(item, (int, float)):
                 historico_numeros.append(int(item))
+        return historico_numeros
+
+    def analisar_ml(self):
+        """Estratégia ML com treinamento automático"""
+        if len(self.historico) < 10:
+            return None
+
+        if not self.ml.is_trained:
+            return None
+
+        historico_numeros = self.extrair_numeros_historico()
 
         if len(historico_numeros) < 10:
             return None
@@ -794,7 +843,7 @@ class EstrategiaML:
         previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros)
         
         if previsao_ml:
-            # MODIFICADO: Pegar os top 20 números mais prováveis (era 12)
+            # Pegar os top 20 números mais prováveis
             top_20_numeros = [num for num, prob in previsao_ml[:20]]
             
             # Analisar distribuição por zonas
@@ -838,7 +887,7 @@ class EstrategiaML:
             zona_vencedora = max(contagem_zonas, key=contagem_zonas.get)
             contagem_vencedora = contagem_zonas[zona_vencedora]
             
-            # MODIFICADO: Threshold aumentado para 6 (era 3)
+            # Threshold aumentado para 6 (13 números por zona)
             if contagem_vencedora >= 6:
                 return {
                     'zona_vencedora': zona_vencedora,
@@ -855,7 +904,7 @@ class EstrategiaML:
         total = distribuicao['total_zonas']
         percentual = (contagem / total) * 100
         
-        # MODIFICADO: Ajustado para 20 números
+        # Ajustado para 20 números
         if percentual >= 50:  # 10+ números
             return 'Muito Alta'
         elif percentual >= 40:  # 8-9 números
@@ -882,10 +931,11 @@ class EstrategiaML:
 📊 <b>Confiança:</b> {confianca}
 🔢 <b>Números na zona:</b> {contagem}/{total}
 
-🎲 <b>Números para apostar:</b>
+🎲 <b>Números para apostar (13):</b>
 {', '.join(map(str, sorted(numeros_zona)))}
 
 💡 <b>Estratégia:</b> Machine Learning - Top 20
+🔄 <b>Treinamento:</b> Automático a cada 10 sorteios
 🕒 <b>Horário:</b> {pd.Timestamp.now().strftime('%H:%M:%S')}
 
 ⚡ <b>ENTRAR AGORA!</b>
@@ -909,19 +959,9 @@ class EstrategiaML:
     def treinar_modelo_ml(self, historico_completo=None):
         """Treina o modelo de ML"""
         if historico_completo is not None:
-            historico_numeros = []
-            for item in historico_completo:
-                if isinstance(item, dict) and 'number' in item:
-                    historico_numeros.append(item['number'])
-                elif isinstance(item, (int, float)):
-                    historico_numeros.append(int(item))
+            historico_numeros = historico_completo
         else:
-            historico_numeros = []
-            for item in list(self.historico):
-                if isinstance(item, dict) and 'number' in item:
-                    historico_numeros.append(item['number'])
-                elif isinstance(item, (int, float)):
-                    historico_numeros.append(int(item))
+            historico_numeros = self.extrair_numeros_historico()
         
         if len(historico_numeros) >= self.ml.min_training_samples:
             success, message = self.ml.treinar_modelo(historico_numeros)
@@ -930,25 +970,22 @@ class EstrategiaML:
             return False, f"Histórico insuficiente: {len(historico_numeros)}/{self.ml.min_training_samples} números"
 
     def get_analise_ml(self):
-        """Retorna análise do ML modificada"""
+        """Retorna análise do ML com informações de treinamento automático"""
         if not self.ml.is_trained:
             return "🤖 ML: Modelo não treinado"
         
         if len(self.historico) < 10:
             return "🤖 ML: Aguardando mais dados para análise"
         
-        historico_numeros = []
-        for item in list(self.historico):
-            if isinstance(item, dict) and 'number' in item:
-                historico_numeros.append(item['number'])
-            elif isinstance(item, (int, float)):
-                historico_numeros.append(int(item))
-        
+        historico_numeros = self.extrair_numeros_historico()
+
         previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros)
         
         if previsao_ml:
             analise = "🤖 ANÁLISE ML - ZONAS (TOP 20):\n"
-            analise += "📊 Previsões (Top 10):\n"
+            analise += f"🔄 Treinamentos realizados: {self.ml.contador_treinamento}\n"
+            analise += f"📊 Próximo treinamento: {10 - self.contador_sorteios} sorteios\n"
+            analise += "🎯 Previsões (Top 10):\n"
             for i, (num, prob) in enumerate(previsao_ml[:10]):
                 analise += f"  {i+1}. Número {num}: {prob:.2%}\n"
             
@@ -979,12 +1016,13 @@ class EstrategiaML:
             info[zona] = {
                 'numeros': sorted(numeros),
                 'quantidade': len(numeros),
-                'central': self.zonas_ml[zona]
+                'central': self.zonas_ml[zona],
+                'descricao': f"6 antes + 6 depois do {self.zonas_ml[zona]}"
             }
         return info
 
 # =============================
-# SISTEMA DE GESTÃO ATUALIZADO COM SELEÇÃO DE ESTRATÉGIA
+# SISTEMA DE GESTÃO ATUALIZADO COM TREINAMENTO AUTOMÁTICO
 # =============================
 class SistemaRoletaCompleto:
     def __init__(self):
@@ -997,6 +1035,7 @@ class SistemaRoletaCompleto:
         self.erros = 0
         self.estrategias_contador = {}
         self.estrategia_selecionada = "Zonas"  # Padrão: Zonas
+        self.contador_sorteios_global = 0
 
     def set_estrategia(self, estrategia):
         """Define a estratégia a ser usada"""
@@ -1013,6 +1052,9 @@ class SistemaRoletaCompleto:
         else:
             numero_real = numero
             
+        # Incrementar contador global
+        self.contador_sorteios_global += 1
+            
         # Conferir previsão anterior se existir
         if self.previsao_ativa:
             acerto = numero_real in self.previsao_ativa['numeros_apostar']
@@ -1026,7 +1068,6 @@ class SistemaRoletaCompleto:
             if acerto:
                 self.estrategias_contador[nome_estrategia]['acertos'] += 1
                 self.acertos += 1
-                tocar_som_moeda()
                 # Notificação de ACERTO
                 enviar_resultado(f"🎉 ACERTO! Número {numero_real} - Estratégia: {nome_estrategia}")
             else:
@@ -1189,6 +1230,7 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
             
     st.write(f"📊 **Números disponíveis:** {numeros_disponiveis}")
     st.write(f"🎯 **Mínimo necessário:** 100 números")
+    st.write(f"🔄 **Treinamento automático:** A cada 10 sorteios")
     st.write(f"✅ **Status:** {'Dados suficientes' if numeros_disponiveis >= 100 else 'Coletando dados...'}")
     
     # Informações adicionais sobre o treinamento
@@ -1198,7 +1240,7 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
         if st.button("🚀 Treinar Modelo ML", type="primary", use_container_width=True):
             with st.spinner("Treinando modelo ML... Isso pode levar alguns segundos"):
                 try:
-                    success, message = st.session_state.sistema.treinar_modelo_ml(st.session_state.historico)
+                    success, message = st.session_state.sistema.treinar_modelo_ml(numeros_lista)
                     if success:
                         st.success(f"✅ {message}")
                         st.balloons()
@@ -1217,17 +1259,20 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     st.write("---")
     st.write("**Status do ML:**")
     if st.session_state.sistema.estrategia_ml.ml.is_trained:
-        st.success("✅ Modelo ML treinado e ativo")
+        st.success(f"✅ Modelo ML treinado ({st.session_state.sistema.estrategia_ml.ml.contador_treinamento} vezes)")
+        st.info(f"🔄 Próximo treinamento automático em: {10 - st.session_state.sistema.estrategia_ml.contador_sorteios} sorteios")
     else:
         st.info("🤖 ML aguardando treinamento")
 
-# Informações sobre as Estratégias
+# Informações sobre as Estratégias ATUALIZADAS
 with st.sidebar.expander("📊 Informações das Estratégias"):
     if estrategia == "Zonas":
         info_zonas = st.session_state.sistema.estrategia_zonas.get_info_zonas()
-        st.write("**🎯 Estratégia Zonas:**")
+        st.write("**🎯 Estratégia Zonas v5:**")
+        st.write("**CONFIGURAÇÃO:** 6 antes + 6 depois (13 números/zona)")
         for zona, dados in info_zonas.items():
             st.write(f"**Zona {zona}** (Núcleo: {dados['central']})")
+            st.write(f"Descrição: {dados['descricao']}")
             st.write(f"Números: {', '.join(map(str, dados['numeros']))}")
             st.write(f"Total: {dados['quantidade']} números")
             st.write("---")
@@ -1244,7 +1289,8 @@ with st.sidebar.expander("📊 Informações das Estratégias"):
         st.write("**🤖 Estratégia Machine Learning - TOP 20:**")
         st.write("- **Modelo**: Random Forest")
         st.write("- **Análise**: Top 20 números previstos")
-        st.write("- **Zonas**: Vermelha, Azul, Amarela")
+        st.write("- **Treinamento**: Automático a cada 10 sorteios")
+        st.write("- **Zonas**: 6 antes + 6 depois (13 números/zona)")
         st.write("- **Threshold**: Mínimo 6 números na mesma zona")
         st.write("- **Saída**: Zona com maior concentração")
         st.write("- **Telegram**: Alertas automáticos de entrada")
@@ -1253,6 +1299,7 @@ with st.sidebar.expander("📊 Informações das Estratégias"):
         info_zonas_ml = st.session_state.sistema.estrategia_ml.get_info_zonas_ml()
         for zona, dados in info_zonas_ml.items():
             st.write(f"**Zona {zona}** (Núcleo: {dados['central']})")
+            st.write(f"Descrição: {dados['descricao']}")
             st.write(f"Números: {', '.join(map(str, dados['numeros']))}")
             st.write(f"Total: {dados['quantidade']} números")
             st.write("---")
