@@ -739,7 +739,7 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# ESTRATÉGIA ML (MODIFICADA - TOP 20)
+# ESTRATÉGIA ML (MODIFICADA - TOP 20) - ATUALIZADA COM ALERTAS OTIMIZADOS
 # =============================
 class EstrategiaML:
     def __init__(self):
@@ -805,12 +805,22 @@ class EstrategiaML:
                 numeros_zona = self.numeros_zonas_ml[zona_vencedora]
                 contagem = distribuicao_zonas['contagem']
                 total_zonas = distribuicao_zonas['total_zonas']
+                percentual = (contagem / total_zonas) * 100
                 
                 # Calcular confiança baseada na distribuição
                 confianca = self.calcular_confianca_zona_ml(distribuicao_zonas)
                 
-                # ENVIAR ALERTA TELEGRAM PARA ENTRADA
-                self.enviar_alerta_entrada_telegram(zona_vencedora, contagem, total_zonas, numeros_zona, confianca)
+                # ENVIAR ALERTA TELEGRAM PARA ENTRADA - MENSAGEM ULTRA OTIMIZADA
+                self.enviar_alerta_entrada_telegram_ultra(
+                    zona_vencedora, 
+                    contagem, 
+                    total_zonas, 
+                    numeros_zona, 
+                    confianca,
+                    percentual,
+                    previsao_ml[:5],  # Top 5 números mais prováveis
+                    historico_numeros[-5:]  # Últimos 5 números
+                )
                 
                 return {
                     'nome': 'Machine Learning - Zonas',
@@ -867,28 +877,53 @@ class EstrategiaML:
         else:
             return 'Muito Baixa'
 
-    def enviar_alerta_entrada_telegram(self, zona, contagem, total, numeros_zona, confianca):
-        """Envia alerta específico de entrada para o Telegram"""
+    def enviar_alerta_entrada_telegram_ultra(self, zona, contagem, total, numeros_zona, confianca, percentual, top_5_numeros, ultimos_5_sorteios):
+        """Envia alerta ULTRA otimizado para o Telegram com análise completa"""
         try:
             if 'telegram_token' in st.session_state and 'telegram_chat_id' in st.session_state:
                 token = st.session_state.telegram_token
                 chat_id = st.session_state.telegram_chat_id
                 
                 if token and chat_id:
+                    # Formatar top 5 números
+                    top_5_str = "\n".join([f"    {num}: {prob:.2%}" for num, prob in top_5_numeros])
+                    
+                    # Análise de performance
+                    performance_info = self.gerar_analise_performance(zona, percentual, confianca)
+                    
+                    # Últimos sorteios
+                    ultimos_sorteios_str = " → ".join(map(str, ultimos_5_sorteios))
+                    
+                    # Números prioritários (que estão no top 5 E na zona)
+                    numeros_prioritarios = [num for num, prob in top_5_numeros if num in numeros_zona]
+                    prioritarios_str = ", ".join(map(str, numeros_prioritarios)) if numeros_prioritarios else "Nenhum"
+                    
                     mensagem = f"""
-🎯 <b>ALERTA DE ENTRADA - ML ZONAS</b>
+🎯 <b>ALERTA ULTRA - ML ZONAS CONFIRMADO</b>
 
-🏆 <b>Zona Recomendada:</b> {zona}
-📊 <b>Confiança:</b> {confianca}
-🔢 <b>Números na zona:</b> {contagem}/{total}
+🏆 <b>Zona Identificada:</b> <u>{zona}</u> 🔥
+📊 <b>Confiança:</b> <b>{confianca}</b>
+🔢 <b>Concentração:</b> {contagem}/{total} números ({percentual:.1f}%)
 
-🎲 <b>Números para apostar:</b>
+📈 <b>Performance:</b>
+{performance_info}
+
+🎲 <b>Números da Zona ({len(numeros_zona)}):</b>
 {', '.join(map(str, sorted(numeros_zona)))}
+
+💎 <b>Números Prioritários (Top 5 + Zona):</b>
+{prioritarios_str}
+
+🤖 <b>Top 5 Previsões ML:</b>
+{top_5_str}
+
+📋 <b>Últimos 5 Sorteios:</b>
+{ultimos_sorteios_str}
 
 💡 <b>Estratégia:</b> Machine Learning - Top 20
 🕒 <b>Horário:</b> {pd.Timestamp.now().strftime('%H:%M:%S')}
 
-⚡ <b>ENTRAR AGORA!</b>
+⚡ <b>ENTRADA CONFIRMADA - APOSTAR AGORA!</b>
 """
                     
                     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -900,14 +935,59 @@ class EstrategiaML:
                     
                     response = requests.post(url, json=payload, timeout=10)
                     if response.status_code == 200:
-                        logging.info("Alerta de entrada enviado para Telegram")
+                        logging.info("Alerta ULTRA ML enviado para Telegram")
                     else:
-                        logging.error(f"Erro ao enviar alerta: {response.status_code}")
+                        logging.error(f"Erro ao enviar alerta ULTRA: {response.status_code}")
         except Exception as e:
-            logging.error(f"Erro no alerta Telegram: {e}")
+            logging.error(f"Erro no alerta ULTRA Telegram: {e}")
+
+    def gerar_analise_performance(self, zona, percentual, confianca):
+        """Gera análise de performance para o alerta"""
+        if percentual >= 50:
+            return "✅ CONCENTRAÇÃO EXCELENTE - Alta probabilidade de acerto"
+        elif percentual >= 40:
+            return "📈 CONCENTRAÇÃO ALTA - Boas chances de acerto"
+        elif percentual >= 30:
+            return "🎯 CONCENTRAÇÃO MÉDIA - Chances moderadas"
+        else:
+            return "⚠️  CONCENTRAÇÃO BAIXA - Aposta conservadora"
+
+    def enviar_alerta_treinamento_telegram(self, resultado_treinamento):
+        """Envia alerta quando o modelo ML é treinado com sucesso"""
+        try:
+            if 'telegram_token' in st.session_state and 'telegram_chat_id' in st.session_state:
+                token = st.session_state.telegram_token
+                chat_id = st.session_state.telegram_chat_id
+                
+                if token and chat_id:
+                    mensagem = f"""
+🤖 <b>MODELO ML TREINADO COM SUCESSO!</b>
+
+✅ <b>Status:</b> Treinamento Concluído
+📊 <b>Resultado:</b> {resultado_treinamento}
+🕒 <b>Horário:</b> {pd.Timestamp.now().strftime('%H:%M:%S')}
+
+🎯 <b>Pronto para previsões de zonas!</b>
+⚡ <b>Sistema ULTRA ativado com TOP 20 análise</b>
+"""
+                    
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
+                    payload = {
+                        "chat_id": chat_id,
+                        "text": mensagem,
+                        "parse_mode": "HTML"
+                    }
+                    
+                    response = requests.post(url, json=payload, timeout=10)
+                    if response.status_code == 200:
+                        logging.info("Alerta de treinamento ML enviado para Telegram")
+                    else:
+                        logging.error(f"Erro ao enviar alerta treinamento: {response.status_code}")
+        except Exception as e:
+            logging.error(f"Erro no alerta treinamento Telegram: {e}")
 
     def treinar_modelo_ml(self, historico_completo=None):
-        """Treina o modelo de ML"""
+        """Treina o modelo de ML com alerta no Telegram"""
         if historico_completo is not None:
             historico_numeros = []
             for item in historico_completo:
@@ -925,6 +1005,11 @@ class EstrategiaML:
         
         if len(historico_numeros) >= self.ml.min_training_samples:
             success, message = self.ml.treinar_modelo(historico_numeros)
+            
+            # ENVIAR ALERTA SE TREINAMENTO FOI BEM SUCEDIDO
+            if success:
+                self.enviar_alerta_treinamento_telegram(message)
+            
             return success, message
         else:
             return False, f"Histórico insuficiente: {len(historico_numeros)}/{self.ml.min_training_samples} números"
@@ -965,6 +1050,11 @@ class EstrategiaML:
                 analise += f"🎯 Confiança: {self.calcular_confianca_zona_ml(distribuicao)}\n"
                 analise += f"🔢 Números da zona: {sorted(self.numeros_zonas_ml[distribuicao['zona_vencedora']])}\n"
                 analise += f"📈 Percentual: {(distribuicao['contagem']/20)*100:.1f}%\n"
+                
+                # Adicionar análise de números prioritários
+                numeros_prioritarios = [num for num, prob in previsao_ml[:5] if num in self.numeros_zonas_ml[distribuicao['zona_vencedora']]]
+                if numeros_prioritarios:
+                    analise += f"💎 Números Prioritários: {', '.join(map(str, numeros_prioritarios))}\n"
             else:
                 analise += "\n⚠️  Nenhuma zona com predominância suficiente (mínimo 6 números)\n"
             
