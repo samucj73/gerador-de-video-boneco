@@ -22,6 +22,11 @@ def enviar_previsao(mensagem):
         st.toast(f"🎯 {mensagem}", icon="🔥")
         # Também exibe como warning para maior visibilidade
         st.warning(f"🔔 NOVA PREVISÃO: {mensagem}")
+        
+        # Enviar para Telegram se configurado
+        if 'telegram_token' in st.session_state and 'telegram_chat_id' in st.session_state:
+            if st.session_state.telegram_token and st.session_state.telegram_chat_id:
+                enviar_telegram(mensagem)
     except Exception as e:
         logging.error(f"Erro ao enviar previsão: {e}")
 
@@ -31,8 +36,34 @@ def enviar_resultado(mensagem):
         st.toast(f"🎲 {mensagem}", icon="✅")
         # Exibe como success para resultados
         st.success(f"📢 RESULTADO: {mensagem}")
+        
+        # Enviar para Telegram se configurado
+        if 'telegram_token' in st.session_state and 'telegram_chat_id' in st.session_state:
+            if st.session_state.telegram_token and st.session_state.telegram_chat_id:
+                enviar_telegram(f"RESULTADO: {mensagem}")
     except Exception as e:
         logging.error(f"Erro ao enviar resultado: {e}")
+
+def enviar_telegram(mensagem):
+    """Envia mensagem para o Telegram"""
+    try:
+        token = st.session_state.telegram_token
+        chat_id = st.session_state.telegram_chat_id
+        
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": mensagem,
+            "parse_mode": "HTML"
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            logging.info("Mensagem enviada para Telegram com sucesso")
+        else:
+            logging.error(f"Erro ao enviar para Telegram: {response.status_code}")
+    except Exception as e:
+        logging.error(f"Erro na conexão com Telegram: {e}")
 
 # =============================
 # CONFIGURAÇÕES
@@ -270,7 +301,7 @@ class MLRoleta:
         return False
     
     def prever_proximo_numero(self, historico):
-        """Faz previsão usando ML - MODIFICADO para top 12"""
+        """Faz previsão usando ML - MODIFICADO para top 20"""
         if not self.is_trained:
             return None, "Modelo não treinado"
         
@@ -282,11 +313,11 @@ class MLRoleta:
             features_scaled = self.scaler.transform([features])
             probabilidades = self.model.predict_proba(features_scaled)[0]
             
-            # MODIFICADO: Top 12 números mais prováveis (era top 5)
-            top_12_indices = np.argsort(probabilidades)[-12:][::-1]
-            top_12_numeros = [(idx, probabilidades[idx]) for idx in top_12_indices]
+            # MODIFICADO: Top 20 números mais prováveis (era top 12)
+            top_20_indices = np.argsort(probabilidades)[-20:][::-1]
+            top_20_numeros = [(idx, probabilidades[idx]) for idx in top_20_indices]
             
-            return top_12_numeros, "Previsão ML realizada"
+            return top_20_numeros, "Previsão ML realizada"
         except Exception as e:
             return None, f"Erro na previsão: {str(e)}"
 
@@ -708,7 +739,7 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# ESTRATÉGIA ML (MODIFICADA)
+# ESTRATÉGIA ML (MODIFICADA - TOP 20)
 # =============================
 class EstrategiaML:
     def __init__(self):
@@ -742,7 +773,7 @@ class EstrategiaML:
         self.historico.append(numero)
 
     def analisar_ml(self):
-        """Estratégia ML modificada - Analisa top 12 números e identifica zona predominante"""
+        """Estratégia ML modificada - Analisa top 20 números e identifica zona predominante"""
         if len(self.historico) < 10:
             return None
 
@@ -763,11 +794,11 @@ class EstrategiaML:
         previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros)
         
         if previsao_ml:
-            # Pegar os top 12 números mais prováveis
-            top_12_numeros = [num for num, prob in previsao_ml[:12]]
+            # MODIFICADO: Pegar os top 20 números mais prováveis (era 12)
+            top_20_numeros = [num for num, prob in previsao_ml[:20]]
             
             # Analisar distribuição por zonas
-            distribuicao_zonas = self.analisar_distribuicao_zonas(top_12_numeros)
+            distribuicao_zonas = self.analisar_distribuicao_zonas(top_20_numeros)
             
             if distribuicao_zonas:
                 zona_vencedora = distribuicao_zonas['zona_vencedora']
@@ -777,6 +808,9 @@ class EstrategiaML:
                 
                 # Calcular confiança baseada na distribuição
                 confianca = self.calcular_confianca_zona_ml(distribuicao_zonas)
+                
+                # ENVIAR ALERTA TELEGRAM PARA ENTRADA
+                self.enviar_alerta_entrada_telegram(zona_vencedora, contagem, total_zonas, numeros_zona, confianca)
                 
                 return {
                     'nome': 'Machine Learning - Zonas',
@@ -790,13 +824,13 @@ class EstrategiaML:
         
         return None
 
-    def analisar_distribuicao_zonas(self, top_12_numeros):
-        """Analisa a distribuição dos top 12 números pelas zonas"""
+    def analisar_distribuicao_zonas(self, top_20_numeros):
+        """Analisa a distribuição dos top 20 números pelas zonas"""
         contagem_zonas = {}
         
-        # Contar quantos números de cada zona estão no top 12
+        # Contar quantos números de cada zona estão no top 20
         for zona, numeros in self.numeros_zonas_ml.items():
-            count = sum(1 for num in top_12_numeros if num in numeros)
+            count = sum(1 for num in top_20_numeros if num in numeros)
             contagem_zonas[zona] = count
         
         # Encontrar a zona com maior contagem
@@ -804,12 +838,12 @@ class EstrategiaML:
             zona_vencedora = max(contagem_zonas, key=contagem_zonas.get)
             contagem_vencedora = contagem_zonas[zona_vencedora]
             
-            # Só retorna se houver pelo menos 3 números na zona vencedora
-            if contagem_vencedora >= 3:
+            # MODIFICADO: Threshold aumentado para 6 (era 3)
+            if contagem_vencedora >= 6:
                 return {
                     'zona_vencedora': zona_vencedora,
                     'contagem': contagem_vencedora,
-                    'total_zonas': len(top_12_numeros),
+                    'total_zonas': len(top_20_numeros),
                     'distribuicao_completa': contagem_zonas
                 }
         
@@ -821,16 +855,56 @@ class EstrategiaML:
         total = distribuicao['total_zonas']
         percentual = (contagem / total) * 100
         
-        if percentual >= 50:  # 50% ou mais dos números na mesma zona
+        # MODIFICADO: Ajustado para 20 números
+        if percentual >= 50:  # 10+ números
             return 'Muito Alta'
-        elif percentual >= 40:
+        elif percentual >= 40:  # 8-9 números
             return 'Alta'
-        elif percentual >= 30:
+        elif percentual >= 30:  # 6-7 números
             return 'Média'
-        elif percentual >= 25:
+        elif percentual >= 25:  # 5 números
             return 'Baixa'
         else:
             return 'Muito Baixa'
+
+    def enviar_alerta_entrada_telegram(self, zona, contagem, total, numeros_zona, confianca):
+        """Envia alerta específico de entrada para o Telegram"""
+        try:
+            if 'telegram_token' in st.session_state and 'telegram_chat_id' in st.session_state:
+                token = st.session_state.telegram_token
+                chat_id = st.session_state.telegram_chat_id
+                
+                if token and chat_id:
+                    mensagem = f"""
+🎯 <b>ALERTA DE ENTRADA - ML ZONAS</b>
+
+🏆 <b>Zona Recomendada:</b> {zona}
+📊 <b>Confiança:</b> {confianca}
+🔢 <b>Números na zona:</b> {contagem}/{total}
+
+🎲 <b>Números para apostar:</b>
+{', '.join(map(str, sorted(numeros_zona)))}
+
+💡 <b>Estratégia:</b> Machine Learning - Top 20
+🕒 <b>Horário:</b> {pd.Timestamp.now().strftime('%H:%M:%S')}
+
+⚡ <b>ENTRAR AGORA!</b>
+"""
+                    
+                    url = f"https://api.telegram.org/bot{token}/sendMessage"
+                    payload = {
+                        "chat_id": chat_id,
+                        "text": mensagem,
+                        "parse_mode": "HTML"
+                    }
+                    
+                    response = requests.post(url, json=payload, timeout=10)
+                    if response.status_code == 200:
+                        logging.info("Alerta de entrada enviado para Telegram")
+                    else:
+                        logging.error(f"Erro ao enviar alerta: {response.status_code}")
+        except Exception as e:
+            logging.error(f"Erro no alerta Telegram: {e}")
 
     def treinar_modelo_ml(self, historico_completo=None):
         """Treina o modelo de ML"""
@@ -873,25 +947,26 @@ class EstrategiaML:
         previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros)
         
         if previsao_ml:
-            analise = "🤖 ANÁLISE ML - ZONAS:\n"
-            analise += "📊 Previsões (Top 12):\n"
-            for i, (num, prob) in enumerate(previsao_ml[:12]):
+            analise = "🤖 ANÁLISE ML - ZONAS (TOP 20):\n"
+            analise += "📊 Previsões (Top 10):\n"
+            for i, (num, prob) in enumerate(previsao_ml[:10]):
                 analise += f"  {i+1}. Número {num}: {prob:.2%}\n"
             
             # Análise de distribuição por zonas
-            top_12_numeros = [num for num, prob in previsao_ml[:12]]
-            distribuicao = self.analisar_distribuicao_zonas(top_12_numeros)
+            top_20_numeros = [num for num, prob in previsao_ml[:20]]
+            distribuicao = self.analisar_distribuicao_zonas(top_20_numeros)
             
             if distribuicao:
-                analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS:\n"
+                analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS (20 números):\n"
                 for zona, count in distribuicao['distribuicao_completa'].items():
-                    analise += f"  📍 {zona}: {count}/12 números\n"
+                    analise += f"  📍 {zona}: {count}/20 números\n"
                 
                 analise += f"\n💡 ZONA RECOMENDADA: {distribuicao['zona_vencedora']}\n"
                 analise += f"🎯 Confiança: {self.calcular_confianca_zona_ml(distribuicao)}\n"
                 analise += f"🔢 Números da zona: {sorted(self.numeros_zonas_ml[distribuicao['zona_vencedora']])}\n"
+                analise += f"📈 Percentual: {(distribuicao['contagem']/20)*100:.1f}%\n"
             else:
-                analise += "\n⚠️  Nenhuma zona com predominância suficiente\n"
+                analise += "\n⚠️  Nenhuma zona com predominância suficiente (mínimo 6 números)\n"
             
             return analise
         else:
@@ -1026,7 +1101,7 @@ def fetch_latest_result():
         return None
 
 # =============================
-# APLICAÇÃO STREAMLIT ATUALIZADA COM SELEÇÃO DE ESTRATÉGIA
+# APLICAÇÃO STREAMLIT ATUALIZADA
 # =============================
 st.set_page_config(page_title="IA Roleta — Multi-Estratégias", layout="centered")
 st.title("🎯 IA Roleta — Sistema Multi-Estratégias")
@@ -1045,8 +1120,46 @@ if "historico" not in st.session_state:
     else:
         st.session_state.historico = []
 
+# Inicializar configurações do Telegram
+if "telegram_token" not in st.session_state:
+    st.session_state.telegram_token = ""
+if "telegram_chat_id" not in st.session_state:
+    st.session_state.telegram_chat_id = ""
+
 # Sidebar - Configurações Avançadas
 st.sidebar.title("⚙️ Configurações")
+
+# Configurações do Telegram
+with st.sidebar.expander("🔔 Configurações do Telegram", expanded=False):
+    st.write("Configure as notificações do Telegram")
+    
+    telegram_token = st.text_input(
+        "Bot Token do Telegram:",
+        value=st.session_state.telegram_token,
+        type="password",
+        help="Obtenha com @BotFather no Telegram"
+    )
+    
+    telegram_chat_id = st.text_input(
+        "Chat ID do Telegram:",
+        value=st.session_state.telegram_chat_id,
+        help="Obtenha com @userinfobot no Telegram"
+    )
+    
+    if st.button("Salvar Configurações Telegram"):
+        st.session_state.telegram_token = telegram_token
+        st.session_state.telegram_chat_id = telegram_chat_id
+        st.success("✅ Configurações do Telegram salvas!")
+        
+    if st.button("Testar Conexão Telegram"):
+        if telegram_token and telegram_chat_id:
+            try:
+                enviar_telegram("🔔 Teste de conexão - IA Roleta funcionando!")
+                st.success("✅ Mensagem de teste enviada para Telegram!")
+            except Exception as e:
+                st.error(f"❌ Erro ao enviar mensagem: {e}")
+        else:
+            st.error("❌ Preencha token e chat ID primeiro")
 
 # Seleção de Estratégia
 estrategia = st.sidebar.selectbox(
@@ -1060,7 +1173,7 @@ if estrategia != st.session_state.sistema.estrategia_selecionada:
     st.session_state.sistema.set_estrategia(estrategia)
     st.toast(f"🔄 Estratégia alterada para: {estrategia}")
 
-# Treinamento ML (sempre disponível, independente da estratégia selecionada)
+# Treinamento ML
 with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     # Calcular quantidade de números disponíveis
     numeros_disponiveis = 0
@@ -1128,11 +1241,13 @@ with st.sidebar.expander("📊 Informações das Estratégias"):
         st.write("---")
     
     elif estrategia == "ML":
-        st.write("**🤖 Estratégia Machine Learning:**")
+        st.write("**🤖 Estratégia Machine Learning - TOP 20:**")
         st.write("- **Modelo**: Random Forest")
-        st.write("- **Análise**: Top 12 números previstos")
+        st.write("- **Análise**: Top 20 números previstos")
         st.write("- **Zonas**: Vermelha, Azul, Amarela")
+        st.write("- **Threshold**: Mínimo 6 números na mesma zona")
         st.write("- **Saída**: Zona com maior concentração")
+        st.write("- **Telegram**: Alertas automáticos de entrada")
         
         # Mostrar zonas do ML
         info_zonas_ml = st.session_state.sistema.estrategia_ml.get_info_zonas_ml()
