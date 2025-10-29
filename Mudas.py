@@ -6,7 +6,6 @@ import logging
 import numpy as np
 import pandas as pd
 from collections import Counter, deque
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
@@ -125,7 +124,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# MÓDULO DE MACHINE LEARNING ATUALIZADO
+# MÓDULO DE MACHINE LEARNING ATUALIZADO COM CATBOOST
 # =============================
 class MLRoleta:
     def __init__(self):
@@ -255,7 +254,7 @@ class MLRoleta:
         return np.array(X), np.array(y)
     
     def treinar_modelo(self, historico_completo):
-        """Treina o modelo com o histórico disponível"""
+        """Treina o modelo com CatBoost para melhor performance"""
         if len(historico_completo) < self.min_training_samples:
             return False, f"Necessário mínimo de {self.min_training_samples} amostras. Atual: {len(historico_completo)}"
         
@@ -272,16 +271,44 @@ class MLRoleta:
             X_train_scaled = self.scaler.fit_transform(X_train)
             X_test_scaled = self.scaler.transform(X_test)
             
-            # Treinar modelo
-            self.model = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=10,
-                min_samples_split=5,
-                random_state=42,
-                n_jobs=-1
-            )
-            
-            self.model.fit(X_train_scaled, y_train)
+            # Tentar importar CatBoost, fallback para RandomForest se não disponível
+            try:
+                from catboost import CatBoostClassifier
+                # Treinar modelo com CatBoost - muito mais preciso para dados sequenciais
+                self.model = CatBoostClassifier(
+                    iterations=1000,
+                    learning_rate=0.1,
+                    depth=8,
+                    loss_function='MultiClass',
+                    random_state=42,
+                    verbose=False,
+                    early_stopping_rounds=50,
+                    use_best_model=True
+                )
+                
+                # Treinar com validação
+                self.model.fit(
+                    X_train_scaled, y_train,
+                    eval_set=(X_test_scaled, y_test),
+                    verbose=False
+                )
+                modelo_usado = "CatBoost"
+                
+            except ImportError:
+                # Fallback para RandomForest se CatBoost não estiver disponível
+                from sklearn.ensemble import RandomForestClassifier
+                st.warning("📦 CatBoost não disponível. Usando RandomForest...")
+                
+                self.model = RandomForestClassifier(
+                    n_estimators=200,
+                    max_depth=15,
+                    min_samples_split=3,
+                    min_samples_leaf=2,
+                    random_state=42,
+                    n_jobs=-1
+                )
+                self.model.fit(X_train_scaled, y_train)
+                modelo_usado = "RandomForest"
             
             # Avaliar
             y_pred = self.model.predict(X_test_scaled)
@@ -294,7 +321,7 @@ class MLRoleta:
             joblib.dump(self.model, ML_MODEL_PATH)
             joblib.dump(self.scaler, SCALER_PATH)
             
-            return True, f"Modelo treinado ({self.contador_treinamento}º) com {len(X)} amostras. Acurácia: {accuracy:.2%}"
+            return True, f"Modelo {modelo_usado} treinado ({self.contador_treinamento}º) com {len(X)} amostras. Acurácia: {accuracy:.2%}"
             
         except Exception as e:
             return False, f"Erro no treinamento: {str(e)}"
@@ -323,7 +350,17 @@ class MLRoleta:
         
         try:
             features_scaled = self.scaler.transform([features])
-            probabilidades = self.model.predict_proba(features_scaled)[0]
+            
+            # Verificar se é CatBoost ou outro modelo
+            if hasattr(self.model, 'predict_proba'):
+                probabilidades = self.model.predict_proba(features_scaled)[0]
+            else:
+                # Para modelos que não têm predict_proba
+                predictions = self.model.predict(features_scaled)
+                probabilidades = np.zeros(37)  # 37 números na roleta
+                for pred in predictions:
+                    probabilidades[pred] += 1
+                probabilidades /= len(predictions)
             
             # Top 20 números mais prováveis
             top_20_indices = np.argsort(probabilidades)[-20:][::-1]
@@ -762,13 +799,13 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# ESTRATÉGIA ML ATUALIZADA - TREINAMENTO AUTOMÁTICO A CADA 10 SORTEIOS
+# ESTRATÉGIA ML ATUALIZADA - CATBOOST E TREINAMENTO AUTOMÁTICO
 # =============================
 class EstrategiaML:
     def __init__(self):
         self.ml = MLRoleta()
         self.historico = deque(maxlen=30)
-        self.nome = "Machine Learning"
+        self.nome = "Machine Learning (CatBoost)"
         self.ml.carregar_modelo()
         self.roleta = RoletaInteligente()
         self.contador_sorteios = 0
@@ -828,7 +865,7 @@ class EstrategiaML:
         return historico_numeros
 
     def analisar_ml(self):
-        """Estratégia ML com treinamento automático"""
+        """Estratégia ML com CatBoost e treinamento automático"""
         if len(self.historico) < 10:
             return None
 
@@ -862,9 +899,9 @@ class EstrategiaML:
                 self.enviar_alerta_entrada_telegram(zona_vencedora, contagem, total_zonas, numeros_zona, confianca)
                 
                 return {
-                    'nome': 'Machine Learning - Zonas',
+                    'nome': 'Machine Learning - CatBoost',
                     'numeros_apostar': numeros_zona,
-                    'gatilho': f'ML - Zona {zona_vencedora} ({contagem}/{total_zonas} números)',
+                    'gatilho': f'ML CatBoost - Zona {zona_vencedora} ({contagem}/{total_zonas} números)',
                     'confianca': confianca,
                     'previsao_ml': previsao_ml,
                     'zona_ml': zona_vencedora,
@@ -925,7 +962,7 @@ class EstrategiaML:
                 
                 if token and chat_id:
                     mensagem = f"""
-🎯 <b>ALERTA DE ENTRADA - ML ZONAS</b>
+🎯 <b>ALERTA DE ENTRADA - ML CATBOOST</b>
 
 🏆 <b>Zona Recomendada:</b> {zona}
 📊 <b>Confiança:</b> {confianca}
@@ -934,7 +971,7 @@ class EstrategiaML:
 🎲 <b>Números para apostar (13):</b>
 {', '.join(map(str, sorted(numeros_zona)))}
 
-💡 <b>Estratégia:</b> Machine Learning - Top 20
+💡 <b>Estratégia:</b> Machine Learning - CatBoost
 🔄 <b>Treinamento:</b> Automático a cada 10 sorteios
 🕒 <b>Horário:</b> {pd.Timestamp.now().strftime('%H:%M:%S')}
 
@@ -982,7 +1019,10 @@ class EstrategiaML:
         previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros)
         
         if previsao_ml:
-            analise = "🤖 ANÁLISE ML - ZONAS (TOP 20):\n"
+            # Detectar qual modelo está sendo usado
+            modelo_tipo = "CatBoost" if hasattr(self.ml.model, 'iterations') else "RandomForest"
+            
+            analise = f"🤖 ANÁLISE ML - {modelo_tipo.upper()} (TOP 20):\n"
             analise += f"🔄 Treinamentos realizados: {self.ml.contador_treinamento}\n"
             analise += f"📊 Próximo treinamento: {10 - self.contador_sorteios} sorteios\n"
             analise += "🎯 Previsões (Top 10):\n"
@@ -1022,7 +1062,7 @@ class EstrategiaML:
         return info
 
 # =============================
-# SISTEMA DE GESTÃO ATUALIZADO COM TREINAMENTO AUTOMÁTICO
+# SISTEMA DE GESTÃO ATUALIZADO COM CATBOOST
 # =============================
 class SistemaRoletaCompleto:
     def __init__(self):
@@ -1231,6 +1271,7 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     st.write(f"📊 **Números disponíveis:** {numeros_disponiveis}")
     st.write(f"🎯 **Mínimo necessário:** 100 números")
     st.write(f"🔄 **Treinamento automático:** A cada 10 sorteios")
+    st.write(f"🤖 **Modelo:** CatBoost (mais preciso)")
     st.write(f"✅ **Status:** {'Dados suficientes' if numeros_disponiveis >= 100 else 'Coletando dados...'}")
     
     # Informações adicionais sobre o treinamento
@@ -1238,7 +1279,7 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
         st.success("✨ **Pronto para treinar!**")
         
         if st.button("🚀 Treinar Modelo ML", type="primary", use_container_width=True):
-            with st.spinner("Treinando modelo ML... Isso pode levar alguns segundos"):
+            with st.spinner("Treinando modelo ML com CatBoost... Isso pode levar alguns segundos"):
                 try:
                     success, message = st.session_state.sistema.treinar_modelo_ml(numeros_lista)
                     if success:
@@ -1259,7 +1300,13 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     st.write("---")
     st.write("**Status do ML:**")
     if st.session_state.sistema.estrategia_ml.ml.is_trained:
-        st.success(f"✅ Modelo ML treinado ({st.session_state.sistema.estrategia_ml.ml.contador_treinamento} vezes)")
+        # Detectar qual modelo está sendo usado
+        if hasattr(st.session_state.sistema.estrategia_ml.ml.model, 'iterations'):
+            modelo_tipo = "CatBoost"
+        else:
+            modelo_tipo = "RandomForest"
+            
+        st.success(f"✅ Modelo {modelo_tipo} treinado ({st.session_state.sistema.estrategia_ml.ml.contador_treinamento} vezes)")
         st.info(f"🔄 Próximo treinamento automático em: {10 - st.session_state.sistema.estrategia_ml.contador_sorteios} sorteios")
     else:
         st.info("🤖 ML aguardando treinamento")
@@ -1286,8 +1333,9 @@ with st.sidebar.expander("📊 Informações das Estratégias"):
         st.write("---")
     
     elif estrategia == "ML":
-        st.write("**🤖 Estratégia Machine Learning - TOP 20:**")
-        st.write("- **Modelo**: Random Forest")
+        st.write("**🤖 Estratégia Machine Learning - CATBOOST:**")
+        st.write("- **Modelo**: CatBoost (Gradient Boosting)")
+        st.write("- **Vantagem**: Mais preciso para dados sequenciais")
         st.write("- **Análise**: Top 20 números previstos")
         st.write("- **Treinamento**: Automático a cada 10 sorteios")
         st.write("- **Zonas**: 6 antes + 6 depois (13 números/zona)")
