@@ -981,6 +981,18 @@ class EstrategiaZonasOtimizada:
     def get_analise_atual(self):
         return self.get_analise_detalhada()
 
+    def zerar_estatisticas(self):
+        """Zera todas as estatísticas de desempenho"""
+        for zona in self.stats_zonas.keys():
+            self.stats_zonas[zona] = {
+                'acertos': 0, 
+                'tentativas': 0, 
+                'sequencia_atual': 0,
+                'sequencia_maxima': 0,
+                'performance_media': 0
+            }
+        logging.info("📊 Estatísticas das Zonas zeradas")
+
 # =============================
 # ESTRATÉGIA MIDAS (MANTIDA)
 # =============================
@@ -1368,6 +1380,47 @@ class SistemaRoletaCompleto:
                 
             enviar_previsao(msg)
 
+    def zerar_estatisticas_desempenho(self):
+        """Zera todas as estatísticas de desempenho"""
+        self.acertos = 0
+        self.erros = 0
+        self.estrategias_contador = {}
+        self.historico_desempenho = []
+        self.contador_sorteios_global = 0
+        
+        # Zerar estatísticas das estratégias
+        self.estrategia_zonas.zerar_estatisticas()
+        
+        logging.info("📊 Todas as estatísticas de desempenho foram zeradas")
+        salvar_sessao()
+
+    def reset_recente_estatisticas(self):
+        """Faz um reset recente mantendo apenas os últimos 10 resultados"""
+        if len(self.historico_desempenho) > 10:
+            # Manter apenas os últimos 10 resultados
+            self.historico_desempenho = self.historico_desempenho[-10:]
+            
+            # Recalcular acertos e erros
+            self.acertos = sum(1 for resultado in self.historico_desempenho if resultado['acerto'])
+            self.erros = len(self.historico_desempenho) - self.acertos
+            
+            # Recalcular contadores por estratégia
+            self.estrategias_contador = {}
+            for resultado in self.historico_desempenho:
+                estrategia = resultado['estrategia']
+                if estrategia not in self.estrategias_contador:
+                    self.estrategias_contador[estrategia] = {'acertos': 0, 'total': 0}
+                
+                self.estrategias_contador[estrategia]['total'] += 1
+                if resultado['acerto']:
+                    self.estrategias_contador[estrategia]['acertos'] += 1
+            
+            logging.info("🔄 Estatísticas recentes resetadas (mantidos últimos 10 resultados)")
+        else:
+            logging.info("ℹ️  Histórico muito pequeno para reset recente")
+        
+        salvar_sessao()
+
 # =============================
 # FUNÇÕES AUXILIARES
 # =============================
@@ -1445,6 +1498,26 @@ with st.sidebar.expander("💾 Gerenciamento de Sessão", expanded=False):
                 st.rerun()
             else:
                 st.error("❌ Nenhuma sessão salva encontrada")
+    
+    st.write("---")
+    
+    # Botões para zerar estatísticas
+    st.write("**📊 Gerenciar Estatísticas**")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        if st.button("🔄 Reset Recente", help="Mantém apenas os últimos 10 resultados", use_container_width=True):
+            st.session_state.sistema.reset_recente_estatisticas()
+            st.success("✅ Estatísticas recentes resetadas!")
+            st.rerun()
+            
+    with col4:
+        if st.button("🗑️ Zerar Tudo", type="secondary", help="Zera TODAS as estatísticas", use_container_width=True):
+            if st.checkbox("Confirmar zerar TODAS as estatísticas"):
+                st.session_state.sistema.zerar_estatisticas_desempenho()
+                st.error("🗑️ Todas as estatísticas foram zeradas!")
+                st.rerun()
     
     st.write("---")
     
@@ -1694,6 +1767,23 @@ col1.metric("🟢 Acertos", sistema.acertos)
 col2.metric("🔴 Erros", sistema.erros)
 col3.metric("📊 Total", total)
 col4.metric("✅ Taxa", f"{taxa:.1f}%")
+
+# Botões de gerenciamento de estatísticas na seção de desempenho
+st.write("**Gerenciar Estatísticas:**")
+col5, col6 = st.columns(2)
+
+with col5:
+    if st.button("🔄 Reset Recente", help="Mantém apenas os últimos 10 resultados", use_container_width=True):
+        st.session_state.sistema.reset_recente_estatisticas()
+        st.success("✅ Estatísticas recentes resetadas!")
+        st.rerun()
+
+with col6:
+    if st.button("🗑️ Zerar Tudo", type="secondary", help="Zera TODAS as estatísticas", use_container_width=True):
+        if st.checkbox("Confirmar zerar TODAS as estatísticas"):
+            st.session_state.sistema.zerar_estatisticas_desempenho()
+            st.error("🗑️ Todas as estatísticas foram zeradas!")
+            st.rerun()
 
 # Análise detalhada por estratégia
 if sistema.estrategias_contador:
