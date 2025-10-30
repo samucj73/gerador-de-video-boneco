@@ -126,7 +126,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# MÓDULO DE MACHINE LEARNING ATUALIZADO COM CATBOOST
+# MÓDULO DE MACHINE LEARNING ATUALIZADO COM CATBOOST - VERSÃO CORRIGIDA
 # =============================
 class MLRoleta:
     def __init__(
@@ -138,10 +138,10 @@ class MLRoleta:
         seed: int = 42
     ):
         """
-        roleta_obj: instância de RoletaInteligente (deve ter .race, get_posicao_race(n) e get_vizinhos_zona(center, k) ou similar)
+        roleta_obj: instância de RoletaInteligente
         min_training_samples: número mínimo de sorteios para treinar
         max_history: quantidade máxima de histórico usada para treinos incrementais
-        retrain_every_n: retreina a cada N novos sorteios (se atingido min_training_samples)
+        retrain_every_n: retreina a cada N novos sorteios
         """
         self.roleta = roleta_obj
         self.min_training_samples = min_training_samples
@@ -149,17 +149,17 @@ class MLRoleta:
         self.retrain_every_n = retrain_every_n
         self.seed = seed
 
-        # Modelos: ensemble simples com 2 instâncias (mesmo algoritmo, seeds diferentes).
-        self.models = []  # lista de modelos treinados
+        # Modelos: ensemble simples com 2 instâncias
+        self.models = []
         self.scaler = StandardScaler()
         self.feature_names = []
         self.is_trained = False
         self.contador_treinamento = 0
-        self.meta = {}  # guarda metas como ultima_acuracia, historico de treinos etc.
+        self.meta = {}
 
         # Parâmetros de engenharia
-        self.window_for_features = [5, 10, 20, 50]  # janelas multi-escala
-        self.k_vizinhos = 2  # número de vizinhos físicos para formar blocos (antes/depois)
+        self.window_for_features = [5, 10, 20, 50]
+        self.k_vizinhos = 2
         self.numeros = list(range(37))  # 0..36
 
     # -------------------------
@@ -195,7 +195,9 @@ class MLRoleta:
         try:
             historico = list(historico)
             N = len(historico)
-            if N < 5:  # requer ao menos 5 para várias features
+            
+            # CORREÇÃO: Aumentar mínimo para 10 para features mais estáveis
+            if N < 10:
                 return None, None
 
             features = []
@@ -297,8 +299,6 @@ class MLRoleta:
     def preparar_dados_treinamento(self, historico_completo):
         """
         Gera X, y a partir do histórico completo.
-        Usa janelas deslizantes: para cada i, features de historico[:i] -> target historico[i].
-        Limita a self.max_history (últimos N).
         """
         historico_completo = list(historico_completo)
         # Limitar ao max_history mais recentes para evitar crescimento infinito
@@ -307,16 +307,28 @@ class MLRoleta:
 
         X = []
         y = []
-        # Começa em 20 pra ter janela inicial com informações
-        for i in range(20, len(historico_completo)):
+        
+        # CORREÇÃO: Aumentar janela inicial para garantir mais dados
+        start_index = max(30, len(historico_completo) // 10)  # Pelo menos 30 ou 10% dos dados
+        
+        for i in range(start_index, len(historico_completo)):
             janela = historico_completo[:i]
             feats, _ = self.extrair_features(janela)
             if feats is None:
                 continue
             X.append(feats)
             y.append(historico_completo[i])  # próximo número
+        
+        # CORREÇÃO: Verificar se temos dados suficientes e variedade de classes
         if len(X) == 0:
             return np.array([]), np.array([])
+        
+        # Verificar variedade de classes
+        class_counts = Counter(y)
+        if len(class_counts) < 10:  # Mínimo de 10 números diferentes
+            logging.warning(f"Pouca variedade de classes: apenas {len(class_counts)} números únicos")
+            return np.array([]), np.array([])
+        
         return np.array(X), np.array(y)
 
     # -------------------------
@@ -378,52 +390,109 @@ class MLRoleta:
             # Normalize
             X_scaled = self.scaler.fit_transform(X)
 
-            # Split train/val
-            X_train, X_val, y_train, y_val = train_test_split(
-                X_scaled, y, test_size=0.2, random_state=self.seed, stratify=y if len(set(y))>1 else None
-            )
+            # CORREÇÃO: Split train/val com verificação de estratificação segura
+            try:
+                # Verificar se podemos usar estratificação
+                class_counts = Counter(y)
+                min_samples_per_class = min(class_counts.values())
+                
+                # Só usar stratify se todas as classes tiverem pelo menos 2 amostras
+                can_stratify = min_samples_per_class >= 2 and len(class_counts) > 1
+                
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X_scaled, y, 
+                    test_size=0.2, 
+                    random_state=self.seed, 
+                    stratify=y if can_stratify else None
+                )
+                
+                logging.info(f"Split realizado: estratificação = {can_stratify}, classes = {len(class_counts)}, min_amostras = {min_samples_per_class}")
+                
+            except Exception as e:
+                logging.warning(f"Erro no split estratificado: {e}. Usando split sem estratificação.")
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X_scaled, y, test_size=0.2, random_state=self.seed
+                )
 
-            # Opcional: balancear com resample per class
-            if balance:
-                # Cria concat para reamostragem
-                df_train = pd.DataFrame(X_train, columns=[f"f{i}" for i in range(X_train.shape[1])])
-                df_train['y'] = y_train
-                # encontra classe majoritária e resample outras para equilibrar
-                max_count = df_train['y'].value_counts().max()
-                frames = []
-                for cls, grp in df_train.groupby('y'):
-                    if len(grp) < max_count:
-                        grp_up = resample(grp, replace=True, n_samples=max_count, random_state=self.seed)
-                        frames.append(grp_up)
+            # Opcional: balancear com resample per class (AGORA COM VERIFICAÇÃO DE SEGURANÇA)
+            if balance and len(X_train) > 0:
+                try:
+                    df_train = pd.DataFrame(X_train, columns=[f"f{i}" for i in range(X_train.shape[1])])
+                    df_train['y'] = y_train
+                    
+                    # Encontra classe majoritária
+                    value_counts = df_train['y'].value_counts()
+                    if len(value_counts) == 0:
+                        raise ValueError("Nenhuma classe encontrada")
+                    
+                    max_count = value_counts.max()
+                    
+                    # Verifica se há classes suficientes para balanceamento
+                    if len(value_counts) < 2:
+                        logging.warning("Apenas uma classe disponível, pulando balanceamento")
+                        balance = False
                     else:
-                        frames.append(grp)
-                df_bal = pd.concat(frames)
-                y_train = df_bal['y'].values
-                X_train = df_bal.drop(columns=['y']).values
+                        frames = []
+                        for cls, grp in df_train.groupby('y'):
+                            if len(grp) < max_count:
+                                # Resample apenas se tiver pelo menos 1 amostra
+                                if len(grp) >= 1:
+                                    grp_up = resample(grp, replace=True, n_samples=max_count, random_state=self.seed)
+                                    frames.append(grp_up)
+                                else:
+                                    frames.append(grp)
+                            else:
+                                frames.append(grp)
+                        
+                        if frames:
+                            df_bal = pd.concat(frames)
+                            y_train = df_bal['y'].values
+                            X_train = df_bal.drop(columns=['y']).values
+                        else:
+                            balance = False
+                            
+                except Exception as e:
+                    logging.warning(f"Erro no balanceamento: {e}. Continuando sem balanceamento.")
+                    balance = False
 
-            # Treinar 2 modelos com seeds diferentes e armazenar ensemble
+            # Treinar 2 modelos com seeds diferentes
             models = []
             model_names = []
+            
             for s in [self.seed, self.seed + 7]:
-                model, name = self._build_and_train_model(X_train, y_train, X_val, y_val, seed=s)
-                models.append(model)
-                model_names.append(name)
+                try:
+                    model, name = self._build_and_train_model(X_train, y_train, X_val, y_val, seed=s)
+                    models.append(model)
+                    model_names.append(name)
+                except Exception as e:
+                    logging.error(f"Erro ao treinar modelo {s}: {e}")
+
+            if not models:
+                return False, "Todos os modelos falharam no treinamento"
 
             # Avaliar (média das probabilidades)
-            probs = []
-            for m in models:
-                if hasattr(m, 'predict_proba'):
-                    probs.append(m.predict_proba(X_val))
+            try:
+                probs = []
+                for m in models:
+                    if hasattr(m, 'predict_proba'):
+                        probs.append(m.predict_proba(X_val))
+                    else:
+                        preds = m.predict(X_val)
+                        prob = np.zeros((len(preds), len(self.numeros)))
+                        for i, p in enumerate(preds):
+                            prob[i, p] = 1.0
+                        probs.append(prob)
+                
+                if probs:
+                    avg_prob = np.mean(probs, axis=0)
+                    y_pred = np.argmax(avg_prob, axis=1)
+                    acc = accuracy_score(y_val, y_pred)
                 else:
-                    preds = m.predict(X_val)
-                    # transforma em one-hot probabilidades
-                    prob = np.zeros((len(preds), len(self.numeros)))
-                    for i, p in enumerate(preds):
-                        prob[i, p] = 1.0
-                    probs.append(prob)
-            avg_prob = np.mean(probs, axis=0)
-            y_pred = np.argmax(avg_prob, axis=1)
-            acc = accuracy_score(y_val, y_pred)
+                    acc = 0.0
+                    
+            except Exception as e:
+                logging.warning(f"Erro na avaliação: {e}")
+                acc = 0.0
 
             # Save ensemble
             self.models = models
@@ -431,12 +500,14 @@ class MLRoleta:
             self.contador_treinamento += 1
             self.meta['last_accuracy'] = acc
             self.meta['trained_on'] = len(historico_completo)
+            self.meta['last_training_size'] = len(X)
 
             # persistir
             try:
                 joblib.dump({'models': self.models}, ML_MODEL_PATH)
                 joblib.dump(self.scaler, SCALER_PATH)
                 joblib.dump(self.meta, META_PATH)
+                logging.info(f"Modelos salvos em disco: {ML_MODEL_PATH}")
             except Exception as e:
                 logging.warning(f"Falha ao salvar modelos: {e}")
 
@@ -1488,6 +1559,17 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     st.write(f"🎯 **Mínimo necessário:** 100 números")
     st.write(f"🔄 **Treinamento automático:** A cada 10 sorteios")
     st.write(f"🤖 **Modelo:** CatBoost (mais preciso)")
+    
+    # Verificar variedade de dados
+    if numeros_disponiveis > 0:
+        numeros_unicos = len(set(numeros_lista))
+        st.write(f"🎲 **Números únicos:** {numeros_unicos}/37")
+        
+        if numeros_unicos < 10:
+            st.warning(f"⚠️ **Pouca variedade:** Necessário pelo menos 10 números diferentes")
+        else:
+            st.success(f"✅ **Variedade adequada:** {numeros_unicos} números diferentes")
+    
     st.write(f"✅ **Status:** {'Dados suficientes' if numeros_disponiveis >= 100 else 'Coletando dados...'}")
     
     # Informações adicionais sobre o treinamento
@@ -1524,6 +1606,9 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
             modelo_tipo = "Não treinado"
             
         st.success(f"✅ Modelo {modelo_tipo} treinado ({st.session_state.sistema.estrategia_ml.ml.contador_treinamento} vezes)")
+        if 'last_accuracy' in st.session_state.sistema.estrategia_ml.ml.meta:
+            acc = st.session_state.sistema.estrategia_ml.ml.meta['last_accuracy']
+            st.info(f"📊 Última acurácia: {acc:.2%}")
         st.info(f"🔄 Próximo treinamento automático em: {10 - st.session_state.sistema.estrategia_ml.contador_sorteios} sorteios")
     else:
         st.info("🤖 ML aguardando treinamento")
