@@ -231,8 +231,8 @@ class MLRoleta:
         self,
         roleta_obj,
         min_training_samples: int = 100,
-        max_history: int = 500,
-        retrain_every_n: int = 10,
+        max_history: int = 5500,
+        retrain_every_n: int = 100,
         seed: int = 42
     ):
         self.roleta = roleta_obj
@@ -249,7 +249,7 @@ class MLRoleta:
         self.meta = {}
 
         self.window_for_features = [5, 10, 20, 50]
-        self.k_vizinhos = 2
+        self.k_vizinhos = 6
         self.numeros = list(range(37))
 
     def get_neighbors(self, numero, k=None):
