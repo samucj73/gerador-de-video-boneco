@@ -139,7 +139,7 @@ class MLRoleta:
         
     def extrair_features(self, historico, numero_alvo=None):
         """Extrai features avançadas do histórico para ML"""
-        if len(historico) < 10:
+        if len(historico) < 12:
             return None, None
             
         try:
@@ -147,7 +147,7 @@ class MLRoleta:
             feature_names = []
             
             # Últimos k números (sequência temporal)
-            k = 10
+            k = 12
             ultimos_numeros = list(historico)[-k:]
             
             # 1. Features básicas dos últimos números
