@@ -731,7 +731,8 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
             "predictions": predictions,
             "timestamp": datetime.now().isoformat(),
             "enviado_telegram": send_to_telegram,
-            "conferido": False
+            "conferido": False,
+            "alerta_resultado_enviado": False  # NOVO: controle de alerta de resultado
         }
         salvar_alertas(alertas)
         
@@ -747,6 +748,184 @@ def verificar_e_enviar_alerta(game: dict, predictions: dict, send_to_telegram: b
                 return False
         return True
     return False
+
+# =============================
+# ALERTA DE RESULTADOS CONFERIDOS
+# =============================
+def enviar_alerta_resultados_conferidos():
+    """Envia alerta com resumo dos resultados conferidos (Green/Red)"""
+    alertas = carregar_alertas()
+    
+    # Filtra apenas jogos conferidos
+    jogos_conferidos = []
+    for alerta_id, alerta in alertas.items():
+        if alerta.get("conferido", False) and not alerta.get("alerta_resultado_enviado", False):
+            jogos_conferidos.append((alerta_id, alerta))
+    
+    if not jogos_conferidos:
+        st.info("ℹ️ Nenhum jogo conferido novo para alerta.")
+        return 0
+    
+    st.info(f"📤 Preparando alerta para {len(jogos_conferidos)} jogos conferidos...")
+    
+    # Constroi mensagem consolidada
+    mensagem = f"🏀 <b>RESULTADOS CONFERIDOS - {datetime.now().strftime('%d/%m/%Y')}</b>\n\n"
+    mensagem += "📊 <i>Resumo dos jogos analisados</i>\n\n"
+    
+    greens_total = 0
+    greens_vencedor = 0
+    total_jogos = len(jogos_conferidos)
+    
+    for alerta_id, alerta in jogos_conferidos:
+        game_data = alerta.get("game_data", {})
+        predictions = alerta.get("predictions", {})
+        
+        home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+        away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+        home_score = game_data.get("home_team_score", 0)
+        away_score = game_data.get("visitor_team_score", 0)
+        
+        total_pontos = home_score + away_score
+        
+        # Determina resultado do Total
+        total_pred = predictions.get("total", {})
+        tendencia_total = total_pred.get("tendencia", "")
+        resultado_total = "⚪ INDEFINIDO"
+        
+        if "Mais" in tendencia_total:
+            try:
+                limite = float(tendencia_total.split()[-1])
+                resultado_total = "🟢 GREEN" if total_pontos > limite else "🔴 RED"
+                if resultado_total == "🟢 GREEN":
+                    greens_total += 1
+            except:
+                resultado_total = "⚪ INDEFINIDO"
+        elif "Menos" in tendencia_total:
+            try:
+                limite = float(tendencia_total.split()[-1])
+                resultado_total = "🟢 GREEN" if total_pontos < limite else "🔴 RED"
+                if resultado_total == "🟢 GREEN":
+                    greens_total += 1
+            except:
+                resultado_total = "⚪ INDEFINIDO"
+        
+        # Determina resultado do Vencedor
+        vencedor_pred = predictions.get("vencedor", {})
+        vencedor_previsto = vencedor_pred.get("vencedor", "")
+        resultado_vencedor = "⚪ INDEFINIDO"
+        
+        if vencedor_previsto == "Casa" and home_score > away_score:
+            resultado_vencedor = "🟢 GREEN"
+            greens_vencedor += 1
+        elif vencedor_previsto == "Visitante" and away_score > home_score:
+            resultado_vencedor = "🟢 GREEN"
+            greens_vencedor += 1
+        elif vencedor_previsto == "Empate" and home_score == away_score:
+            resultado_vencedor = "🟢 GREEN"
+            greens_vencedor += 1
+        elif vencedor_previsto in ["Casa", "Visitante", "Empate"]:
+            resultado_vencedor = "🔴 RED"
+        
+        # Adiciona jogo à mensagem
+        mensagem += f"🏟️ <b>{home_team} vs {away_team}</b>\n"
+        mensagem += f"   📊 Placar: <b>{home_score} x {away_score}</b>\n"
+        mensagem += f"   🏀 Total: {total_pontos} pts | Previsão: {tendencia_total} | <b>{resultado_total}</b>\n"
+        mensagem += f"   🎯 Vencedor: Previsão: {vencedor_previsto} | <b>{resultado_vencedor}</b>\n\n"
+        
+        # Marca como alerta enviado
+        alertas[alerta_id]["alerta_resultado_enviado"] = True
+    
+    # Adiciona resumo final
+    mensagem += "📈 <b>RESUMO FINAL</b>\n"
+    mensagem += f"✅ <b>Total de Pontos:</b> {greens_total}/{total_jogos} Greens\n"
+    mensagem += f"✅ <b>Vencedor:</b> {greens_vencedor}/{total_jogos} Greens\n"
+    
+    taxa_acerto_total = (greens_total / total_jogos) * 100 if total_jogos > 0 else 0
+    taxa_acerto_vencedor = (greens_vencedor / total_jogos) * 100 if total_jogos > 0 else 0
+    taxa_geral = ((greens_total + greens_vencedor) / (total_jogos * 2)) * 100 if total_jogos > 0 else 0
+    
+    mensagem += f"🎯 <b>Taxa de Acerto:</b>\n"
+    mensagem += f"   📊 Total: {taxa_acerto_total:.1f}%\n"
+    mensagem += f"   🏆 Vencedor: {taxa_acerto_vencedor:.1f}%\n"
+    mensagem += f"   ⭐ Geral: {taxa_geral:.1f}%\n\n"
+    
+    mensagem += "🏆 <b>Elite Master - Resultados Conferidos</b>"
+    
+    # Envia para o canal alternativo
+    if enviar_telegram(mensagem, TELEGRAM_CHAT_ID_ALT2):
+        # Salva as alterações nos alertas
+        salvar_alertas(alertas)
+        st.success(f"✅ Alerta de resultados enviado! {total_jogos} jogos conferidos.")
+        return total_jogos
+    else:
+        st.error("❌ Erro ao enviar alerta de resultados.")
+        return 0
+
+def enviar_alerta_individual_resultado(alerta_id: str, alerta: dict):
+    """Envia alerta individual para um jogo conferido"""
+    game_data = alerta.get("game_data", {})
+    predictions = alerta.get("predictions", {})
+    
+    home_team = game_data.get("home_team", {}).get("full_name", "Casa")
+    away_team = game_data.get("visitor_team", {}).get("full_name", "Visitante")
+    home_score = game_data.get("home_team_score", 0)
+    away_score = game_data.get("visitor_team_score", 0)
+    
+    total_pontos = home_score + away_score
+    
+    # Determina resultado do Total
+    total_pred = predictions.get("total", {})
+    tendencia_total = total_pred.get("tendencia", "")
+    resultado_total = "⚪ INDEFINIDO"
+    
+    if "Mais" in tendencia_total:
+        try:
+            limite = float(tendencia_total.split()[-1])
+            resultado_total = "🟢 GREEN" if total_pontos > limite else "🔴 RED"
+        except:
+            resultado_total = "⚪ INDEFINIDO"
+    elif "Menos" in tendencia_total:
+        try:
+            limite = float(tendencia_total.split()[-1])
+            resultado_total = "🟢 GREEN" if total_pontos < limite else "🔴 RED"
+        except:
+            resultado_total = "⚪ INDEFINIDO"
+    
+    # Determina resultado do Vencedor
+    vencedor_pred = predictions.get("vencedor", {})
+    vencedor_previsto = vencedor_pred.get("vencedor", "")
+    resultado_vencedor = "⚪ INDEFINIDO"
+    
+    if vencedor_previsto == "Casa" and home_score > away_score:
+        resultado_vencedor = "🟢 GREEN"
+    elif vencedor_previsto == "Visitante" and away_score > home_score:
+        resultado_vencedor = "🟢 GREEN"
+    elif vencedor_previsto == "Empate" and home_score == away_score:
+        resultado_vencedor = "🟢 GREEN"
+    elif vencedor_previsto in ["Casa", "Visitante", "Empate"]:
+        resultado_vencedor = "🔴 RED"
+    
+    # Constroi mensagem individual
+    mensagem = f"🏀 <b>RESULTADO INDIVIDUAL</b>\n\n"
+    mensagem += f"🏟️ <b>{home_team} vs {away_team}</b>\n"
+    mensagem += f"📊 Placar: <b>{home_score} x {away_score}</b>\n"
+    mensagem += f"🏀 Total de Pontos: <b>{total_pontos}</b>\n\n"
+    
+    mensagem += f"📈 <b>Total de Pontos</b>\n"
+    mensagem += f"   Previsão: {tendencia_total}\n"
+    mensagem += f"   Resultado: <b>{resultado_total}</b>\n\n"
+    
+    mensagem += f"🎯 <b>Vencedor</b>\n"
+    mensagem += f"   Previsão: {vencedor_previsto}\n"
+    mensagem += f"   Resultado: <b>{resultado_vencedor}</b>\n\n"
+    
+    mensagem += "🏆 <b>Elite Master - Resultado Individual</b>"
+    
+    # Envia para o canal alternativo
+    if enviar_telegram(mensagem, TELEGRAM_CHAT_ID_ALT2):
+        return True
+    else:
+        return False
 
 # =============================
 # SISTEMA TOP 4 MELHORES JOGOS
@@ -923,8 +1102,8 @@ def exibir_jogos_analisados():
 def conferir_resultados():
     st.header("📊 Conferência de Resultados")
     
-    # Botões de ação para conferência
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Botões de ação para conferência - AUMENTAMOS O NÚMERO DE COLUNAS
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     
     with col1:
         st.subheader("Jogos Finalizados")
@@ -938,7 +1117,6 @@ def conferir_resultados():
                     st.rerun()
     
     with col3:
-        # Botão específico para conferir jogos
         if st.button("✅ Conferir Jogos", type="secondary", use_container_width=True):
             with st.spinner("Conferindo jogos finalizados..."):
                 jogos_conferidos = conferir_jogos_finalizados()
@@ -947,6 +1125,16 @@ def conferir_resultados():
                     st.rerun()
                 else:
                     st.info("ℹ️ Nenhum jogo novo para conferir.")
+    
+    # NOVO: Botão para enviar alerta de resultados
+    with col4:
+        if st.button("📤 Alerta Resultados", type="secondary", use_container_width=True):
+            with st.spinner("Enviando alerta de resultados conferidos..."):
+                jogos_alertados = enviar_alerta_resultados_conferidos()
+                if jogos_alertados > 0:
+                    st.success(f"✅ Alerta para {jogos_alertados} jogos enviado!")
+                else:
+                    st.info("ℹ️ Nenhum jogo novo para alerta.")
     
     alertas = carregar_alertas()
     if not alertas:
@@ -1028,15 +1216,28 @@ def conferir_resultados():
         with col3:
             if not alerta.get("conferido", False):
                 if st.button("✅ Confirmar", key=f"conf_{alerta_id}"):
-                    # NOVO: Atualiza estatísticas quando confirma
+                    # Atualiza estatísticas quando confirma
                     if resultado_total in ["🟢 GREEN", "🔴 RED"] and resultado_vencedor in ["🟢 GREEN", "🔴 RED"]:
                         atualizar_estatisticas(resultado_total, resultado_vencedor)
                     
                     alertas[alerta_id]["conferido"] = True
+                    
+                    # NOVO: Envia alerta individual
+                    if enviar_alerta_individual_resultado(alerta_id, alertas[alerta_id]):
+                        st.success("✅ Conferido e alerta enviado!")
+                    else:
+                        st.error("✅ Conferido, mas erro no alerta.")
+                    
                     salvar_alertas(alertas)
                     st.rerun()
             else:
                 st.success("✅ Conferido")
+                # NOVO: Botão para reenviar alerta individual
+                if st.button("📤 Reenviar Alerta", key=f"alert_{alerta_id}"):
+                    if enviar_alerta_individual_resultado(alerta_id, alerta):
+                        st.success("✅ Alerta reenviado!")
+                    else:
+                        st.error("❌ Erro ao reenviar alerta.")
         
         st.markdown("---")
 
@@ -1097,6 +1298,18 @@ def main():
         limpar_estatisticas()
         st.sidebar.success("✅ Estatísticas limpas!")
         st.rerun()
+
+    # NOVO: Botão para alertas de resultados na sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📤 Alertas de Resultados")
+    
+    if st.sidebar.button("📤 Enviar Alerta de Resultados", type="secondary"):
+        with st.spinner("Enviando alerta de resultados conferidos..."):
+            jogos_alertados = enviar_alerta_resultados_conferidos()
+            if jogos_alertados > 0:
+                st.sidebar.success(f"✅ Alerta para {jogos_alertados} jogos!")
+            else:
+                st.sidebar.info("ℹ️ Nenhum jogo novo para alerta.")
     
     # NOVO: Aba de estatísticas
     tab1, tab2, tab3, tab4 = st.tabs(["🎯 Análise", "📊 Jogos Analisados", "✅ Conferência", "📈 Estatísticas"])
