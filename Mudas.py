@@ -127,256 +127,465 @@ class RoletaInteligente:
 # MÓDULO DE MACHINE LEARNING ATUALIZADO COM CATBOOST
 # =============================
 class MLRoleta:
-    def __init__(self):
-        self.model = None
+    def __init__(
+        self,
+        roleta_obj,
+        min_training_samples: int = 100,
+        max_history: int = 500,
+        retrain_every_n: int = 10,
+        seed: int = 42
+    ):
+        """
+        roleta_obj: instância de RoletaInteligente (deve ter .race, get_posicao_race(n) e get_vizinhos_zona(center, k) ou similar)
+        min_training_samples: número mínimo de sorteios para treinar
+        max_history: quantidade máxima de histórico usada para treinos incrementais
+        retrain_every_n: retreina a cada N novos sorteios (se atingido min_training_samples)
+        """
+        self.roleta = roleta_obj
+        self.min_training_samples = min_training_samples
+        self.max_history = max_history
+        self.retrain_every_n = retrain_every_n
+        self.seed = seed
+
+        # Modelos: ensemble simples com 2 instâncias (mesmo algoritmo, seeds diferentes).
+        self.models = []  # lista de modelos treinados
         self.scaler = StandardScaler()
-        self.roleta = RoletaInteligente()
         self.feature_names = []
         self.is_trained = False
-        self.min_training_samples = 100
-        self.model_loaded = False
         self.contador_treinamento = 0
-        
-    def extrair_features(self, historico, numero_alvo=None):
-        """Extrai features avançadas do histórico para ML"""
-        if len(historico) < 12:
-            return None, None
-            
+        self.meta = {}  # guarda metas como ultima_acuracia, historico de treinos etc.
+
+        # Parâmetros de engenharia
+        self.window_for_features = [5, 10, 20, 50]  # janelas multi-escala
+        self.k_vizinhos = 2  # número de vizinhos físicos para formar blocos (antes/depois)
+        self.numeros = list(range(37))  # 0..36
+
+    # -------------------------
+    # Helpers de vizinhança
+    # -------------------------
+    def get_neighbors(self, numero, k=None):
+        """
+        Retorna lista de vizinhos físicos do número (incluindo o central).
+        Usa self.roleta.race (lista circular) para calcular vizinhança.
+        """
+        if k is None:
+            k = self.k_vizinhos
         try:
+            race = list(self.roleta.race)
+            n = len(race)
+            idx = race.index(numero)
+            neighbors = []
+            for offset in range(-k, k+1):
+                neighbors.append(race[(idx + offset) % n])
+            return neighbors
+        except Exception:
+            # fallback: retornar apenas o próprio número
+            return [numero]
+
+    # -------------------------
+    # Feature engineering
+    # -------------------------
+    def extrair_features(self, historico, numero_alvo=None):
+        """
+        Extrai features avançadas a partir do histórico (lista ou deque) de números.
+        Retorna: features (lista float), feature_names (lista str)
+        """
+        try:
+            historico = list(historico)
+            N = len(historico)
+            if N < 5:  # requer ao menos 5 para várias features
+                return None, None
+
             features = []
-            feature_names = []
-            
-            # Últimos k números (sequência temporal)
-            k = 12
-            ultimos_numeros = list(historico)[-k:]
-            
-            # 1. Features básicas dos últimos números
-            for i in range(min(k, len(ultimos_numeros))):
-                features.append(ultimos_numeros[i])
-                feature_names.append(f"ultimo_{i+1}")
-            
-            # 2. Estatísticas de janelamento
-            features.extend([
-                np.mean(ultimos_numeros),
-                np.std(ultimos_numeros) if len(ultimos_numeros) > 1 else 0,
-                np.median(ultimos_numeros),
-                max(ultimos_numeros),
-                min(ultimos_numeros)
-            ])
-            feature_names.extend(["media_janela", "desvio_janela", "mediana_janela", "max_janela", "min_janela"])
-            
-            # 3. Posições físicas na roda
-            posicoes = [self.roleta.get_posicao_race(n) for n in ultimos_numeros if n is not None]
-            if posicoes:
-                features.extend([
-                    np.mean(posicoes),
-                    np.std(posicoes) if len(posicoes) > 1 else 0,
-                    (posicoes[-1] - posicoes[0]) % len(self.roleta.race) if len(posicoes) > 1 else 0
-                ])
+            names = []
+
+            # --- 1) Últimos K diretos (até 10)
+            K_seq = 10
+            ultimos = historico[-K_seq:]
+            for i in range(K_seq):
+                val = ultimos[i] if i < len(ultimos) else -1
+                features.append(val)
+                names.append(f"ultimo_{i+1}")
+
+            # --- 2) Estatísticas da janela (para várias janelas)
+            for w in self.window_for_features:
+                janela = historico[-w:] if N >= w else historico[:]
+                arr = np.array(janela, dtype=float)
+                features.append(arr.mean() if len(arr) > 0 else 0.0); names.append(f"media_{w}")
+                features.append(arr.std() if len(arr) > 1 else 0.0); names.append(f"std_{w}")
+                features.append(np.median(arr) if len(arr) > 0 else 0.0); names.append(f"mediana_{w}")
+
+            # --- 3) Frequência por janela e indicadores "quente/frio" relativos
+            counter_full = Counter(historico)
+            for w in self.window_for_features:
+                janela = historico[-w:] if N >= w else historico[:]
+                c = Counter(janela)
+                # proporção de números distintos (diversidade)
+                features.append(len(c) / (w if w>0 else 1)); names.append(f"diversidade_{w}")
+                # proporção do top1 nessa janela
+                top1_count = c.most_common(1)[0][1] if len(c)>0 else 0
+                features.append(top1_count / (w if w>0 else 1)); names.append(f"top1_prop_{w}")
+
+            # --- 4) Tempo desde último para cada número (37 features)
+            # Se número não ocorreu, assume len(historico)+1 para indicar "muito tempo"
+            for num in self.numeros:
+                try:
+                    rev_idx = historico[::-1].index(num)
+                    tempo = rev_idx  # 0 significa saiu no último sorteio
+                except ValueError:
+                    tempo = N + 1
+                features.append(tempo)
+                names.append(f"tempo_desde_{num}")
+
+            # --- 5) Contagens por cor e dúzia e coluna (última janela 50)
+            janela50 = historico[-50:] if N >= 50 else historico[:]
+            vermelhos = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+            pretos = set(self.numeros[1:]) - vermelhos
+            count_verm = sum(1 for x in janela50 if x in vermelhos)
+            count_pret = sum(1 for x in janela50 if x in pretos)
+            count_zero = sum(1 for x in janela50 if x == 0)
+            features.extend([count_verm/len(janela50), count_pret/len(janela50), count_zero/len(janela50)])
+            names.extend(["prop_vermelhos_50", "prop_pretos_50", "prop_zero_50"])
+
+            # dúzias
+            def duzia_of(x):
+                if x == 0: return 0
+                if 1 <= x <= 12: return 1
+                if 13 <= x <= 24: return 2
+                return 3
+            for d in [1,2,3]:
+                features.append(sum(1 for x in janela50 if duzia_of(x)==d)/len(janela50))
+                names.append(f"prop_duzia_{d}_50")
+
+            # --- 6) Vizinhos físicos: quantos dos últimos K_seq estão nos vizinhos do último número
+            ultimo_num = historico[-1]
+            vizinhos_k = self.get_neighbors(ultimo_num, k=6)  # mais amplo
+            count_in_vizinhos = sum(1 for x in ultimos if x in vizinhos_k) / len(ultimos)
+            features.append(count_in_vizinhos); names.append("prop_ultimos_em_vizinhos_6")
+
+            # --- 7) Repetições e padrões binários
+            features.append(1 if N>=2 and historico[-1] == historico[-2] else 0); names.append("repetiu_ultimo")
+            features.append(1 if N>=2 and (historico[-1] % 2) == (historico[-2] % 2) else 0); names.append("repetiu_paridade")
+            features.append(1 if N>=2 and duzia_of(historico[-1]) == duzia_of(historico[-2]) else 0); names.append("repetiu_duzia")
+
+            # --- 8) Diferenças entre janelas (indicador de mudança de tendência)
+            if N >= max(self.window_for_features):
+                small = np.mean(historico[-self.window_for_features[0]:])
+                large = np.mean(historico[-self.window_for_features[-1]:])
+                features.append(small - large); names.append("delta_media_small_large")
             else:
-                features.extend([0, 0, 0])
-            feature_names.extend(["media_posicoes", "desvio_posicoes", "distancia_percorrida"])
-            
-            # 4. Contagens por categorias
-            vermelhos = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
-            pretos = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
-            
-            count_vermelhos = sum(1 for n in ultimos_numeros if n in vermelhos)
-            count_pretos = sum(1 for n in ultimos_numeros if n in pretos)
-            count_verde = sum(1 for n in ultimos_numeros if n == 0)
-            
-            features.extend([count_vermelhos, count_pretos, count_verde])
-            feature_names.extend(["count_vermelhos", "count_pretos", "count_verde"])
-            
-            # 5. Duplas e colunas
-            count_duzia_1 = sum(1 for n in ultimos_numeros if 1 <= n <= 12)
-            count_duzia_2 = sum(1 for n in ultimos_numeros if 13 <= n <= 24)
-            count_duzia_3 = sum(1 for n in ultimos_numeros if 25 <= n <= 36)
-            
-            features.extend([count_duzia_1, count_duzia_2, count_duzia_3])
-            feature_names.extend(["duzia_1", "duzia_2", "duzia_3"])
-            
-            # 6. Transições e padrões
-            transicoes = []
-            for i in range(1, len(ultimos_numeros)):
-                transicoes.append(abs(ultimos_numeros[i] - ultimos_numeros[i-1]))
-            
-            if transicoes:
-                features.extend([
-                    np.mean(transicoes),
-                    np.std(transicoes) if len(transicoes) > 1 else 0
-                ])
-            else:
-                features.extend([0, 0])
-            feature_names.extend(["media_transicoes", "desvio_transicoes"])
-            
-            # 7. Tempo desde último zero
-            tempo_zero = 0
-            for i, num in enumerate(reversed(ultimos_numeros)):
-                if num == 0:
-                    tempo_zero = i + 1
-                    break
-            features.append(tempo_zero)
-            feature_names.append("tempo_desde_zero")
-            
-            # 8. Frequência de zonas (ATUALIZADO - 6 antes e 6 depois)
-            zonas = {
-                'Amarela': self.roleta.get_vizinhos_zona(2, 6),   # 6 antes + 6 depois + central = 13 números
-                'Vermelha': self.roleta.get_vizinhos_zona(7, 6),  # 6 antes + 6 depois + central = 13 números
-                'Azul': self.roleta.get_vizinhos_zona(10, 6)      # 6 antes + 6 depois + central = 13 números
-            }
-            
-            for zona, numeros in zonas.items():
-                count = sum(1 for n in ultimos_numeros if n in numeros)
-                features.append(count)
-                feature_names.append(f"zona_{zona}")
-            
-            self.feature_names = feature_names
-            return features, feature_names
-            
+                features.append(0.0); names.append("delta_media_small_large")
+
+            # --- 9) Estatísticas de transição (média e std das diferenças absolutas)
+            diffs = [abs(historico[i] - historico[i-1]) for i in range(1, len(historico))]
+            features.append(np.mean(diffs) if len(diffs)>0 else 0.0); names.append("media_transicoes")
+            features.append(np.std(diffs) if len(diffs)>1 else 0.0); names.append("std_transicoes")
+
+            # finalize
+            self.feature_names = names
+            return features, names
+
         except Exception as e:
-            logging.error(f"Erro ao extrair features: {e}")
+            logging.error(f"[extrair_features] Erro: {e}")
             return None, None
-    
+
+    # -------------------------
+    # Preparar dados para treino
+    # -------------------------
     def preparar_dados_treinamento(self, historico_completo):
-        """Prepara dados de treinamento do histórico completo"""
+        """
+        Gera X, y a partir do histórico completo.
+        Usa janelas deslizantes: para cada i, features de historico[:i] -> target historico[i].
+        Limita a self.max_history (últimos N).
+        """
+        historico_completo = list(historico_completo)
+        # Limitar ao max_history mais recentes para evitar crescimento infinito
+        if len(historico_completo) > self.max_history:
+            historico_completo = historico_completo[-self.max_history:]
+
         X = []
         y = []
-        
+        # Começa em 20 pra ter janela inicial com informações
         for i in range(20, len(historico_completo)):
             janela = historico_completo[:i]
-            features, _ = self.extrair_features(janela)
-            
-            if features is not None and i < len(historico_completo):
-                X.append(features)
-                y.append(historico_completo[i])
-        
+            feats, _ = self.extrair_features(janela)
+            if feats is None:
+                continue
+            X.append(feats)
+            y.append(historico_completo[i])  # próximo número
+        if len(X) == 0:
+            return np.array([]), np.array([])
         return np.array(X), np.array(y)
-    
-    def treinar_modelo(self, historico_completo):
-        """Treina o modelo com CatBoost para melhor performance"""
-        if len(historico_completo) < self.min_training_samples:
-            return False, f"Necessário mínimo de {self.min_training_samples} amostras. Atual: {len(historico_completo)}"
-        
+
+    # -------------------------
+    # Treinamento (CatBoost ou RF fallback)
+    # -------------------------
+    def _build_and_train_model(self, X_train, y_train, X_val=None, y_val=None, seed=0):
+        """
+        Tenta treinar CatBoost (com early stopping), senão RandomForest.
+        Retorna modelo treinado e string com nome.
+        """
         try:
+            from catboost import CatBoostClassifier
+            model = CatBoostClassifier(
+                iterations=1500,
+                learning_rate=0.05,
+                depth=10,
+                l2_leaf_reg=5,
+                bagging_temperature=0.8,
+                random_strength=1.0,
+                loss_function='MultiClass',
+                eval_metric='MultiClass',
+                random_seed=seed,
+                use_best_model=True,
+                early_stopping_rounds=100,
+                verbose=False
+            )
+            if X_val is not None and y_val is not None:
+                model.fit(X_train, y_train, eval_set=(X_val, y_val), verbose=False)
+            else:
+                model.fit(X_train, y_train, verbose=False)
+            return model, "CatBoost"
+        except Exception as e:
+            logging.warning(f"CatBoost não disponível ou falha ({e}). Usando RandomForest como fallback.")
+            from sklearn.ensemble import RandomForestClassifier
+            model = RandomForestClassifier(
+                n_estimators=400,
+                max_depth=20,
+                min_samples_split=3,
+                min_samples_leaf=2,
+                random_state=seed,
+                n_jobs=-1
+            )
+            model.fit(X_train, y_train)
+            return model, "RandomForest"
+
+    def treinar_modelo(self, historico_completo, force_retrain: bool = False, balance: bool = True):
+        """
+        Treina ensemble (2 modelos) usando o histórico.
+        balance: se True faz resampling estratificado para mitigar classes raras.
+        """
+        try:
+            if len(historico_completo) < self.min_training_samples and not force_retrain:
+                return False, f"Necessário mínimo de {self.min_training_samples} amostras. Atual: {len(historico_completo)}"
+
             X, y = self.preparar_dados_treinamento(historico_completo)
-            
-            if len(X) < 50:
+            if X.size == 0 or len(X) < 50:
                 return False, f"Dados insuficientes para treino: {len(X)} amostras"
-            
-            # Dividir dados
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            
-            # Normalizar features
-            X_train_scaled = self.scaler.fit_transform(X_train)
-            X_test_scaled = self.scaler.transform(X_test)
-            
-            # Tentar importar CatBoost, fallback para RandomForest se não disponível
-            try:
-                from catboost import CatBoostClassifier
-                # Treinar modelo com CatBoost - muito mais preciso para dados sequenciais
-                self.model = CatBoostClassifier(
-                    iterations=1000,
-                    learning_rate=0.1,
-                    depth=8,
-                    loss_function='MultiClass',
-                    random_state=42,
-                    verbose=False,
-                    early_stopping_rounds=50,
-                    use_best_model=True
-                )
-                
-                # Treinar com validação
-                self.model.fit(
-                    X_train_scaled, y_train,
-                    eval_set=(X_test_scaled, y_test),
-                    verbose=False
-                )
-                modelo_usado = "CatBoost"
-                
-            except ImportError:
-                # Fallback para RandomForest se CatBoost não estiver disponível
-                from sklearn.ensemble import RandomForestClassifier
-                st.warning("📦 CatBoost não disponível. Usando RandomForest...")
-                
-                self.model = RandomForestClassifier(
-                    n_estimators=200,
-                    max_depth=15,
-                    min_samples_split=3,
-                    min_samples_leaf=2,
-                    random_state=42,
-                    n_jobs=-1
-                )
-                self.model.fit(X_train_scaled, y_train)
-                modelo_usado = "RandomForest"
-            
-            # Avaliar
-            y_pred = self.model.predict(X_test_scaled)
-            accuracy = accuracy_score(y_test, y_pred)
-            
+
+            # Normalize
+            X_scaled = self.scaler.fit_transform(X)
+
+            # Split train/val
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_scaled, y, test_size=0.2, random_state=self.seed, stratify=y if len(set(y))>1 else None
+            )
+
+            # Opcional: balancear com resample per class
+            if balance:
+                # Cria concat para reamostragem
+                df_train = pd.DataFrame(X_train, columns=[f"f{i}" for i in range(X_train.shape[1])])
+                df_train['y'] = y_train
+                # encontra classe majoritária e resample outras para equilibrar
+                max_count = df_train['y'].value_counts().max()
+                frames = []
+                for cls, grp in df_train.groupby('y'):
+                    if len(grp) < max_count:
+                        grp_up = resample(grp, replace=True, n_samples=max_count, random_state=self.seed)
+                        frames.append(grp_up)
+                    else:
+                        frames.append(grp)
+                df_bal = pd.concat(frames)
+                y_train = df_bal['y'].values
+                X_train = df_bal.drop(columns=['y']).values
+
+            # Treinar 2 modelos com seeds diferentes e armazenar ensemble
+            models = []
+            model_names = []
+            for s in [self.seed, self.seed + 7]:
+                model, name = self._build_and_train_model(X_train, y_train, X_val, y_val, seed=s)
+                models.append(model)
+                model_names.append(name)
+
+            # Avaliar (média das probabilidades)
+            probs = []
+            for m in models:
+                if hasattr(m, 'predict_proba'):
+                    probs.append(m.predict_proba(X_val))
+                else:
+                    preds = m.predict(X_val)
+                    # transforma em one-hot probabilidades
+                    prob = np.zeros((len(preds), len(self.numeros)))
+                    for i, p in enumerate(preds):
+                        prob[i, p] = 1.0
+                    probs.append(prob)
+            avg_prob = np.mean(probs, axis=0)
+            y_pred = np.argmax(avg_prob, axis=1)
+            acc = accuracy_score(y_val, y_pred)
+
+            # Save ensemble
+            self.models = models
             self.is_trained = True
             self.contador_treinamento += 1
-            
-            # Salvar modelo e scaler
-            joblib.dump(self.model, ML_MODEL_PATH)
-            joblib.dump(self.scaler, SCALER_PATH)
-            
-            return True, f"Modelo {modelo_usado} treinado ({self.contador_treinamento}º) com {len(X)} amostras. Acurácia: {accuracy:.2%}"
-            
+            self.meta['last_accuracy'] = acc
+            self.meta['trained_on'] = len(historico_completo)
+
+            # persistir
+            try:
+                joblib.dump({'models': self.models}, ML_MODEL_PATH)
+                joblib.dump(self.scaler, SCALER_PATH)
+                joblib.dump(self.meta, META_PATH)
+            except Exception as e:
+                logging.warning(f"Falha ao salvar modelos: {e}")
+
+            return True, f"Ensemble treinado ({', '.join(model_names)}) com {len(X)} amostras. Acurácia validação: {acc:.2%}"
+
         except Exception as e:
+            logging.error(f"[treinar_modelo] Erro: {e}", exc_info=True)
             return False, f"Erro no treinamento: {str(e)}"
-    
+
+    # -------------------------
+    # Carregar modelos salvos
+    # -------------------------
     def carregar_modelo(self):
-        """Carrega modelo pré-treinado"""
         try:
             if os.path.exists(ML_MODEL_PATH) and os.path.exists(SCALER_PATH):
-                self.model = joblib.load(ML_MODEL_PATH)
+                data = joblib.load(ML_MODEL_PATH)
+                self.models = data.get('models', [])
                 self.scaler = joblib.load(SCALER_PATH)
-                self.is_trained = True
-                self.model_loaded = True
+                if os.path.exists(META_PATH):
+                    self.meta = joblib.load(META_PATH)
+                self.is_trained = len(self.models) > 0
                 return True
+            return False
         except Exception as e:
-            logging.error(f"Erro ao carregar modelo: {e}")
-        return False
-    
-    def prever_proximo_numero(self, historico):
-        """Faz previsão usando ML - TOP 20"""
+            logging.error(f"[carregar_modelo] Erro: {e}")
+            return False
+
+    # -------------------------
+    # Previsão: números + blocos (vizinhanca)
+    # -------------------------
+    def _ensemble_predict_proba(self, X_scaled):
+        """
+        Retorna média de probabilidades dos modelos do ensemble para X_scaled.
+        """
+        if not self.models:
+            raise RuntimeError("Modelos não carregados/treinados")
+
+        probs = []
+        for m in self.models:
+            if hasattr(m, 'predict_proba'):
+                probs.append(m.predict_proba(X_scaled))
+            else:
+                preds = m.predict(X_scaled)
+                prob = np.zeros((len(preds), len(self.numeros)))
+                for i, p in enumerate(preds):
+                    prob[i, p] = 1.0
+                probs.append(prob)
+        return np.mean(probs, axis=0)
+
+    def prever_proximo_numero(self, historico, top_k: int = 20):
+        """
+        Retorna top_k números mais prováveis com probabilidades.
+        """
         if not self.is_trained:
             return None, "Modelo não treinado"
-        
-        features, _ = self.extrair_features(historico)
-        if features is None:
+
+        feats, _ = self.extrair_features(historico)
+        if feats is None:
             return None, "Features insuficientes"
-        
+
+        Xs = np.array([feats])
+        Xs_scaled = self.scaler.transform(Xs)
         try:
-            features_scaled = self.scaler.transform([features])
-            
-            # Verificar se é CatBoost ou outro modelo
-            if hasattr(self.model, 'predict_proba'):
-                probabilidades = self.model.predict_proba(features_scaled)[0]
-            else:
-                # Para modelos que não têm predict_proba
-                predictions = self.model.predict(features_scaled)
-                probabilidades = np.zeros(37)  # 37 números na roleta
-                for pred in predictions:
-                    probabilidades[pred] += 1
-                probabilidades /= len(predictions)
-            
-            # Top 20 números mais prováveis
-            top_20_indices = np.argsort(probabilidades)[-20:][::-1]
-            top_20_numeros = [(idx, probabilidades[idx]) for idx in top_20_indices]
-            
-            return top_20_numeros, "Previsão ML realizada"
+            probs = self._ensemble_predict_proba(Xs_scaled)[0]  # probs para cada número 0..36
+            top_idx = np.argsort(probs)[-top_k:][::-1]
+            top = [(int(idx), float(probs[idx])) for idx in top_idx]
+            return top, "Previsão ML realizada"
         except Exception as e:
             return None, f"Erro na previsão: {str(e)}"
 
+    def prever_blocos_vizinhos(self, historico, k_neighbors: int = 2, top_blocks: int = 5):
+        """
+        Retorna os top_blocks blocos (vizinhos físicos) com probabilidade agregada.
+        Cada bloco é um número central + k_neighbors antes/depois.
+        """
+        pred, msg = self.prever_proximo_numero(historico, top_k=37)
+        if pred is None:
+            return None, msg
+        # prob dict
+        prob = {num: p for num, p in pred}
+        blocks = []
+        # gerar blocos para cada número 0..36
+        for num in range(37):
+            neigh = self.get_neighbors(num, k=k_neighbors)
+            agg_prob = sum(prob.get(n, 0.0) for n in neigh)
+            blocks.append((num, tuple(neigh), agg_prob))
+        blocks_sorted = sorted(blocks, key=lambda x: x[2], reverse=True)[:top_blocks]
+        # formatar para retorno
+        formatted = [{"central": b[0], "vizinhos": list(b[1]), "prob": float(b[2])} for b in blocks_sorted]
+        return formatted, "Previsão de blocos realizada"
+
+    # -------------------------
+    # Feedback / atualização on-line
+    # -------------------------
+    def registrar_resultado(self, historico, previsao_top, resultado_real):
+        """
+        Recebe feedback (resultado_real int), e atualiza meta/registro.
+        previsao_top: lista de números previstos (ex: top3 ou top20)
+        Guarda logs e, opcionalmente, faz um retreinamento incremental leve.
+        """
+        try:
+            hit = resultado_real in [p for p,_ in previsao_top] if isinstance(previsao_top[0], tuple) else resultado_real in previsao_top
+            log_entry = {
+                'prev_top': previsao_top,
+                'resultado': resultado_real,
+                'hit': bool(hit)
+            }
+            # Guardar em meta history
+            self.meta.setdefault('history_feedback', []).append(log_entry)
+            # Ajuste simples: se 3 erros seguidos aumentar prioridade de retreino
+            recent = self.meta['history_feedback'][-10:]
+            hits = sum(1 for r in recent if r['hit'])
+            if len(recent) >= 5 and hits / len(recent) < 0.25:
+                # força retreinamento com dados atuais (se tiver suficientes)
+                logging.info("[feedback] Baixa performance detectada — forçando retreinamento incremental")
+                self.treinar_modelo(historico, force_retrain=True, balance=True)
+            return True
+        except Exception as e:
+            logging.error(f"[registrar_resultado] Erro: {e}")
+            return False
+
+    # -------------------------
+    # Verificar re-treinamento automático
+    # -------------------------
     def verificar_treinamento_automatico(self, historico_completo):
-        """Verifica se é hora de retreinar o modelo (a cada 10 sorteios)"""
-        if len(historico_completo) >= self.min_training_samples:
-            # Verificar se passaram 10 sorteios desde o último treinamento
-            if len(historico_completo) % 10 == 0 and len(historico_completo) > 0:
-                return self.treinar_modelo(historico_completo)
-        return False, "Aguardando próximo ciclo de treinamento"
+        """
+        Verifica se é hora de retreinar: se len(historico) cresceu em múltiplos de retrain_every_n
+        e se temos dados mínimos.
+        """
+        try:
+            n = len(historico_completo)
+            if n >= self.min_training_samples:
+                # padrão: retreina quando n % retrain_every_n == 0
+                if n % self.retrain_every_n == 0:
+                    return self.treinar_modelo(historico_completo)
+            return False, "Aguardando próximo ciclo de treinamento"
+        except Exception as e:
+            return False, f"Erro ao verificar retrain: {e}"
+
+    # -------------------------
+    # Utilitários
+    # -------------------------
+    def resumo_meta(self):
+        """
+        Retorna informações rápidas sobre o estado do modelo.
+        """
+        return {
+            "is_trained": self.is_trained,
+            "contador_treinamento": self.contador_treinamento,
+            "meta": self.meta
+        }
 
 # =============================
 # ESTRATÉGIA DAS ZONAS ATUALIZADA - 6 VIZINHOS ANTES E 6 DEPOIS
