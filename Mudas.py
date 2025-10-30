@@ -9,6 +9,7 @@ from collections import Counter, deque
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score
+from sklearn.utils import resample
 import joblib
 from streamlit_autorefresh import st_autorefresh
 
@@ -70,6 +71,7 @@ def enviar_telegram(mensagem):
 HISTORICO_PATH = "historico_coluna_duzia.json"
 ML_MODEL_PATH = "ml_roleta_model.pkl"
 SCALER_PATH = "ml_scaler.pkl"
+META_PATH = "ml_meta.pkl"
 API_URL = "https://api.casinoscores.com/svc-evolution-game-events/api/xxxtremelightningroulette/latest"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -470,7 +472,8 @@ class MLRoleta:
         Retorna média de probabilidades dos modelos do ensemble para X_scaled.
         """
         if not self.models:
-            raise RuntimeError("Modelos não carregados/treinados")
+            # Retorna probabilidades uniformes se não houver modelos
+            return np.ones((len(X_scaled), len(self.numeros))) / len(self.numeros)
 
         probs = []
         for m in self.models:
@@ -1012,11 +1015,11 @@ class EstrategiaMidas:
 # =============================
 class EstrategiaML:
     def __init__(self):
-        self.ml = MLRoleta()
+        self.roleta = RoletaInteligente()
+        self.ml = MLRoleta(self.roleta)
         self.historico = deque(maxlen=30)
         self.nome = "Machine Learning (CatBoost)"
         self.ml.carregar_modelo()
-        self.roleta = RoletaInteligente()
         self.contador_sorteios = 0
         
         # Definir as zonas para análise (ATUALIZADO - 6 antes e 6 depois)
@@ -1229,7 +1232,11 @@ class EstrategiaML:
         
         if previsao_ml:
             # Detectar qual modelo está sendo usado
-            modelo_tipo = "CatBoost" if hasattr(self.ml.model, 'iterations') else "RandomForest"
+            if self.ml.models:
+                primeiro_modelo = self.ml.models[0]
+                modelo_tipo = "CatBoost" if hasattr(primeiro_modelo, 'iterations') else "RandomForest"
+            else:
+                modelo_tipo = "Não treinado"
             
             analise = f"🤖 ANÁLISE ML - {modelo_tipo.upper()} (TOP 20):\n"
             analise += f"🔄 Treinamentos realizados: {self.ml.contador_treinamento}\n"
@@ -1363,7 +1370,7 @@ class SistemaRoletaCompleto:
             enviar_previsao(msg)
 
 # =============================
-# FUNÇÕES AUXILIARES (MANTIDAS)
+# FUNÇÕES AUXILIARES
 # =============================
 def tocar_som_moeda():
     st.markdown("""<audio autoplay><source src="" type="audio/mp3"></audio>""", unsafe_allow_html=True)
@@ -1510,10 +1517,11 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     st.write("**Status do ML:**")
     if st.session_state.sistema.estrategia_ml.ml.is_trained:
         # Detectar qual modelo está sendo usado
-        if hasattr(st.session_state.sistema.estrategia_ml.ml.model, 'iterations'):
-            modelo_tipo = "CatBoost"
+        if st.session_state.sistema.estrategia_ml.ml.models:
+            primeiro_modelo = st.session_state.sistema.estrategia_ml.ml.models[0]
+            modelo_tipo = "CatBoost" if hasattr(primeiro_modelo, 'iterations') else "RandomForest"
         else:
-            modelo_tipo = "RandomForest"
+            modelo_tipo = "Não treinado"
             
         st.success(f"✅ Modelo {modelo_tipo} treinado ({st.session_state.sistema.estrategia_ml.ml.contador_treinamento} vezes)")
         st.info(f"🔄 Próximo treinamento automático em: {10 - st.session_state.sistema.estrategia_ml.contador_sorteios} sorteios")
