@@ -35,6 +35,8 @@ def salvar_sessao():
             'sistema_estrategias_contador': st.session_state.sistema.estrategias_contador,
             'sistema_historico_desempenho': st.session_state.sistema.historico_desempenho,
             'sistema_contador_sorteios_global': st.session_state.sistema.contador_sorteios_global,
+            'sistema_sequencia_erros': st.session_state.sistema.sequencia_erros,
+            'sistema_ultima_estrategia_erro': st.session_state.sistema.ultima_estrategia_erro,
             # Dados da estratégia Zonas
             'zonas_historico': list(st.session_state.sistema.estrategia_zonas.historico),
             'zonas_stats': st.session_state.sistema.estrategia_zonas.stats_zonas,
@@ -72,6 +74,8 @@ def carregar_sessao():
                 st.session_state.sistema.estrategias_contador = session_data.get('sistema_estrategias_contador', {})
                 st.session_state.sistema.historico_desempenho = session_data.get('sistema_historico_desempenho', [])
                 st.session_state.sistema.contador_sorteios_global = session_data.get('sistema_contador_sorteios_global', 0)
+                st.session_state.sistema.sequencia_erros = session_data.get('sistema_sequencia_erros', 0)
+                st.session_state.sistema.ultima_estrategia_erro = session_data.get('sistema_ultima_estrategia_erro', '')
                 st.session_state.sistema.estrategia_selecionada = session_data.get('estrategia_selecionada', 'Zonas')
                 
                 # Restaurar estratégia Zonas
@@ -585,7 +589,7 @@ class MLRoleta:
                 probs.append(prob)
         return np.mean(probs, axis=0)
 
-    def prever_proximo_numero(self, historico, top_k: int = 25):  # ALTERADO DE 20 PARA 25
+    def prever_proximo_numero(self, historico, top_k: int = 25):
         if not self.is_trained:
             return None, "Modelo não treinado"
 
@@ -1127,11 +1131,9 @@ class EstrategiaML:
         if len(historico_numeros) < 10:
             return None
 
-        # ALTERADO: top_k=25 em vez de 20
         previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
         
         if previsao_ml:
-            # ALTERADO: top_25_numeros em vez de top_20_numeros
             top_25_numeros = [num for num, prob in previsao_ml[:25]]
             
             distribuicao_zonas = self.analisar_distribuicao_zonas(top_25_numeros)
@@ -1158,7 +1160,7 @@ class EstrategiaML:
         
         return None
 
-    def analisar_distribuicao_zonas(self, top_25_numeros):  # ALTERADO: top_25_numeros
+    def analisar_distribuicao_zonas(self, top_25_numeros):
         contagem_zonas = {}
         
         for zona, numeros in self.numeros_zonas_ml.items():
@@ -1169,12 +1171,11 @@ class EstrategiaML:
             zona_vencedora = max(contagem_zonas, key=contagem_zonas.get)
             contagem_vencedora = contagem_zonas[zona_vencedora]
             
-            # ALTERADO: threshold ajustado para 7 em vez de 6 (devido ao aumento de 20 para 25)
             if contagem_vencedora >= 7:
                 return {
                     'zona_vencedora': zona_vencedora,
                     'contagem': contagem_vencedora,
-                    'total_zonas': len(top_25_numeros),  # Agora será 25
+                    'total_zonas': len(top_25_numeros),
                     'distribuicao_completa': contagem_zonas
                 }
         
@@ -1182,10 +1183,9 @@ class EstrategiaML:
 
     def calcular_confianca_zona_ml(self, distribuicao):
         contagem = distribuicao['contagem']
-        total = distribuicao['total_zonas']  # Agora será 25 em vez de 20
+        total = distribuicao['total_zonas']
         percentual = (contagem / total) * 100
         
-        # Ajuste os thresholds se necessário
         if percentual >= 50:
             return 'Muito Alta'
         elif percentual >= 40:
@@ -1257,7 +1257,6 @@ class EstrategiaML:
         
         historico_numeros = self.extrair_numeros_historico()
 
-        # ALTERADO: top_k=25
         previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
         
         if previsao_ml:
@@ -1267,7 +1266,6 @@ class EstrategiaML:
             else:
                 modelo_tipo = "Não treinado"
             
-            # ALTERADO: "TOP 25" em vez de "TOP 20"
             analise = f"🤖 ANÁLISE ML - {modelo_tipo.upper()} (TOP 25):\n"
             analise += f"🔄 Treinamentos realizados: {self.ml.contador_treinamento}\n"
             analise += f"📊 Próximo treinamento: {10 - self.contador_sorteios} sorteios\n"
@@ -1275,12 +1273,10 @@ class EstrategiaML:
             for i, (num, prob) in enumerate(previsao_ml[:10]):
                 analise += f"  {i+1}. Número {num}: {prob:.2%}\n"
             
-            # ALTERADO: top_25_numeros
             top_25_numeros = [num for num, prob in previsao_ml[:25]]
             distribuicao = self.analisar_distribuicao_zonas(top_25_numeros)
             
             if distribuicao:
-                # ALTERADO: "25 números" em vez de "20 números"
                 analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS (25 números):\n"
                 for zona, count in distribuicao['distribuicao_completa'].items():
                     analise += f"  📍 {zona}: {count}/25 números\n"
@@ -1288,10 +1284,8 @@ class EstrategiaML:
                 analise += f"\n💡 ZONA RECOMENDADA: {distribuicao['zona_vencedora']}\n"
                 analise += f"🎯 Confiança: {self.calcular_confianca_zona_ml(distribuicao)}\n"
                 analise += f"🔢 Números da zona: {sorted(self.numeros_zonas_ml[distribuicao['zona_vencedora']])}\n"
-                # ALTERADO: cálculo com 25 em vez de 20
                 analise += f"📈 Percentual: {(distribuicao['contagem']/25)*100:.1f}%\n"
             else:
-                # ALTERADO: mensagem atualizada
                 analise += "\n⚠️  Nenhuma zona com predominância suficiente (mínimo 7 números)\n"
             
             return analise
@@ -1310,7 +1304,7 @@ class EstrategiaML:
         return info
 
 # =============================
-# SISTEMA DE GESTÃO ATUALIZADO COM CATBOOST
+# SISTEMA DE GESTÃO ATUALIZADO COM ROTAÇÃO AUTOMÁTICA
 # =============================
 class SistemaRoletaCompleto:
     def __init__(self):
@@ -1324,6 +1318,10 @@ class SistemaRoletaCompleto:
         self.estrategias_contador = {}
         self.estrategia_selecionada = "Zonas"
         self.contador_sorteios_global = 0
+        
+        # NOVO: Sistema de rotação automática
+        self.sequencia_erros = 0
+        self.ultima_estrategia_erro = ""
 
     def set_estrategia(self, estrategia):
         self.estrategia_selecionada = estrategia
@@ -1331,6 +1329,40 @@ class SistemaRoletaCompleto:
 
     def treinar_modelo_ml(self, historico_completo=None):
         return self.estrategia_ml.treinar_modelo_ml(historico_completo)
+
+    def rotacionar_estrategia_automaticamente(self, acerto, nome_estrategia):
+        """Rotaciona automaticamente entre estratégias após 2 erros seguidos"""
+        if acerto:
+            # Se acertou, zera a sequência de erros
+            self.sequencia_erros = 0
+            self.ultima_estrategia_erro = ""
+            return False  # Não rotaciona
+        else:
+            # Se errou
+            self.sequencia_erros += 1
+            self.ultima_estrategia_erro = nome_estrategia
+            
+            # Se atingiu 2 erros seguidos na mesma estratégia, rotaciona
+            if self.sequencia_erros >= 2:
+                estrategia_atual = self.estrategia_selecionada
+                
+                if estrategia_atual == "Zonas":
+                    nova_estrategia = "ML"
+                elif estrategia_atual == "ML":
+                    nova_estrategia = "Zonas"
+                else:
+                    nova_estrategia = "Zonas"  # Fallback para Midas
+                
+                # Aplica a rotação
+                self.estrategia_selecionada = nova_estrategia
+                self.sequencia_erros = 0  # Zera a sequência após rotação
+                
+                mensagem_rotacao = f"🔄 ROTAÇÃO AUTOMÁTICA: {estrategia_atual} → {nova_estrategia} (2 erros seguidos)"
+                enviar_resultado(mensagem_rotacao)
+                logging.info(mensagem_rotacao)
+                
+                return True  # Rotacionou
+            return False  # Não rotacionou ainda
 
     def processar_novo_numero(self, numero):
         if isinstance(numero, dict) and 'number' in numero:
@@ -1342,8 +1374,11 @@ class SistemaRoletaCompleto:
             
         if self.previsao_ativa:
             acerto = numero_real in self.previsao_ativa['numeros_apostar']
-            
             nome_estrategia = self.previsao_ativa['nome']
+            
+            # Verifica e aplica rotação automática se necessário
+            rotacionou = self.rotacionar_estrategia_automaticamente(acerto, nome_estrategia)
+            
             if nome_estrategia not in self.estrategias_contador:
                 self.estrategias_contador[nome_estrategia] = {'acertos': 0, 'total': 0}
             
@@ -1354,13 +1389,15 @@ class SistemaRoletaCompleto:
                 enviar_resultado(f"🎉 ACERTO! Número {numero_real} - Estratégia: {nome_estrategia}")
             else:
                 self.erros += 1
-                enviar_resultado(f"❌ ERRO! Número {numero_real} - Estratégia: {nome_estrategia}")
+                if not rotacionou:  # Só envia mensagem de erro se não rotacionou
+                    enviar_resultado(f"❌ ERRO! Número {numero_real} - Estratégia: {nome_estrategia}")
             
             self.historico_desempenho.append({
                 'numero': numero_real,
                 'acerto': acerto,
                 'estrategia': nome_estrategia,
-                'previsao': self.previsao_ativa['numeros_apostar']
+                'previsao': self.previsao_ativa['numeros_apostar'],
+                'rotacionou': rotacionou
             })
             
             self.previsao_ativa = None
@@ -1397,6 +1434,8 @@ class SistemaRoletaCompleto:
         self.estrategias_contador = {}
         self.historico_desempenho = []
         self.contador_sorteios_global = 0
+        self.sequencia_erros = 0
+        self.ultima_estrategia_erro = ""
         
         # Zerar estatísticas das estratégias
         self.estrategia_zonas.zerar_estatisticas()
@@ -1425,11 +1464,29 @@ class SistemaRoletaCompleto:
                 if resultado['acerto']:
                     self.estrategias_contador[estrategia]['acertos'] += 1
             
+            # Recalcular sequência de erros
+            ultimos_resultados = self.historico_desempenho[-5:]  # Verifica últimos 5
+            self.sequencia_erros = 0
+            for resultado in reversed(ultimos_resultados):
+                if not resultado['acerto']:
+                    self.sequencia_erros += 1
+                else:
+                    break
+            
             logging.info("🔄 Estatísticas recentes resetadas (mantidos últimos 10 resultados)")
         else:
             logging.info("ℹ️  Histórico muito pequeno para reset recente")
         
         salvar_sessao()
+
+    def get_status_rotacao(self):
+        """Retorna o status atual do sistema de rotação"""
+        return {
+            'estrategia_atual': self.estrategia_selecionada,
+            'sequencia_erros': self.sequencia_erros,
+            'ultima_estrategia_erro': self.ultima_estrategia_erro,
+            'proxima_rotacao_em': max(0, 2 - self.sequencia_erros)
+        }
 
 # =============================
 # FUNÇÕES AUXILIARES
@@ -1582,6 +1639,38 @@ if estrategia != st.session_state.sistema.estrategia_selecionada:
     st.session_state.sistema.set_estrategia(estrategia)
     st.toast(f"🔄 Estratégia alterada para: {estrategia}")
 
+# Status da Rotação Automática
+with st.sidebar.expander("🔄 Rotação Automática", expanded=True):
+    status_rotacao = st.session_state.sistema.get_status_rotacao()
+    
+    st.write("**Sistema de Rotação:**")
+    st.write(f"🎯 **Estratégia Atual:** {status_rotacao['estrategia_atual']}")
+    st.write(f"❌ **Erros Seguidos:** {status_rotacao['sequencia_erros']}/2")
+    st.write(f"🔄 **Próxima Rotação em:** {status_rotacao['proxima_rotacao_em']} erro(s)")
+    
+    if status_rotacao['ultima_estrategia_erro']:
+        st.write(f"📊 **Última Estratégia com Erro:** {status_rotacao['ultima_estrategia_erro']}")
+    
+    st.write("---")
+    st.write("**Regras de Rotação:**")
+    st.write("• ✅ **Acerto:** Continua na mesma estratégia")
+    st.write("• ❌ **1 Erro:** Continua na estratégia") 
+    st.write("• ❌❌ **2 Erros Seguidos:** Rotação automática")
+    st.write("• 🔄 **Zonas ↔ ML:** Rotação entre as duas principais")
+    
+    # Botão para forçar rotação manual
+    if st.button("🔄 Forçar Rotação", use_container_width=True):
+        estrategia_atual = st.session_state.sistema.estrategia_selecionada
+        if estrategia_atual == "Zonas":
+            nova_estrategia = "ML"
+        else:
+            nova_estrategia = "Zonas"
+        
+        st.session_state.sistema.estrategia_selecionada = nova_estrategia
+        st.session_state.sistema.sequencia_erros = 0
+        st.success(f"🔄 Rotação forçada: {estrategia_atual} → {nova_estrategia}")
+        st.rerun()
+
 # Treinamento ML
 with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     numeros_disponiveis = 0
@@ -1674,10 +1763,10 @@ with st.sidebar.expander("📊 Informações das Estratégias"):
         st.write("**🤖 Estratégia Machine Learning - CATBOOST:**")
         st.write("- **Modelo**: CatBoost (Gradient Boosting)")
         st.write("- **Vantagem**: Mais preciso para dados sequenciais")
-        st.write("- **Análise**: Top 25 números previstos")  # ALTERADO: Top 25
+        st.write("- **Análise**: Top 25 números previstos")
         st.write("- **Treinamento**: Automático a cada 10 sorteios")
         st.write("- **Zonas**: 6 antes + 6 depois (13 números/zona)")
-        st.write("- **Threshold**: Mínimo 7 números na mesma zona")  # ALTERADO: 7 números
+        st.write("- **Threshold**: Mínimo 7 números na mesma zona")
         st.write("- **Saída**: Zona com maior concentração")
         st.write("- **Telegram**: Alertas automáticos de entrada")
         
@@ -1746,6 +1835,16 @@ if st.session_state.historico:
 else:
     st.write("Nenhum número registrado")
 
+# Status da Rotação na Interface Principal
+status_rotacao = st.session_state.sistema.get_status_rotacao()
+col_status1, col_status2, col_status3 = st.columns(3)
+with col_status1:
+    st.metric("🎯 Estratégia Atual", status_rotacao['estrategia_atual'])
+with col_status2:
+    st.metric("❌ Erros Seguidos", f"{status_rotacao['sequencia_erros']}/2")
+with col_status3:
+    st.metric("🔄 Próxima Rotação", f"Em {status_rotacao['proxima_rotacao_em']} erro(s)")
+
 st.subheader("🎯 Previsão Ativa")
 sistema = st.session_state.sistema
 
@@ -1809,7 +1908,8 @@ if sistema.historico_desempenho:
     st.write("**🔍 Últimas 5 Conferências:**")
     for i, resultado in enumerate(sistema.historico_desempenho[-5:]):
         emoji = "🎉" if resultado['acerto'] else "❌"
-        st.write(f"{emoji} {resultado['estrategia']}: Número {resultado['numero']}")
+        rotacao_emoji = " 🔄" if resultado.get('rotacionou', False) else ""
+        st.write(f"{emoji}{rotacao_emoji} {resultado['estrategia']}: Número {resultado['numero']}")
 
 # Download histórico
 if os.path.exists(HISTORICO_PATH):
