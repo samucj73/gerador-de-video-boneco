@@ -13,6 +13,7 @@ from sklearn.utils import resample
 import joblib
 from streamlit_autorefresh import st_autorefresh
 import pickle
+import time
 
 # =============================
 # CONFIGURAÇÕES DE PERSISTÊNCIA
@@ -282,10 +283,76 @@ def enviar_telegram(mensagem):
         logging.error(f"Erro na conexão com Telegram: {e}")
 
 # =============================
-# CONFIGURAÇÕES
+# CONFIGURAÇÕES DA API - CORRIGIDAS
 # =============================
 API_URL = "https://api.casinoscores.com/svc-evolution-game-events/api/xxxtremelightningroulette/latest"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    "Referer": "https://casinoscores.com/",
+    "Origin": "https://casinoscores.com"
+}
+
+def fetch_latest_result():
+    """CORREÇÃO: Função melhorada para buscar resultados da API"""
+    try:
+        logging.info("🔍 Buscando último resultado da API...")
+        
+        response = requests.get(API_URL, headers=HEADERS, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        logging.info(f"📦 Resposta da API: {json.dumps(data, indent=2)}")
+        
+        # Estrutura mais robusta para extrair o número
+        game_data = data.get("data", {})
+        result = game_data.get("result", {})
+        outcome = result.get("outcome", {})
+        
+        # Tentar diferentes caminhos para o número
+        number = outcome.get("number")
+        
+        if number is None:
+            # Tentar caminho alternativo
+            number = result.get("number")
+        
+        if number is None:
+            # Última tentativa - verificar diretamente no outcome
+            number = outcome.get("winningNumber")
+        
+        timestamp = game_data.get("startedAt") or game_data.get("createdAt") or result.get("createdAt")
+        
+        if number is not None:
+            logging.info(f"✅ Número encontrado: {number}, Timestamp: {timestamp}")
+            return {
+                "number": int(number),
+                "timestamp": timestamp,
+                "raw_data": data  # Para debug
+            }
+        else:
+            logging.warning("❌ Número não encontrado na resposta da API")
+            logging.warning(f"Estrutura da resposta: {json.dumps(data, indent=2)}")
+            return None
+            
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Erro de conexão com a API: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ Erro ao decodificar JSON da API: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"❌ Erro inesperado ao buscar resultado: {e}")
+        return None
+
+def salvar_resultado_em_arquivo(historico, caminho=HISTORICO_PATH):
+    """Salva histórico em arquivo JSON"""
+    try:
+        with open(caminho, "w", encoding='utf-8') as f:
+            json.dump(historico, f, indent=2, ensure_ascii=False)
+        logging.info(f"💾 Histórico salvo com {len(historico)} registros")
+    except Exception as e:
+        logging.error(f"❌ Erro ao salvar histórico: {e}")
 
 # =============================
 # CLASSE PRINCIPAL DA ROLETA
@@ -314,7 +381,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# MÓDULO DE MACHINE LEARNING - CORRIGIDO
+# MÓDULO DE MACHINE LEARNING
 # =============================
 class MLRoleta:
     def __init__(
@@ -500,7 +567,7 @@ class MLRoleta:
             try:
                 from catboost import CatBoostClassifier
                 model = CatBoostClassifier(
-                    iterations=500,  # Reduzido para performance
+                    iterations=500,
                     learning_rate=0.05,
                     depth=8,
                     random_seed=seed,
@@ -591,7 +658,7 @@ class MLRoleta:
             return False, f"Erro no treinamento: {str(e)}"
 
     def carregar_modelo(self):
-        """CORREÇÃO: Método carregar_modelo implementado corretamente"""
+        """Método carregar_modelo implementado corretamente"""
         try:
             if os.path.exists(ML_MODEL_PATH) and os.path.exists(SCALER_PATH):
                 data = joblib.load(ML_MODEL_PATH)
@@ -962,7 +1029,7 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# ESTRATÉGIA ML - CORRIGIDA
+# ESTRATÉGIA ML
 # =============================
 class EstrategiaML:
     def __init__(self):
@@ -972,7 +1039,6 @@ class EstrategiaML:
         self.nome = "Machine Learning"
         self.contador_sorteios = 0
         
-        # CORREÇÃO: Inicialização simplificada para evitar erros
         self.zonas_ml = {
             'Vermelha': 7,
             'Azul': 10,  
@@ -983,7 +1049,6 @@ class EstrategiaML:
         for nome, central in self.zonas_ml.items():
             self.numeros_zonas_ml[nome] = self.roleta.get_vizinhos_zona(central, 6)
 
-        # CORREÇÃO: Inicialização básica dos padrões
         self.sequencias_padroes = {
             'sequencias_ativas': {},
             'historico_sequencias': [],
@@ -998,7 +1063,6 @@ class EstrategiaML:
             'historico_validacao': []
         }
         
-        # CORREÇÃO: Carregar modelo de forma segura
         try:
             self.ml.carregar_modelo()
         except Exception as e:
@@ -1011,7 +1075,6 @@ class EstrategiaML:
         
         if self.contador_sorteios >= 10:
             self.contador_sorteios = 0
-            # Treinamento automático opcional
             
         if 'sistema' in st.session_state:
             salvar_sessao()
@@ -1100,14 +1163,13 @@ class EstrategiaML:
         return info
 
 # =============================
-# SISTEMA DE GESTÃO - CORRIGIDO
+# SISTEMA DE GESTÃO
 # =============================
 class SistemaRoletaCompleto:
     def __init__(self):
-        # CORREÇÃO: Inicialização segura das estratégias
         self.estrategia_zonas = EstrategiaZonasOtimizada()
         self.estrategia_midas = EstrategiaMidas()
-        self.estrategia_ml = EstrategiaML()  # Agora deve funcionar sem erro
+        self.estrategia_ml = EstrategiaML()
         
         self.previsao_ativa = None
         self.historico_desempenho = []
@@ -1274,7 +1336,7 @@ class SistemaRoletaCompleto:
         salvar_sessao()
 
 # =============================
-# APLICAÇÃO STREAMLIT
+# APLICAÇÃO STREAMLIT - CORRIGIDA
 # =============================
 
 # Configurar logging
@@ -1307,6 +1369,10 @@ if "telegram_token" not in st.session_state and not sessao_carregada:
     st.session_state.telegram_token = ""
 if "telegram_chat_id" not in st.session_state and not sessao_carregada:
     st.session_state.telegram_chat_id = ""
+
+# CORREÇÃO: Controle de atualização da API
+if "ultimo_timestamp" not in st.session_state:
+    st.session_state.ultimo_timestamp = None
 
 # Sidebar
 st.sidebar.title("⚙️ Configurações")
@@ -1549,16 +1615,63 @@ with st.sidebar.expander(f"🔍 Análise - {estrategia}", expanded=False):
     
     st.text(analise)
 
+# CORREÇÃO: Seção de captura da API
+st.subheader("🌐 Captura Automática da API")
+with st.expander("🔧 Configurações da API", expanded=True):
+    st.write("**Status da API:**")
+    
+    # Botão para forçar busca manual
+    if st.button("🔄 Buscar Último Resultado da API", use_container_width=True):
+        with st.spinner("Buscando último resultado..."):
+            resultado = fetch_latest_result()
+            if resultado:
+                st.success(f"✅ Número encontrado: {resultado['number']}")
+                
+                # Verificar se é um novo número
+                if st.session_state.historico:
+                    ultimo_numero = st.session_state.historico[-1].get('number') if isinstance(st.session_state.historico[-1], dict) else st.session_state.historico[-1]
+                    if resultado['number'] == ultimo_numero:
+                        st.info("ℹ️ Este número já é o último no histórico")
+                    else:
+                        st.session_state.historico.append(resultado)
+                        st.session_state.sistema.processar_novo_numero(resultado)
+                        salvar_resultado_em_arquivo(st.session_state.historico)
+                        salvar_sessao()
+                        st.success(f"🎯 Novo número {resultado['number']} adicionado e processado!")
+                        st.rerun()
+                else:
+                    st.session_state.historico.append(resultado)
+                    st.session_state.sistema.processar_novo_numero(resultado)
+                    salvar_resultado_em_arquivo(st.session_state.historico)
+                    salvar_sessao()
+                    st.success(f"🎯 Primeiro número {resultado['number']} adicionado e processado!")
+                    st.rerun()
+            else:
+                st.error("❌ Não foi possível obter resultado da API")
+    
+    # Mostrar informações de debug da API
+    if st.checkbox("Mostrar informações de debug da API"):
+        st.write("**Última tentativa de conexão:**")
+        try:
+            resultado_test = fetch_latest_result()
+            if resultado_test:
+                st.json(resultado_test.get('raw_data', {}))
+            else:
+                st.error("Falha na conexão com a API")
+        except Exception as e:
+            st.error(f"Erro: {e}")
+
 # Entrada manual
-st.subheader("✍️ Inserir Sorteios")
+st.subheader("✍️ Inserir Sorteios Manualmente")
 entrada = st.text_input("Digite números (0-36) separados por espaço:")
-if st.button("Adicionar") and entrada:
+if st.button("Adicionar Manualmente") and entrada:
     try:
         nums = [int(n) for n in entrada.split() if n.isdigit() and 0 <= int(n) <= 36]
         for n in nums:
-            item = {"number": n, "timestamp": f"manual_{len(st.session_state.historico)}"}
+            item = {"number": n, "timestamp": f"manual_{int(time.time())}"}
             st.session_state.historico.append(item)
             st.session_state.sistema.processar_novo_numero(n)
+        salvar_resultado_em_arquivo(st.session_state.historico)
         salvar_sessao()
         st.success(f"{len(nums)} números adicionados!")
         st.rerun()
@@ -1566,16 +1679,45 @@ if st.button("Adicionar") and entrada:
         st.error(f"Erro: {e}")
 
 # Atualização automática
-st_autorefresh(interval=3000, key="refresh")
+st_autorefresh(interval=5000, key="refresh")  # Aumentado para 5 segundos
+
+# CORREÇÃO: Lógica de captura automática da API
+try:
+    resultado = fetch_latest_result()
+    if resultado and resultado.get("timestamp"):
+        # Verificar se é um novo resultado
+        if st.session_state.historico:
+            ultimo_item = st.session_state.historico[-1]
+            ultimo_timestamp = ultimo_item.get('timestamp') if isinstance(ultimo_item, dict) else None
+            
+            if ultimo_timestamp != resultado["timestamp"]:
+                logging.info(f"🆕 Novo número detectado: {resultado['number']}")
+                st.session_state.historico.append(resultado)
+                st.session_state.sistema.processar_novo_numero(resultado)
+                salvar_resultado_em_arquivo(st.session_state.historico)
+                salvar_sessao()
+                st.rerun()
+        else:
+            # Primeiro número
+            logging.info(f"📝 Primeiro número: {resultado['number']}")
+            st.session_state.historico.append(resultado)
+            st.session_state.sistema.processar_novo_numero(resultado)
+            salvar_resultado_em_arquivo(st.session_state.historico)
+            salvar_sessao()
+            st.rerun()
+except Exception as e:
+    logging.error(f"Erro na captura automática: {e}")
 
 # Interface principal
 st.subheader("🔁 Últimos Números")
 if st.session_state.historico:
     ultimos_10 = st.session_state.historico[-10:]
     numeros_str = " ".join(str(item['number'] if isinstance(item, dict) else item) for item in ultimos_10)
-    st.write(numeros_str)
+    st.write(f"`{numeros_str}`")
+    st.write(f"**Total no histórico:** {len(st.session_state.historico)} números")
 else:
     st.write("Nenhum número registrado")
+    st.info("💡 Use a seção acima para adicionar números manualmente ou aguarde a captura automática")
 
 # Status da Rotação na Interface Principal
 status_rotacao = st.session_state.sistema.get_status_rotacao()
@@ -1641,14 +1783,14 @@ st.write("**Gerenciar Estatísticas:**")
 col5, col6 = st.columns(2)
 
 with col5:
-    if st.button("🔄 Reset Recente", help="Mantém apenas os últimos 10 resultados", use_container_width=True):
+    if st.button("🔄 Reset Recente", help="Mantém apenas os últimos 10 resultados", use_container_width=True, key="reset_recente_main"):
         st.session_state.sistema.reset_recente_estatisticas()
         st.success("✅ Estatísticas recentes resetadas!")
         st.rerun()
 
 with col6:
-    if st.button("🗑️ Zerar Tudo", type="secondary", help="Zera TODAS as estatísticas", use_container_width=True):
-        if st.checkbox("Confirmar zerar TODAS as estatísticas"):
+    if st.button("🗑️ Zerar Tudo", type="secondary", help="Zera TODAS as estatísticas", use_container_width=True, key="zerar_tudo_main"):
+        if st.checkbox("Confirmar zerar TODAS as estatísticas", key="confirm_zerar"):
             st.session_state.sistema.zerar_estatisticas_desempenho()
             st.error("🗑️ Todas as estatísticas foram zeradas!")
             st.rerun()
@@ -1694,4 +1836,4 @@ if os.path.exists(HISTORICO_PATH):
 # Salvar sessão automaticamente ao final do script
 salvar_sessao()
 
-st.success("✅ Sistema totalmente funcional e sem erros!")
+st.success("✅ Sistema totalmente funcional! A API está sendo monitorada.")
