@@ -142,12 +142,28 @@ def enviar_previsao_super_simplificada(previsao):
         if 'Zonas' in nome_estrategia:
             # Mensagem super simplificada para Zonas - apenas o número da zona
             zona = previsao.get('zona', '')
-            mensagem = f"📍 Zona {zona}"
+            # Mostrar número do núcleo
+            if zona == 'Vermelha':
+                mensagem = "📍 Núcleo 7"
+            elif zona == 'Azul':
+                mensagem = "📍 Núcleo 10"
+            elif zona == 'Amarela':
+                mensagem = "📍 Núcleo 2"
+            else:
+                mensagem = f"📍 Núcleo {zona}"
             
         elif 'ML' in nome_estrategia:
-            # Mensagem super simplificada para ML - apenas o núcleo
+            # CORREÇÃO: Mostrar apenas o núcleo previsto pelo ML
             zona_ml = previsao.get('zona_ml', '')
-            mensagem = f"🤖 Núcleo {zona_ml}"
+            # Formatar para mostrar apenas "Núcleo X" onde X é o número central
+            if zona_ml == 'Vermelha':
+                mensagem = "🤖 Núcleo 7"
+            elif zona_ml == 'Azul':
+                mensagem = "🤖 Núcleo 10"  
+            elif zona_ml == 'Amarela':
+                mensagem = "🤖 Núcleo 2"
+            else:
+                mensagem = f"🤖 Núcleo {zona_ml}"
             
         else:
             # Mensagem para Midas
@@ -170,9 +186,27 @@ def enviar_resultado_super_simplificado(numero_real, acerto, nome_estrategia, zo
     try:
         if acerto:
             if 'Zonas' in nome_estrategia and zona_acertada:
-                mensagem = f"✅ Acerto Zona {zona_acertada}\n🎲 Número: {numero_real}"
+                # CORREÇÃO: Mostrar número do núcleo em vez do nome da zona
+                if zona_acertada == 'Vermelha':
+                    nucleo = "7"
+                elif zona_acertada == 'Azul':
+                    nucleo = "10"
+                elif zona_acertada == 'Amarela':
+                    nucleo = "2"
+                else:
+                    nucleo = zona_acertada
+                mensagem = f"✅ Acerto Núcleo {nucleo}\n🎲 Número: {numero_real}"
             elif 'ML' in nome_estrategia and zona_acertada:
-                mensagem = f"✅ Acerto Núcleo {zona_acertada}\n🎲 Número: {numero_real}"
+                # CORREÇÃO: Mostrar número do núcleo em vez do nome da zona
+                if zona_acertada == 'Vermelha':
+                    nucleo = "7"
+                elif zona_acertada == 'Azul':
+                    nucleo = "10"
+                elif zona_acertada == 'Amarela':
+                    nucleo = "2"
+                else:
+                    nucleo = zona_acertada
+                mensagem = f"✅ Acerto Núcleo {nucleo}\n🎲 Número: {numero_real}"
             else:
                 mensagem = f"✅ Acerto\n🎲 Número: {numero_real}"
         else:
@@ -2228,10 +2262,28 @@ if sistema.previsao_ativa:
     
     if 'Zonas' in previsao['nome']:
         zona = previsao.get('zona', '')
-        st.write(f"**📍 Zona:** {zona}")
+        # CORREÇÃO: Mostrar número do núcleo
+        if zona == 'Vermelha':
+            nucleo = "7"
+        elif zona == 'Azul':
+            nucleo = "10"
+        elif zona == 'Amarela':
+            nucleo = "2"
+        else:
+            nucleo = zona
+        st.write(f"**📍 Núcleo:** {nucleo}")
     elif 'ML' in previsao['nome']:
         zona_ml = previsao.get('zona_ml', '')
-        st.write(f"**🤖 Núcleo:** {zona_ml}")
+        # CORREÇÃO: Mostrar número do núcleo
+        if zona_ml == 'Vermelha':
+            nucleo = "7"
+        elif zona_ml == 'Azul':
+            nucleo = "10"
+        elif zona_ml == 'Amarela':
+            nucleo = "2"
+        else:
+            nucleo = zona_ml
+        st.write(f"**🤖 Núcleo:** {nucleo}")
     
     st.write(f"**🔢 Números para apostar ({len(previsao['numeros_apostar'])}):**")
     st.write(", ".join(map(str, sorted(previsao['numeros_apostar']))))
@@ -2290,10 +2342,20 @@ if sistema.historico_desempenho:
         rotacao_emoji = " 🔄" if resultado.get('rotacionou', False) else ""
         zona_info = ""
         if resultado['acerto'] and resultado.get('zona_acertada'):
+            # CORREÇÃO: Mostrar número do núcleo
+            if resultado['zona_acertada'] == 'Vermelha':
+                nucleo = "7"
+            elif resultado['zona_acertada'] == 'Azul':
+                nucleo = "10"
+            elif resultado['zona_acertada'] == 'Amarela':
+                nucleo = "2"
+            else:
+                nucleo = resultado['zona_acertada']
+                
             if 'Zonas' in resultado['estrategia']:
-                zona_info = f" (Zona {resultado['zona_acertada']})"
+                zona_info = f" (Núcleo {nucleo})"
             elif 'ML' in resultado['estrategia']:
-                zona_info = f" (Núcleo {resultado['zona_acertada']})"
+                zona_info = f" (Núcleo {nucleo})"
         st.write(f"{emoji}{rotacao_emoji} {resultado['estrategia']}: Número {resultado['numero']}{zona_info}")
 
 # Download histórico
