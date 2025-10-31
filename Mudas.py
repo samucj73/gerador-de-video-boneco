@@ -45,6 +45,8 @@ def salvar_sessao():
             # Dados da estratégia ML
             'ml_historico': list(st.session_state.sistema.estrategia_ml.historico),
             'ml_contador_sorteios': st.session_state.sistema.estrategia_ml.contador_sorteios,
+            'ml_sequencias_padroes': st.session_state.sistema.estrategia_ml.sequencias_padroes,
+            'ml_metricas_padroes': st.session_state.sistema.estrategia_ml.metricas_padroes,
             'estrategia_selecionada': st.session_state.sistema.estrategia_selecionada
         }
         
@@ -95,6 +97,18 @@ def carregar_sessao():
                 ml_historico = session_data.get('ml_historico', [])
                 st.session_state.sistema.estrategia_ml.historico = deque(ml_historico, maxlen=30)
                 st.session_state.sistema.estrategia_ml.contador_sorteios = session_data.get('ml_contador_sorteios', 0)
+                st.session_state.sistema.estrategia_ml.sequencias_padroes = session_data.get('ml_sequencias_padroes', {
+                    'sequencias_ativas': {},
+                    'historico_sequencias': [],
+                    'padroes_detectados': []
+                })
+                st.session_state.sistema.estrategia_ml.metricas_padroes = session_data.get('ml_metricas_padroes', {
+                    'padroes_detectados_total': 0,
+                    'padroes_acertados': 0,
+                    'padroes_errados': 0,
+                    'eficiencia_por_tipo': {},
+                    'historico_validacao': []
+                })
             
             logging.info("✅ Sessão carregada com sucesso")
             return True
@@ -1097,7 +1111,7 @@ class EstrategiaMidas:
         return None
 
 # =============================
-# ESTRATÉGIA ML ATUALIZADA
+# ESTRATÉGIA ML ATUALIZADA COM DETECÇÃO DE PADRÕES SEQUENCIAIS
 # =============================
 class EstrategiaML:
     def __init__(self):
@@ -1125,9 +1139,37 @@ class EstrategiaML:
             qtd = self.quantidade_zonas_ml.get(nome, 6)
             self.numeros_zonas_ml[nome] = self.roleta.get_vizinhos_zona(central, qtd)
 
+        # NOVO: Sistema de detecção de padrões sequenciais
+        self.sequencias_padroes = {
+            'sequencias_ativas': {},  # Sequências em andamento por zona
+            'historico_sequencias': [],  # Histórico de sequências detectadas
+            'padroes_detectados': []  # Padrões identificados
+        }
+        
+        # NOVO: Métricas de performance dos padrões
+        self.adicionar_metricas_padroes()
+
+    def adicionar_metricas_padroes(self):
+        """Adiciona métricas de performance dos padrões detectados"""
+        self.metricas_padroes = {
+            'padroes_detectados_total': 0,
+            'padroes_acertados': 0,
+            'padroes_errados': 0,
+            'eficiencia_por_tipo': {},
+            'historico_validacao': []
+        }
+
     def adicionar_numero(self, numero):
         self.historico.append(numero)
         self.contador_sorteios += 1
+        
+        # NOVO: Validar padrões do sorteio anterior
+        if len(self.historico) > 1:
+            numero_anterior = list(self.historico)[-2]  # Número anterior
+            self.validar_padrao_acerto(numero, self.get_previsao_atual())
+        
+        # NOVO: Analisar padrões sequenciais a cada novo número
+        self.analisar_padroes_sequenciais(numero)
         
         if self.contador_sorteios >= 10:
             self.contador_sorteios = 0
@@ -1136,6 +1178,252 @@ class EstrategiaML:
         # Salvar sessão após adicionar número
         if 'sistema' in st.session_state:
             salvar_sessao()
+
+    def get_previsao_atual(self):
+        """Obtém a previsão atual para validação"""
+        try:
+            resultado = self.analisar_ml()
+            return resultado
+        except:
+            return None
+
+    def validar_padrao_acerto(self, numero_sorteado, previsao_ml):
+        """Valida se os padrões detectados acertaram"""
+        zona_sorteada = None
+        for zona, numeros in self.numeros_zonas_ml.items():
+            if numero_sorteado in numeros:
+                zona_sorteada = zona
+                break
+        
+        if not zona_sorteada:
+            return
+        
+        # Verificar padrões recentes
+        padroes_recentes = [p for p in self.sequencias_padroes['padroes_detectados'] 
+                           if len(self.historico) - p['detectado_em'] <= 3]
+        
+        for padrao in padroes_recentes:
+            self.metricas_padroes['padroes_detectados_total'] += 1
+            
+            if padrao['zona'] == zona_sorteada:
+                self.metricas_padroes['padroes_acertados'] += 1
+                # Atualizar eficiência por tipo
+                tipo = padrao['tipo']
+                if tipo not in self.metricas_padroes['eficiencia_por_tipo']:
+                    self.metricas_padroes['eficiencia_por_tipo'][tipo] = {'acertos': 0, 'total': 0}
+                self.metricas_padroes['eficiencia_por_tipo'][tipo]['acertos'] += 1
+                self.metricas_padroes['eficiencia_por_tipo'][tipo]['total'] += 1
+            else:
+                self.metricas_padroes['padroes_errados'] += 1
+                tipo = padrao['tipo']
+                if tipo in self.metricas_padroes['eficiencia_por_tipo']:
+                    self.metricas_padroes['eficiencia_por_tipo'][tipo]['total'] += 1
+
+    def analisar_padroes_sequenciais(self, numero):
+        """Versão otimizada da análise de padrões"""
+        if len(self.historico) < 6:
+            return
+            
+        historico_recente = list(self.historico)[-8:]
+        
+        # Identificar zona atual
+        zona_atual = None
+        for zona, numeros in self.numeros_zonas_ml.items():
+            if numero in numeros:
+                zona_atual = zona
+                break
+        
+        if not zona_atual:
+            return
+        
+        # Atualizar sequências ativas
+        self.atualizar_sequencias_ativas(zona_atual, historico_recente)
+        
+        # Detecção otimizada de padrões
+        self.otimizar_deteccao_padroes(historico_recente)
+        
+        # Limpar padrões antigos (mais de 20 números atrás)
+        self.limpar_padroes_antigos()
+
+    def otimizar_deteccao_padroes(self, historico_recente):
+        """Versão otimizada da detecção de padrões com mais sensibilidade"""
+        if len(historico_recente) < 6:
+            return
+        
+        # Converter histórico para zonas
+        zonas_recentes = []
+        for num in historico_recente:
+            zona_num = None
+            for zona, numeros in self.numeros_zonas_ml.items():
+                if num in numeros:
+                    zona_num = zona
+                    break
+            zonas_recentes.append(zona_num)
+        
+        # Padrão 1: Sequência forte interrompida brevemente (A A A B A A)
+        for i in range(len(zonas_recentes) - 5):
+            janela = zonas_recentes[i:i+6]
+            if (janela[0] and janela[1] and janela[2] and janela[4] and janela[5] and
+                janela[0] == janela[1] == janela[2] == janela[4] == janela[5] and
+                janela[3] != janela[0]):
+                
+                self.registrar_padrao_sequencia_interrompida(janela[0], i)
+
+        # Padrão 2: Sequência média com retorno rápido (A A B A A)
+        for i in range(len(zonas_recentes) - 4):
+            janela = zonas_recentes[i:i+5]
+            if (janela[0] and janela[1] and janela[3] and janela[4] and
+                janela[0] == janela[1] == janela[3] == janela[4] and
+                janela[2] != janela[0]):
+                
+                self.registrar_padrao_retorno_rapido(janela[0], i)
+
+    def registrar_padrao_sequencia_interrompida(self, zona, posicao):
+        """Registra padrão de sequência interrompida com scoring"""
+        padrao = {
+            'tipo': 'sequencia_interrompida_forte',
+            'zona': zona,
+            'padrao': 'AAA_B_AA',  # 3 repetições, quebra, 2 repetições
+            'forca': 0.85,
+            'duracao': 6,
+            'detectado_em': len(self.historico) - 1,
+            'posicao_historico': posicao
+        }
+        
+        # Verificar se é um padrão novo (não detectado nos últimos 12 números)
+        if not self.padrao_recente_similar(padrao):
+            self.sequencias_padroes['padroes_detectados'].append(padrao)
+            logging.info(f"🎯 PADRÃO FORTE: {zona} - {padrao['padrao']}")
+
+    def registrar_padrao_retorno_rapido(self, zona, posicao):
+        """Registra padrão de retorno rápido após quebra"""
+        padrao = {
+            'tipo': 'retorno_rapido',
+            'zona': zona,
+            'padrao': 'AA_B_AA',  # 2 repetições, quebra, 2 repetições
+            'forca': 0.75,
+            'duracao': 5,
+            'detectado_em': len(self.historico) - 1,
+            'posicao_historico': posicao
+        }
+        
+        if not self.padrao_recente_similar(padrao):
+            self.sequencias_padroes['padroes_detectados'].append(padrao)
+            logging.info(f"🎯 PADRÃO RÁPIDO: {zona} - {padrao['padrao']}")
+
+    def padrao_recente_similar(self, novo_padrao, janela=12):
+        """Verifica se padrão similar foi detectado recentemente"""
+        for padrao in self.sequencias_padroes['padroes_detectados'][-10:]:
+            if (padrao['zona'] == novo_padrao['zona'] and 
+                padrao['tipo'] == novo_padrao['tipo'] and
+                len(self.historico) - padrao['detectado_em'] < janela):
+                return True
+        return False
+
+    def limpar_padroes_antigos(self, limite=20):
+        """Remove padrões muito antigos do histórico"""
+        padroes_validos = []
+        for padrao in self.sequencias_padroes['padroes_detectados']:
+            if len(self.historico) - padrao['detectado_em'] <= limite:
+                padroes_validos.append(padrao)
+        self.sequencias_padroes['padroes_detectados'] = padroes_validos
+
+    def atualizar_sequencias_ativas(self, zona_atual, historico_recente):
+        """Atualiza as sequências ativas por zona"""
+        # Verificar se há uma sequência ativa para esta zona
+        if zona_atual in self.sequencias_padroes['sequencias_ativas']:
+            sequencia = self.sequencias_padroes['sequencias_ativas'][zona_atual]
+            sequencia['contagem'] += 1
+            sequencia['ultimo_numero'] = historico_recente[-1]
+        else:
+            # Nova sequência
+            self.sequencias_padroes['sequencias_ativas'][zona_atual] = {
+                'contagem': 1,
+                'inicio': len(self.historico) - 1,
+                'ultimo_numero': historico_recente[-1],
+                'quebras': 0
+            }
+        
+        # Verificar quebras em outras zonas
+        zonas_ativas = list(self.sequencias_padroes['sequencias_ativas'].keys())
+        for zona in zonas_ativas:
+            if zona != zona_atual:
+                # Incrementar contador de quebras
+                self.sequencias_padroes['sequencias_ativas'][zona]['quebras'] += 1
+                
+                # Se uma zona teve mais de 2 quebras, considerar sequência encerrada
+                if self.sequencias_padroes['sequencias_ativas'][zona]['quebras'] >= 3:
+                    # Registrar sequência finalizada
+                    sequencia_final = self.sequencias_padroes['sequencias_ativas'][zona]
+                    if sequencia_final['contagem'] >= 3:  # Sequência significativa
+                        self.sequencias_padroes['historico_sequencias'].append({
+                            'zona': zona,
+                            'tamanho': sequencia_final['contagem'],
+                            'finalizado_em': len(self.historico) - 1
+                        })
+                    # Remover sequência
+                    del self.sequencias_padroes['sequencias_ativas'][zona]
+
+    def aplicar_padroes_na_previsao(self, distribuicao_zonas):
+        """Aplica os padrões detectados para ajustar a previsão"""
+        if not self.sequencias_padroes['padroes_detectados']:
+            return distribuicao_zonas
+        
+        distribuicao_ajustada = distribuicao_zonas.copy()
+        
+        # Aplicar cada padrão detectado recentemente (últimos 15 números)
+        padroes_recentes = [p for p in self.sequencias_padroes['padroes_detectados'] 
+                           if len(self.historico) - p['detectado_em'] <= 15]
+        
+        for padrao in padroes_recentes:
+            zona = padrao['zona']
+            forca = padrao['forca']
+            
+            # Aumentar a contagem da zona baseada no padrão
+            if zona in distribuicao_ajustada:
+                # Aumento proporcional à força do padrão
+                aumento = max(1, int(distribuicao_ajustada[zona] * forca * 0.3))
+                distribuicao_ajustada[zona] += aumento
+                logging.info(f"🎯 Aplicando padrão {padrao['tipo']} à zona {zona}: +{aumento}")
+        
+        return distribuicao_ajustada
+
+    def calcular_confianca_com_padroes(self, distribuicao, zona_alvo):
+        """Calcula confiança considerando padrões detectados"""
+        confianca_base = self.calcular_confianca_zona_ml({
+            'contagem': distribuicao[zona_alvo],
+            'total_zonas': 25
+        })
+        
+        # Buscar padrões recentes para esta zona
+        padroes_recentes = [p for p in self.sequencias_padroes['padroes_detectados'] 
+                           if p['zona'] == zona_alvo and 
+                           len(self.historico) - p['detectado_em'] <= 15]
+        
+        # Aumentar confiança baseada em padrões
+        bonus_confianca = len(padroes_recentes) * 0.15  # 15% por padrão
+        confianca_final = min(1.0, self.confianca_para_valor(confianca_base) + bonus_confianca)
+        
+        return self.valor_para_confianca(confianca_final)
+
+    def confianca_para_valor(self, confianca_texto):
+        """Converte texto de confiança para valor numérico"""
+        mapa_confianca = {
+            'Muito Baixa': 0.3,
+            'Baixa': 0.5,
+            'Média': 0.65,
+            'Alta': 0.8,
+            'Muito Alta': 0.9
+        }
+        return mapa_confianca.get(confianca_texto, 0.5)
+
+    def valor_para_confianca(self, valor):
+        """Converte valor numérico para texto de confiança"""
+        if valor >= 0.85: return 'Muito Alta'
+        elif valor >= 0.7: return 'Alta'
+        elif valor >= 0.6: return 'Média'
+        elif valor >= 0.45: return 'Baixa'
+        else: return 'Muito Baixa'
 
     def treinar_automatico(self):
         historico_numeros = self.extrair_numeros_historico()
@@ -1178,22 +1466,37 @@ class EstrategiaML:
             
             distribuicao_zonas = self.analisar_distribuicao_zonas(top_25_numeros)
             
+            # NOVO: Aplicar padrões sequenciais na distribuição
             if distribuicao_zonas:
-                zona_vencedora = distribuicao_zonas['zona_vencedora']
-                numeros_zona = self.numeros_zonas_ml[zona_vencedora]
-                contagem = distribuicao_zonas['contagem']
-                total_zonas = distribuicao_zonas['total_zonas']
+                distribuicao_ajustada = self.aplicar_padroes_na_previsao(distribuicao_zonas)
                 
-                confianca = self.calcular_confianca_zona_ml(distribuicao_zonas)
+                # Usar a distribuição ajustada para determinar a zona vencedora
+                zona_vencedora = max(distribuicao_ajustada, key=distribuicao_ajustada.get)
+                numeros_zona = self.numeros_zonas_ml[zona_vencedora]
+                contagem_original = distribuicao_zonas[zona_vencedora]
+                contagem_ajustada = distribuicao_ajustada[zona_vencedora]
+                
+                # NOVO: Usar confiança com padrões
+                confianca = self.calcular_confianca_com_padroes(distribuicao_ajustada, zona_vencedora)
+                
+                # Adicionar informação sobre padrões aplicados
+                padroes_aplicados = [p for p in self.sequencias_padroes['padroes_detectados'] 
+                                   if p['zona'] == zona_vencedora and 
+                                   len(self.historico) - p['detectado_em'] <= 15]
+                
+                gatilho_extra = ""
+                if padroes_aplicados:
+                    gatilho_extra = f" | Padrões: {len(padroes_aplicados)}"
                 
                 return {
                     'nome': 'Machine Learning - CatBoost',
                     'numeros_apostar': numeros_zona,
-                    'gatilho': f'ML CatBoost - Zona {zona_vencedora} ({contagem}/{total_zonas} números)',
+                    'gatilho': f'ML CatBoost - Zona {zona_vencedora} ({contagem_original}→{contagem_ajustada}/25){gatilho_extra}',
                     'confianca': confianca,
                     'previsao_ml': previsao_ml,
                     'zona_ml': zona_vencedora,
-                    'distribuicao': distribuicao_zonas
+                    'distribuicao': distribuicao_ajustada,
+                    'padroes_aplicados': len(padroes_aplicados)
                 }
         
         return None
@@ -1205,19 +1508,7 @@ class EstrategiaML:
             count = sum(1 for num in top_25_numeros if num in numeros)
             contagem_zonas[zona] = count
         
-        if contagem_zonas:
-            zona_vencedora = max(contagem_zonas, key=contagem_zonas.get)
-            contagem_vencedora = contagem_zonas[zona_vencedora]
-            
-            if contagem_vencedora >= 7:
-                return {
-                    'zona_vencedora': zona_vencedora,
-                    'contagem': contagem_vencedora,
-                    'total_zonas': len(top_25_numeros),
-                    'distribuicao_completa': contagem_zonas
-                }
-        
-        return None
+        return contagem_zonas if contagem_zonas else None
 
     def calcular_confianca_zona_ml(self, distribuicao):
         contagem = distribuicao['contagem']
@@ -1255,7 +1546,6 @@ class EstrategiaML:
             return "🤖 ML: Aguardando mais dados para análise"
         
         historico_numeros = self.extrair_numeros_historico()
-
         previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
         
         if previsao_ml:
@@ -1268,6 +1558,17 @@ class EstrategiaML:
             analise = f"🤖 ANÁLISE ML - {modelo_tipo.upper()} (TOP 25):\n"
             analise += f"🔄 Treinamentos realizados: {self.ml.contador_treinamento}\n"
             analise += f"📊 Próximo treinamento: {10 - self.contador_sorteios} sorteios\n"
+            
+            # NOVO: Adicionar informações sobre padrões detectados
+            padroes_recentes = [p for p in self.sequencias_padroes['padroes_detectados'] 
+                              if len(self.historico) - p['detectado_em'] <= 20]
+            
+            if padroes_recentes:
+                analise += f"🔍 Padrões ativos: {len(padroes_recentes)}\n"
+                for padrao in padroes_recentes[-3:]:  # Mostrar últimos 3 padrões
+                    idade = len(self.historico) - padrao['detectado_em']
+                    analise += f"   📈 {padrao['zona']}: {padrao['tipo']} (há {idade} jogos)\n"
+            
             analise += "🎯 Previsões (Top 10):\n"
             for i, (num, prob) in enumerate(previsao_ml[:10]):
                 analise += f"  {i+1}. Número {num}: {prob:.2%}\n"
@@ -1276,20 +1577,59 @@ class EstrategiaML:
             distribuicao = self.analisar_distribuicao_zonas(top_25_numeros)
             
             if distribuicao:
-                analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS (25 números):\n"
-                for zona, count in distribuicao['distribuicao_completa'].items():
-                    analise += f"  📍 {zona}: {count}/25 números\n"
+                # Aplicar padrões para mostrar distribuição ajustada
+                distribuicao_ajustada = self.aplicar_padroes_na_previsao(distribuicao)
                 
-                analise += f"\n💡 ZONA RECOMENDADA: {distribuicao['zona_vencedora']}\n"
-                analise += f"🎯 Confiança: {self.calcular_confianca_zona_ml(distribuicao)}\n"
-                analise += f"🔢 Números da zona: {sorted(self.numeros_zonas_ml[distribuicao['zona_vencedora']])}\n"
-                analise += f"📈 Percentual: {(distribuicao['contagem']/25)*100:.1f}%\n"
+                analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS (25 números):\n"
+                for zona, count in distribuicao_ajustada.items():
+                    count_original = distribuicao[zona]
+                    ajuste = count - count_original
+                    simbolo_ajuste = f" (+{ajuste})" if ajuste > 0 else ""
+                    analise += f"  📍 {zona}: {count_original}→{count}/25{simbolo_ajuste}\n"
+                
+                zona_vencedora = max(distribuicao_ajustada, key=distribuicao_ajustada.get)
+                analise += f"\n💡 ZONA RECOMENDADA: {zona_vencedora}\n"
+                analise += f"🎯 Confiança: {self.calcular_confianca_com_padroes(distribuicao_ajustada, zona_vencedora)}\n"
+                analise += f"🔢 Números da zona: {sorted(self.numeros_zonas_ml[zona_vencedora])}\n"
+                analise += f"📈 Percentual: {(distribuicao_ajustada[zona_vencedora]/25)*100:.1f}%\n"
             else:
                 analise += "\n⚠️  Nenhuma zona com predominância suficiente (mínimo 7 números)\n"
             
             return analise
         else:
             return "🤖 ML: Erro na previsão"
+
+    def get_estatisticas_padroes(self):
+        """Retorna estatísticas dos padrões detectados"""
+        if not hasattr(self, 'metricas_padroes'):
+            return "📊 Métricas de padrões: Não disponível"
+        
+        total = self.metricas_padroes['padroes_detectados_total']
+        if total == 0:
+            return "📊 Métricas de padrões: Nenhum padrão validado ainda"
+        
+        acertos = self.metricas_padroes['padroes_acertados']
+        eficiencia = (acertos / total) * 100 if total > 0 else 0
+        
+        estatisticas = f"📊 EFICIÊNCIA DOS PADRÕES:\n"
+        estatisticas += f"✅ Padrões que acertaram: {acertos}/{total} ({eficiencia:.1f}%)\n"
+        
+        # Eficiência por tipo de padrão
+        for tipo, dados in self.metricas_padroes['eficiencia_por_tipo'].items():
+            if dados['total'] > 0:
+                eff_tipo = (dados['acertos'] / dados['total']) * 100
+                estatisticas += f"   🎯 {tipo}: {dados['acertos']}/{dados['total']} ({eff_tipo:.1f}%)\n"
+        
+        # Padrões ativos no momento
+        padroes_ativos = [p for p in self.sequencias_padroes['padroes_detectados'] 
+                         if len(self.historico) - p['detectado_em'] <= 10]
+        
+        estatisticas += f"🔍 Padrões ativos: {len(padroes_ativos)}\n"
+        for padrao in padroes_ativos[-3:]:
+            idade = len(self.historico) - padrao['detectado_em']
+            estatisticas += f"   📈 {padrao['zona']}: {padrao['tipo']} (há {idade} jogos)\n"
+        
+        return estatisticas
 
     def get_info_zonas_ml(self):
         info = {}
@@ -1301,6 +1641,22 @@ class EstrategiaML:
                 'descricao': f"6 antes + 6 depois do {self.zonas_ml[zona]}"
             }
         return info
+
+    def zerar_padroes(self):
+        """Zera todos os padrões detectados (para testes ou reset)"""
+        self.sequencias_padroes = {
+            'sequencias_ativas': {},
+            'historico_sequencias': [],
+            'padroes_detectados': []
+        }
+        self.metricas_padroes = {
+            'padroes_detectados_total': 0,
+            'padroes_acertados': 0,
+            'padroes_errados': 0,
+            'eficiencia_por_tipo': {},
+            'historico_validacao': []
+        }
+        logging.info("🔄 Padrões sequenciais e métricas zerados")
 
 # =============================
 # SISTEMA DE GESTÃO ATUALIZADO COM ROTAÇÃO AUTOMÁTICA
@@ -1740,6 +2096,25 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
     else:
         st.info("🤖 ML aguardando treinamento")
 
+# NOVO: Estatísticas de Padrões ML
+with st.sidebar.expander("🔍 Estatísticas de Padrões ML", expanded=False):
+    if st.session_state.sistema.estrategia_selecionada == "ML":
+        estatisticas_padroes = st.session_state.sistema.estrategia_ml.get_estatisticas_padroes()
+        st.text(estatisticas_padroes)
+        
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            if st.button("🔄 Zerar Padrões", use_container_width=True):
+                st.session_state.sistema.estrategia_ml.zerar_padroes()
+                st.success("✅ Padrões zerados!")
+                st.rerun()
+                
+        with col_p2:
+            if st.button("📊 Atualizar Métricas", use_container_width=True):
+                st.rerun()
+    else:
+        st.info("🔍 Ative a estratégia ML para ver estatísticas de padrões")
+
 # Informações sobre as Estratégias
 with st.sidebar.expander("📊 Informações das Estratégias"):
     if estrategia == "Zonas":
@@ -1860,6 +2235,10 @@ if sistema.previsao_ativa:
     
     st.write(f"**🔢 Números para apostar ({len(previsao['numeros_apostar'])}):**")
     st.write(", ".join(map(str, sorted(previsao['numeros_apostar']))))
+    
+    # NOVO: Mostrar informações de padrões para ML
+    if 'ML' in previsao['nome'] and previsao.get('padroes_aplicados', 0) > 0:
+        st.info(f"🔍 **Padrões aplicados:** {previsao['padroes_aplicados']} padrões sequenciais detectados")
     
     st.info("⏳ Aguardando próximo sorteio para conferência...")
 else:
