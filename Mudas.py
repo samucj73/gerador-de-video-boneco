@@ -118,62 +118,51 @@ def limpar_sessao():
         logging.error(f"❌ Erro ao limpar sessão: {e}")
 
 # =============================
-# CONFIGURAÇÕES DE NOTIFICAÇÃO - SIMPLIFICADAS
+# CONFIGURAÇÕES DE NOTIFICAÇÃO - SUPER SIMPLIFICADAS
 # =============================
-def enviar_previsao_simplificada(previsao):
-    """Envia notificação de previsão simplificada"""
+def enviar_previsao_super_simplificada(previsao):
+    """Envia notificação de previsão super simplificada"""
     try:
         nome_estrategia = previsao['nome']
         
         if 'Zonas' in nome_estrategia:
-            # Mensagem simplificada para Zonas
+            # Mensagem super simplificada para Zonas - apenas o número da zona
             zona = previsao.get('zona', '')
-            numeros = previsao['numeros_apostar']
-            mensagem = f"🎯 ZONA {zona.upper()}\n"
-            mensagem += f"🔢 Números: {', '.join(map(str, sorted(numeros)))}"
+            mensagem = f"📍 Zona {zona}"
             
         elif 'ML' in nome_estrategia:
-            # Mensagem simplificada para ML
+            # Mensagem super simplificada para ML - apenas o núcleo
             zona_ml = previsao.get('zona_ml', '')
-            numeros = previsao['numeros_apostar']
-            mensagem = f"🤖 NÚCLEO {zona_ml.upper()}\n"
-            mensagem += f"🔢 Números: {', '.join(map(str, sorted(numeros)))}"
+            mensagem = f"🤖 Núcleo {zona_ml}"
             
         else:
             # Mensagem para Midas
-            numeros = previsao['numeros_apostar']
-            mensagem = f"💰 MIDAS - {previsao['nome']}\n"
-            mensagem += f"🔢 Números: {', '.join(map(str, sorted(numeros)))}"
+            mensagem = f"💰 {previsao['nome']}"
         
         st.toast(f"🎯 Nova Previsão", icon="🔥")
         st.warning(f"🔔 {mensagem}")
         
         if 'telegram_token' in st.session_state and 'telegram_chat_id' in st.session_state:
             if st.session_state.telegram_token and st.session_state.telegram_chat_id:
-                enviar_telegram(f"🔔 NOVA PREVISÃO\n{mensagem}")
+                enviar_telegram(f"🔔 PREVISÃO\n{mensagem}")
                 
         # Salvar sessão após nova previsão
         salvar_sessao()
     except Exception as e:
         logging.error(f"Erro ao enviar previsão: {e}")
 
-def enviar_resultado_simplificado(numero_real, acerto, nome_estrategia, previsao_numeros=None, zona_acertada=None):
-    """Envia notificação de resultado simplificada"""
+def enviar_resultado_super_simplificado(numero_real, acerto, nome_estrategia, zona_acertada=None):
+    """Envia notificação de resultado super simplificado"""
     try:
         if acerto:
             if 'Zonas' in nome_estrategia and zona_acertada:
-                mensagem = f"✅ ACERTO Zona {zona_acertada}\n🎲 Número: {numero_real}"
+                mensagem = f"✅ Acerto Zona {zona_acertada}\n🎲 Número: {numero_real}"
             elif 'ML' in nome_estrategia and zona_acertada:
-                mensagem = f"✅ ACERTO Núcleo {zona_acertada}\n🎲 Número: {numero_real}"
+                mensagem = f"✅ Acerto Núcleo {zona_acertada}\n🎲 Número: {numero_real}"
             else:
-                mensagem = f"✅ ACERTO {nome_estrategia}\n🎲 Número: {numero_real}"
+                mensagem = f"✅ Acerto\n🎲 Número: {numero_real}"
         else:
-            if 'Zonas' in nome_estrategia:
-                mensagem = f"❌ ERRO Zonas\n🎲 Número: {numero_real}"
-            elif 'ML' in nome_estrategia:
-                mensagem = f"❌ ERRO ML\n🎲 Número: {numero_real}"
-            else:
-                mensagem = f"❌ ERRO {nome_estrategia}\n🎲 Número: {numero_real}"
+            mensagem = f"❌ Erro\n🎲 Número: {numero_real}"
         
         st.toast(f"🎲 Resultado", icon="✅" if acerto else "❌")
         st.success(f"📢 {mensagem}") if acerto else st.error(f"📢 {mensagem}")
@@ -1412,9 +1401,8 @@ class SistemaRoletaCompleto:
             else:
                 self.erros += 1
             
-            # Envia resultado simplificado
-            enviar_resultado_simplificado(numero_real, acerto, nome_estrategia, 
-                                        self.previsao_ativa['numeros_apostar'], zona_acertada)
+            # Envia resultado super simplificado
+            enviar_resultado_super_simplificado(numero_real, acerto, nome_estrategia, zona_acertada)
             
             self.historico_desempenho.append({
                 'numero': numero_real,
@@ -1442,7 +1430,7 @@ class SistemaRoletaCompleto:
         
         if nova_estrategia:
             self.previsao_ativa = nova_estrategia
-            enviar_previsao_simplificada(nova_estrategia)
+            enviar_previsao_super_simplificada(nova_estrategia)
 
     def zerar_estatisticas_desempenho(self):
         """Zera todas as estatísticas de desempenho"""
