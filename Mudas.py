@@ -231,8 +231,8 @@ class MLRoleta:
         self,
         roleta_obj,
         min_training_samples: int = 100,
-        max_history: int = 5500,
-        retrain_every_n: int = 100,
+        max_history: int = 500,
+        retrain_every_n: int = 10,
         seed: int = 42
     ):
         self.roleta = roleta_obj
@@ -249,7 +249,7 @@ class MLRoleta:
         self.meta = {}
 
         self.window_for_features = [5, 10, 20, 50]
-        self.k_vizinhos = 6
+        self.k_vizinhos = 2
         self.numeros = list(range(37))
 
     def get_neighbors(self, numero, k=None):
@@ -585,7 +585,7 @@ class MLRoleta:
                 probs.append(prob)
         return np.mean(probs, axis=0)
 
-    def prever_proximo_numero(self, historico, top_k: int = 20):
+    def prever_proximo_numero(self, historico, top_k: int = 25):  # ALTERADO DE 20 PARA 25
         if not self.is_trained:
             return None, "Modelo não treinado"
 
@@ -1127,12 +1127,14 @@ class EstrategiaML:
         if len(historico_numeros) < 10:
             return None
 
-        previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros)
+        # ALTERADO: top_k=25 em vez de 20
+        previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
         
         if previsao_ml:
-            top_20_numeros = [num for num, prob in previsao_ml[:20]]
+            # ALTERADO: top_25_numeros em vez de top_20_numeros
+            top_25_numeros = [num for num, prob in previsao_ml[:25]]
             
-            distribuicao_zonas = self.analisar_distribuicao_zonas(top_20_numeros)
+            distribuicao_zonas = self.analisar_distribuicao_zonas(top_25_numeros)
             
             if distribuicao_zonas:
                 zona_vencedora = distribuicao_zonas['zona_vencedora']
@@ -1156,22 +1158,23 @@ class EstrategiaML:
         
         return None
 
-    def analisar_distribuicao_zonas(self, top_20_numeros):
+    def analisar_distribuicao_zonas(self, top_25_numeros):  # ALTERADO: top_25_numeros
         contagem_zonas = {}
         
         for zona, numeros in self.numeros_zonas_ml.items():
-            count = sum(1 for num in top_20_numeros if num in numeros)
+            count = sum(1 for num in top_25_numeros if num in numeros)
             contagem_zonas[zona] = count
         
         if contagem_zonas:
             zona_vencedora = max(contagem_zonas, key=contagem_zonas.get)
             contagem_vencedora = contagem_zonas[zona_vencedora]
             
-            if contagem_vencedora >= 6:
+            # ALTERADO: threshold ajustado para 7 em vez de 6 (devido ao aumento de 20 para 25)
+            if contagem_vencedora >= 7:
                 return {
                     'zona_vencedora': zona_vencedora,
                     'contagem': contagem_vencedora,
-                    'total_zonas': len(top_20_numeros),
+                    'total_zonas': len(top_25_numeros),  # Agora será 25
                     'distribuicao_completa': contagem_zonas
                 }
         
@@ -1179,9 +1182,10 @@ class EstrategiaML:
 
     def calcular_confianca_zona_ml(self, distribuicao):
         contagem = distribuicao['contagem']
-        total = distribuicao['total_zonas']
+        total = distribuicao['total_zonas']  # Agora será 25 em vez de 20
         percentual = (contagem / total) * 100
         
+        # Ajuste os thresholds se necessário
         if percentual >= 50:
             return 'Muito Alta'
         elif percentual >= 40:
@@ -1253,7 +1257,8 @@ class EstrategiaML:
         
         historico_numeros = self.extrair_numeros_historico()
 
-        previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros)
+        # ALTERADO: top_k=25
+        previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
         
         if previsao_ml:
             if self.ml.models:
@@ -1262,27 +1267,32 @@ class EstrategiaML:
             else:
                 modelo_tipo = "Não treinado"
             
-            analise = f"🤖 ANÁLISE ML - {modelo_tipo.upper()} (TOP 20):\n"
+            # ALTERADO: "TOP 25" em vez de "TOP 20"
+            analise = f"🤖 ANÁLISE ML - {modelo_tipo.upper()} (TOP 25):\n"
             analise += f"🔄 Treinamentos realizados: {self.ml.contador_treinamento}\n"
             analise += f"📊 Próximo treinamento: {10 - self.contador_sorteios} sorteios\n"
             analise += "🎯 Previsões (Top 10):\n"
             for i, (num, prob) in enumerate(previsao_ml[:10]):
                 analise += f"  {i+1}. Número {num}: {prob:.2%}\n"
             
-            top_20_numeros = [num for num, prob in previsao_ml[:20]]
-            distribuicao = self.analisar_distribuicao_zonas(top_20_numeros)
+            # ALTERADO: top_25_numeros
+            top_25_numeros = [num for num, prob in previsao_ml[:25]]
+            distribuicao = self.analisar_distribuicao_zonas(top_25_numeros)
             
             if distribuicao:
-                analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS (20 números):\n"
+                # ALTERADO: "25 números" em vez de "20 números"
+                analise += f"\n🎯 DISTRIBUIÇÃO POR ZONAS (25 números):\n"
                 for zona, count in distribuicao['distribuicao_completa'].items():
-                    analise += f"  📍 {zona}: {count}/20 números\n"
+                    analise += f"  📍 {zona}: {count}/25 números\n"
                 
                 analise += f"\n💡 ZONA RECOMENDADA: {distribuicao['zona_vencedora']}\n"
                 analise += f"🎯 Confiança: {self.calcular_confianca_zona_ml(distribuicao)}\n"
                 analise += f"🔢 Números da zona: {sorted(self.numeros_zonas_ml[distribuicao['zona_vencedora']])}\n"
-                analise += f"📈 Percentual: {(distribuicao['contagem']/20)*100:.1f}%\n"
+                # ALTERADO: cálculo com 25 em vez de 20
+                analise += f"📈 Percentual: {(distribuicao['contagem']/25)*100:.1f}%\n"
             else:
-                analise += "\n⚠️  Nenhuma zona com predominância suficiente (mínimo 6 números)\n"
+                # ALTERADO: mensagem atualizada
+                analise += "\n⚠️  Nenhuma zona com predominância suficiente (mínimo 7 números)\n"
             
             return analise
         else:
@@ -1664,10 +1674,10 @@ with st.sidebar.expander("📊 Informações das Estratégias"):
         st.write("**🤖 Estratégia Machine Learning - CATBOOST:**")
         st.write("- **Modelo**: CatBoost (Gradient Boosting)")
         st.write("- **Vantagem**: Mais preciso para dados sequenciais")
-        st.write("- **Análise**: Top 20 números previstos")
+        st.write("- **Análise**: Top 25 números previstos")  # ALTERADO: Top 25
         st.write("- **Treinamento**: Automático a cada 10 sorteios")
         st.write("- **Zonas**: 6 antes + 6 depois (13 números/zona)")
-        st.write("- **Threshold**: Mínimo 6 números na mesma zona")
+        st.write("- **Threshold**: Mínimo 7 números na mesma zona")  # ALTERADO: 7 números
         st.write("- **Saída**: Zona com maior concentração")
         st.write("- **Telegram**: Alertas automáticos de entrada")
         
