@@ -54,10 +54,8 @@ def salvar_sessao():
             pickle.dump(session_data, f)
         
         logging.info("✅ Sessão salva com sucesso")
-        return True
     except Exception as e:
         logging.error(f"❌ Erro ao salvar sessão: {e}")
-        return False
 
 def carregar_sessao():
     """Carrega todos os dados da sessão do arquivo"""
@@ -66,11 +64,6 @@ def carregar_sessao():
             with open(SESSION_DATA_PATH, 'rb') as f:
                 session_data = pickle.load(f)
             
-            # ✅ VERIFICAÇÃO DE SEGURANÇA
-            if not isinstance(session_data, dict):
-                logging.error("❌ Dados de sessão corrompidos")
-                return False
-                
             # Restaurar dados básicos
             st.session_state.historico = session_data.get('historico', [])
             st.session_state.telegram_token = session_data.get('telegram_token', '')
@@ -776,7 +769,7 @@ class MLRoletaOtimizada:
         }
 
 # =============================
-# ESTRATÉGIA DAS ZONAS ATUALIZADA - OTIMIZADA E CORRIGIDA
+# ESTRATÉGIA DAS ZONAS ATUALIZADA - OTIMIZADA
 # =============================
 class EstrategiaZonasOtimizada:
     def __init__(self):
@@ -797,21 +790,6 @@ class EstrategiaZonasOtimizada:
             'Amarela': 6
         }
         
-        # ✅ CORREÇÃO: Inicializar stats_zonas PRIMEIRO
-        self.stats_zonas = {zona: {
-            'acertos': 0, 
-            'tentativas': 0, 
-            'sequencia_atual': 0,
-            'sequencia_maxima': 0,
-            'performance_media': 0
-        } for zona in self.zonas.keys()}
-        
-        # ✅ DEPOIS inicializar numeros_zonas
-        self.numeros_zonas = {}
-        for nome, central in self.zonas.items():
-            qtd = self.quantidade_zonas.get(nome, 6)
-            self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, qtd)
-
         # NOVO: Múltiplas janelas de análise
         self.janelas_analise = {
             'curto_prazo': 12,    # Tendência imediata
@@ -819,6 +797,19 @@ class EstrategiaZonasOtimizada:
             'longo_prazo': 48,    # Ciclo geral
             'performance': 100    # Estatísticas de acerto
         }
+        
+        self.numeros_zonas = {}
+        for nome, central in self.zonas.items():
+            qtd = self.quantidade_zonas.get(nome, 6)
+            self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, qtd)
+
+        self.stats_zonas = {zona: {
+            'acertos': 0, 
+            'tentativas': 0, 
+            'sequencia_atual': 0,
+            'sequencia_maxima': 0,
+            'performance_media': 0
+        } for zona in self.zonas.keys()}
         
         # NOVO: Threshold base dinâmico
         self.threshold_base = 28
@@ -853,10 +844,6 @@ class EstrategiaZonasOtimizada:
 
     def get_threshold_dinamico(self, zona):
         """Calcula threshold dinâmico baseado na performance da zona"""
-        # ✅ CORREÇÃO: Verificar se a zona existe nas estatísticas
-        if zona not in self.stats_zonas:
-            return self.threshold_base  # Retorna valor padrão se zona não existir
-        
         perf = self.stats_zonas[zona]['performance_media']
         
         if perf > 40:    # Zona muito quente
@@ -991,22 +978,21 @@ class EstrategiaZonasOtimizada:
             fatores.append(1)
             pesos.append(2)
         
-        # ✅ CORREÇÃO: Análise de tendência como fator adicional
         if len(self.historico) >= 10:
             ultimos_5 = list(self.historico)[-5:]
             anteriores_5 = list(self.historico)[-10:-5]
             
             freq_ultimos = sum(1 for n in ultimos_5 if n in self.numeros_zonas[zona])
-            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona]) if anteriores_5 else 0
+            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona])
             
             if freq_ultimos > freq_anteriores: 
-                fatores.append(3)  # Tendência positiva
+                fatores.append(3)
                 pesos.append(2)
             elif freq_ultimos == freq_anteriores: 
-                fatores.append(2)  # Estável
+                fatores.append(2)
                 pesos.append(2)
             else: 
-                fatores.append(1)  # Tendência negativa
+                fatores.append(1)
                 pesos.append(2)
         
         total_pontos = sum(f * p for f, p in zip(fatores, pesos))
@@ -1252,7 +1238,7 @@ class EstrategiaML:
             'padroes_detectados': []  # Padrões identificados
         }
         
-        # ✅ CORREÇÃO: Chamar método corretamente
+        # NOVO: Métricas de performance dos padrões
         self.adicionar_metricas_padroes()
 
     def adicionar_metricas_padroes(self):
@@ -2446,5 +2432,5 @@ if os.path.exists(HISTORICO_PATH):
         conteudo = f.read()
     st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_roleta.json")
 
-# ✅ CORREÇÃO FINAL: Salvar sessão sem parênteses
-salvar_sessao
+# Salvar sessão automaticamente ao final do script
+salvar_sessao()
