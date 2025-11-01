@@ -54,8 +54,10 @@ def salvar_sessao():
             pickle.dump(session_data, f)
         
         logging.info("✅ Sessão salva com sucesso")
+        return True
     except Exception as e:
         logging.error(f"❌ Erro ao salvar sessão: {e}")
+        return False
 
 def carregar_sessao():
     """Carrega todos os dados da sessão do arquivo"""
@@ -64,6 +66,11 @@ def carregar_sessao():
             with open(SESSION_DATA_PATH, 'rb') as f:
                 session_data = pickle.load(f)
             
+            # ✅ VERIFICAÇÃO DE SEGURANÇA
+            if not isinstance(session_data, dict):
+                logging.error("❌ Dados de sessão corrompidos")
+                return False
+                
             # Restaurar dados básicos
             st.session_state.historico = session_data.get('historico', [])
             st.session_state.telegram_token = session_data.get('telegram_token', '')
@@ -790,19 +797,7 @@ class EstrategiaZonasOtimizada:
             'Amarela': 6
         }
         
-        # NOVO: Múltiplas janelas de análise
-        self.janelas_analise = {
-            'curto_prazo': 12,    # Tendência imediata
-            'medio_prazo': 24,    # Momentum  
-            'longo_prazo': 48,    # Ciclo geral
-            'performance': 100    # Estatísticas de acerto
-        }
-        
-        self.numeros_zonas = {}
-        for nome, central in self.zonas.items():
-            qtd = self.quantidade_zonas.get(nome, 6)
-            self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, qtd)
-
+        # ✅ CORREÇÃO: Inicializar stats_zonas PRIMEIRO
         self.stats_zonas = {zona: {
             'acertos': 0, 
             'tentativas': 0, 
@@ -810,6 +805,20 @@ class EstrategiaZonasOtimizada:
             'sequencia_maxima': 0,
             'performance_media': 0
         } for zona in self.zonas.keys()}
+        
+        # ✅ DEPOIS inicializar numeros_zonas
+        self.numeros_zonas = {}
+        for nome, central in self.zonas.items():
+            qtd = self.quantidade_zonas.get(nome, 6)
+            self.numeros_zonas[nome] = self.roleta.get_vizinhos_zona(central, qtd)
+
+        # NOVO: Múltiplas janelas de análise
+        self.janelas_analise = {
+            'curto_prazo': 12,    # Tendência imediata
+            'medio_prazo': 24,    # Momentum  
+            'longo_prazo': 48,    # Ciclo geral
+            'performance': 100    # Estatísticas de acerto
+        }
         
         # NOVO: Threshold base dinâmico
         self.threshold_base = 28
@@ -983,17 +992,11 @@ class EstrategiaZonasOtimizada:
             anteriores_5 = list(self.historico)[-10:-5]
             
             freq_ultimos = sum(1 for n in ultimos_5 if n in self.numeros_zonas[zona])
-            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona])
+            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona]) if anteriores_5 else 0
             
-            if freq_ultimos > freq_anteriores: 
-                fatores.append(3)
-                pesos.append(2)
-            elif freq_ultimos == freq_anteriores: 
-                fatores.append(2)
-                pesos.append(2)
-            else: 
-                fatores.append(1)
-                pesos.append(2)
+            tendencia = "↗️" if freq_ultimos > freq_anteriores else "↘️" if freq_ultimos < freq_anteriores else "➡️"
+            variacao = freq_ultimos - freq_anteriores
+            analise += f"📍 {zona}: {freq_ultimos}/5 vs {freq_anteriores}/5 {tendencia} (Δ: {variacao:+d})\n"
         
         total_pontos = sum(f * p for f, p in zip(fatores, pesos))
         total_pesos = sum(pesos)
@@ -1238,7 +1241,7 @@ class EstrategiaML:
             'padroes_detectados': []  # Padrões identificados
         }
         
-        # NOVO: Métricas de performance dos padrões
+        # ✅ CORREÇÃO: Chamar método corretamente
         self.adicionar_metricas_padroes()
 
     def adicionar_metricas_padroes(self):
@@ -2432,5 +2435,5 @@ if os.path.exists(HISTORICO_PATH):
         conteudo = f.read()
     st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_roleta.json")
 
-# Salvar sessão automaticamente ao final do script
-salvar_sessao()
+# ✅ CORREÇÃO FINAL: Salvar sessão sem parênteses
+salvar_sessao
