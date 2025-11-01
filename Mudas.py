@@ -155,15 +155,29 @@ def enviar_previsao_super_simplificada(previsao):
         elif 'ML' in nome_estrategia:
             # CORREÇÃO: Mostrar apenas o núcleo previsto pelo ML
             zona_ml = previsao.get('zona_ml', '')
-            # Formatar para mostrar apenas "Núcleo X" onde X é o número central
-            if zona_ml == 'Vermelha':
-                mensagem = "🤖 Núcleo 7"
-            elif zona_ml == 'Azul':
-                mensagem = "🤖 Núcleo 10"  
-            elif zona_ml == 'Amarela':
-                mensagem = "🤖 Núcleo 2"
+            
+            # NOVA LÓGICA: Verificar se há números específicos na previsão
+            numeros_apostar = previsao.get('numeros_apostar', [])
+            
+            # Verificar se o número 2 está nos números para apostar
+            if 2 in numeros_apostar:
+                mensagem = "🤖 Zona 2"
+            # Verificar se o número 7 está nos números para apostar
+            elif 7 in numeros_apostar:
+                mensagem = "🤖 Zona 7"
+            # Verificar se o número 10 está nos números para apostar
+            elif 10 in numeros_apostar:
+                mensagem = "🤖 Zona 10"
             else:
-                mensagem = f"🤖 Núcleo {zona_ml}"
+                # Fallback para a lógica original
+                if zona_ml == 'Vermelha':
+                    mensagem = "🤖 Zona 7"
+                elif zona_ml == 'Azul':
+                    mensagem = "🤖 Zona 10"  
+                elif zona_ml == 'Amarela':
+                    mensagem = "🤖 Zona 2"
+                else:
+                    mensagem = f"🤖 Zona {zona_ml}"
             
         else:
             # Mensagem para Midas
