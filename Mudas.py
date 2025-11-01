@@ -152,8 +152,8 @@ def enviar_previsao_super_simplificada(previsao):
             else:
                 mensagem = f"📍 Núcleo {zona}"
             
-        elif 'ML' in nome_estrategia:
-            # CORREÇÃO: Mostrar apenas o núcleo previsto pelo ML
+        elif 'Machine Learning' in nome_estrategia or 'ML' in nome_estrategia or 'CatBoost' in nome_estrategia:
+            # CORREÇÃO: Verificar múltiplas possibilidades do nome ML
             zona_ml = previsao.get('zona_ml', '')
             
             # NOVA LÓGICA: Verificar se há números específicos na previsão
@@ -194,6 +194,7 @@ def enviar_previsao_super_simplificada(previsao):
         salvar_sessao()
     except Exception as e:
         logging.error(f"Erro ao enviar previsão: {e}")
+
 
 def enviar_resultado_super_simplificado(numero_real, acerto, nome_estrategia, zona_acertada=None):
     """Envia notificação de resultado super simplificado"""
