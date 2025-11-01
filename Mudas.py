@@ -776,10 +776,7 @@ class MLRoletaOtimizada:
         }
 
 # =============================
-# ESTRATÉGIA DAS ZONAS ATUALIZADA - OTIMIZADA
-# =============================
-# =============================
-# ESTRATÉGIA DAS ZONAS ATUALIZADA - CORRIGIDA
+# ESTRATÉGIA DAS ZONAS ATUALIZADA - OTIMIZADA E CORRIGIDA
 # =============================
 class EstrategiaZonasOtimizada:
     def __init__(self):
@@ -826,7 +823,129 @@ class EstrategiaZonasOtimizada:
         # NOVO: Threshold base dinâmico
         self.threshold_base = 28
 
-    # ... (outros métodos permanecem iguais)
+    def adicionar_numero(self, numero):
+        self.historico.append(numero)
+        resultado = self.atualizar_stats(numero)
+        # Salvar sessão após adicionar número
+        if 'sistema' in st.session_state:
+            salvar_sessao()
+        return resultado
+
+    def atualizar_stats(self, ultimo_numero):
+        acertou_zona = None
+        for zona, numeros in self.numeros_zonas.items():
+            if ultimo_numero in numeros:
+                self.stats_zonas[zona]['acertos'] += 1
+                self.stats_zonas[zona]['sequencia_atual'] += 1
+                if self.stats_zonas[zona]['sequencia_atual'] > self.stats_zonas[zona]['sequencia_maxima']:
+                    self.stats_zonas[zona]['sequencia_maxima'] = self.stats_zonas[zona]['sequencia_atual']
+                acertou_zona = zona
+            else:
+                self.stats_zonas[zona]['sequencia_atual'] = 0
+            self.stats_zonas[zona]['tentativas'] += 1
+            
+            if self.stats_zonas[zona]['tentativas'] > 0:
+                self.stats_zonas[zona]['performance_media'] = (
+                    self.stats_zonas[zona]['acertos'] / self.stats_zonas[zona]['tentativas'] * 100
+                )
+        
+        return acertou_zona
+
+    def get_threshold_dinamico(self, zona):
+        """Calcula threshold dinâmico baseado na performance da zona"""
+        # ✅ CORREÇÃO: Verificar se a zona existe nas estatísticas
+        if zona not in self.stats_zonas:
+            return self.threshold_base  # Retorna valor padrão se zona não existir
+        
+        perf = self.stats_zonas[zona]['performance_media']
+        
+        if perf > 40:    # Zona muito quente
+            return self.threshold_base - 5   # 23 - Mais sensível
+        elif perf < 20:  # Zona fria  
+            return self.threshold_base + 5   # 33 - Mais conservador
+        else:
+            return self.threshold_base
+
+    def get_zona_mais_quente(self):
+        if len(self.historico) < 15:
+            return None
+            
+        zonas_score = {}
+        total_numeros = len(self.historico)
+        
+        for zona in self.zonas.keys():
+            score = 0
+            
+            # Análise de múltiplas janelas
+            freq_geral = sum(1 for n in self.historico if n in self.numeros_zonas[zona])
+            percentual_geral = freq_geral / total_numeros
+            score += percentual_geral * 25
+            
+            # Janela de curto prazo
+            ultimos_curto = list(self.historico)[-self.janelas_analise['curto_prazo']:] if total_numeros >= self.janelas_analise['curto_prazo'] else list(self.historico)
+            freq_curto = sum(1 for n in ultimos_curto if n in self.numeros_zonas[zona])
+            percentual_curto = freq_curto / len(ultimos_curto)
+            score += percentual_curto * 35
+            
+            # Performance histórica com peso adaptativo
+            if self.stats_zonas[zona]['tentativas'] > 10:
+                taxa_acerto = self.stats_zonas[zona]['performance_media']
+                if taxa_acerto > 40: 
+                    score += 30  # Mais peso para zonas quentes
+                elif taxa_acerto > 35:
+                    score += 25
+                elif taxa_acerto > 30:
+                    score += 20
+                elif taxa_acerto > 25:
+                    score += 15
+                else:
+                    score += 10
+            else:
+                score += 10
+            
+            # Sequência atual com bônus progressivo
+            sequencia = self.stats_zonas[zona]['sequencia_atual']
+            if sequencia >= 2:
+                score += min(sequencia * 3, 12)  # Aumentado limite
+            
+            zonas_score[zona] = score
+        
+        zona_vencedora = max(zonas_score, key=zonas_score.get) if zonas_score else None
+        
+        if zona_vencedora:
+            threshold = self.get_threshold_dinamico(zona_vencedora)
+            
+            # Ajuste adicional por sequência
+            if self.stats_zonas[zona_vencedora]['sequencia_atual'] >= 2:
+                threshold -= 2
+            
+            return zona_vencedora if zonas_score[zona_vencedora] >= threshold else None
+        
+        return None
+
+    def analisar_zonas(self):
+        if len(self.historico) < 15:
+            return None
+            
+        zona_alvo = self.get_zona_mais_quente()
+        
+        if zona_alvo:
+            numeros_apostar = self.numeros_zonas[zona_alvo]
+            
+            confianca = self.calcular_confianca_ultra(zona_alvo)
+            score = self.get_zona_score(zona_alvo)
+            
+            gatilho = f'Zona {zona_alvo} - Score: {score:.1f} | Perf: {self.stats_zonas[zona_alvo]["performance_media"]:.1f}% | Thr: {self.get_threshold_dinamico(zona_alvo)}'
+            
+            return {
+                'nome': f'Zona {zona_alvo}',
+                'numeros_apostar': numeros_apostar,
+                'gatilho': gatilho,
+                'confianca': confianca,
+                'zona': zona_alvo
+            }
+        
+        return None
 
     def calcular_confianca_ultra(self, zona):
         if len(self.historico) < 10:
@@ -904,10 +1023,6 @@ class EstrategiaZonasOtimizada:
             return 'Média'
         else: 
             return 'Baixa'
-
-    # ... (restante dos métodos permanece igual)
-    
-
 
     def get_zona_score(self, zona):
         if len(self.historico) < 10:
