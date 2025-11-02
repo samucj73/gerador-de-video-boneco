@@ -78,9 +78,14 @@ def carregar_sessao():
             
             # Restaurar sistema
             if 'sistema' in st.session_state:
+                # ✅ CORREÇÃO: Garantir que estrategias_contador seja um dicionário
+                estrategias_contador = session_data.get('sistema_estrategias_contador', {})
+                if not isinstance(estrategias_contador, dict):
+                    estrategias_contador = {}
+                    
                 st.session_state.sistema.acertos = session_data.get('sistema_acertos', 0)
                 st.session_state.sistema.erros = session_data.get('sistema_erros', 0)
-                st.session_state.sistema.estrategias_contador = session_data.get('sistema_estrategias_contador', {})
+                st.session_state.sistema.estrategias_contador = estrategias_contador
                 st.session_state.sistema.historico_desempenho = session_data.get('sistema_historico_desempenho', [])
                 st.session_state.sistema.contador_sorteios_global = session_data.get('sistema_contador_sorteios_global', 0)
                 st.session_state.sistema.sequencia_erros = session_data.get('sistema_sequencia_erros', 0)
@@ -1778,6 +1783,7 @@ class SistemaRoletaCompleto:
         self.historico_desempenho = []
         self.acertos = 0
         self.erros = 0
+        # ✅ CORREÇÃO: Garantir que estrategias_contador seja sempre um dicionário
         self.estrategias_contador = {}
         self.estrategia_selecionada = "Zonas"
         self.contador_sorteios_global = 0
@@ -2411,10 +2417,14 @@ with col6:
 if sistema.estrategias_contador:
     st.write("**📊 Performance por Estratégia:**")
     for nome, dados in sistema.estrategias_contador.items():
-        if dados['total'] > 0:
+        # ✅ CORREÇÃO: Verificar se dados é um dicionário válido
+        if isinstance(dados, dict) and 'total' in dados and dados['total'] > 0:
             taxa_estrategia = (dados['acertos'] / dados['total'] * 100)
             cor = "🟢" if taxa_estrategia >= 50 else "🟡" if taxa_estrategia >= 30 else "🔴"
             st.write(f"{cor} {nome}: {dados['acertos']}/{dados['total']} ({taxa_estrategia:.1f}%)")
+        else:
+            # Se dados não for um dicionário válido, mostrar informação básica
+            st.write(f"⚠️ {nome}: Dados de performance não disponíveis")
 
 # Últimas conferências
 if sistema.historico_desempenho:
@@ -2446,5 +2456,5 @@ if os.path.exists(HISTORICO_PATH):
         conteudo = f.read()
     st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_roleta.json")
 
-# ✅ CORREÇÃO FINAL: Salvar sessão sem parênteses
-salvar_sessao
+# ✅ CORREÇÃO FINAL: Salvar sessão
+salvar_sessao()
