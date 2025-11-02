@@ -1616,10 +1616,7 @@ class EstrategiaML:
             self.sequencias_padroes['padroes_detectados'].append(padrao)
             logging.info(f"🎯 PADRÃO FORTE: {zona} - {padrao['padrao']}")
 
-    #def registrar_padrao_retorno_rapido(self, zona, posicao):
-        #"""Regist
-
-     def registrar_padrao_retorno_rapido(self, zona, posicao):
+    def registrar_padrao_retorno_rapido(self, zona, posicao):
         """Registra padrão de retorno rápido após quebra"""
         padrao = {
             'tipo': 'retorno_rapido',
