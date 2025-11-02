@@ -343,7 +343,7 @@ class RoletaInteligente:
         return vizinhos
 
 # =============================
-# SISTEMA DE ROTAÇÃO INTELIGENTE
+# SISTEMA DE ROTAÇÃO INTELIGENTE - CORRIGIDO
 # =============================
 class SistemaRotacaoInteligente:
     def __init__(self):
@@ -353,21 +353,30 @@ class SistemaRotacaoInteligente:
             'Midas': {'acertos': 0, 'total': 0, 'performance_media': 0}
         }
         self.estrategia_atual = 'Zonas'
-        self.performance_minima = 0.35  # 35% de performance mínima
-        self.janela_analise = 20  # Analisar últimos 20 resultados
+        self.performance_minima = 0.35
+        self.janela_analise = 20
         
     def calcular_performance_estrategia(self, estrategia):
-        """Calcula a performance atual de uma estratégia"""
-        dados = self.performance_historica[estrategia]
-        if dados['total'] > 0:
-            performance = dados['acertos'] / dados['total']
-            dados['performance_media'] = performance
-            return performance
-        return 0.0
+        """Calcula a performance atual de uma estratégia com tratamento de erro"""
+        try:
+            dados = self.performance_historica[estrategia]
+            if dados['total'] > 0:
+                performance = dados['acertos'] / dados['total']
+                dados['performance_media'] = performance
+                return performance
+            return 0.0
+        except KeyError:
+            # Se a estratégia não existe no dicionário, inicializa
+            self.performance_historica[estrategia] = {'acertos': 0, 'total': 0, 'performance_media': 0}
+            return 0.0
     
     def decidir_rotacao(self, resultado_ultimo):
         """Decide se deve rotacionar a estratégia baseado na performance"""
         estrategia_ultima = resultado_ultimo['estrategia']
+        
+        # Garantir que a estratégia existe no dicionário
+        if estrategia_ultima not in self.performance_historica:
+            self.performance_historica[estrategia_ultima] = {'acertos': 0, 'total': 0, 'performance_media': 0}
         
         # Atualizar performance da estratégia usada
         self.performance_historica[estrategia_ultima]['total'] += 1
@@ -381,8 +390,12 @@ class SistemaRotacaoInteligente:
         if perf_atual < self.performance_minima:
             # Escolher melhor estratégia baseada em performance histórica
             estrategias_disponiveis = ['Zonas', 'ML', 'Midas']
-            performances = {e: self.calcular_performance_estrategia(e) 
-                          for e in estrategias_disponiveis if e != self.estrategia_atual}
+            performances = {}
+            
+            for e in estrategias_disponiveis:
+                if e != self.estrategia_atual:
+                    perf = self.calcular_performance_estrategia(e)
+                    performances[e] = perf
             
             if performances:
                 melhor_estrategia = max(performances, key=performances.get)
@@ -395,8 +408,18 @@ class SistemaRotacaoInteligente:
         return False, self.estrategia_atual, self.estrategia_atual
 
     def get_status_rotacao(self):
-        """Retorna o status atual do sistema de rotação"""
-        performances = {e: self.calcular_performance_estrategia(e) for e in ['Zonas', 'ML', 'Midas']}
+        """Retorna o status atual do sistema de rotação com tratamento de erro"""
+        performances = {}
+        estrategias = ['Zonas', 'ML', 'Midas']
+        
+        for e in estrategias:
+            try:
+                perf = self.calcular_performance_estrategia(e)
+                performances[e] = perf
+            except Exception as ex:
+                performances[e] = 0.0
+                logging.warning(f"Erro ao calcular performance de {e}: {ex}")
+        
         return {
             'estrategia_atual': self.estrategia_atual,
             'performances': performances,
@@ -2028,7 +2051,7 @@ class SistemaRoletaCompleto:
         self.estrategia_selecionada = "Zonas"
         self.contador_sorteios_global = 0
         
-        # NOVO: Sistema de rotação inteligente
+        # NOVO: Sistema de rotação inteligente - INICIALIZAÇÃO CORRIGIDA
         self.rotacao_inteligente = SistemaRotacaoInteligente()
         
         # NOVO: Sistema de aprendizado contínuo
@@ -2037,6 +2060,20 @@ class SistemaRoletaCompleto:
         # Sistema de rotação automática (mantido para compatibilidade)
         self.sequencia_erros = 0
         self.ultima_estrategia_erro = ""
+        
+        # GARANTIR que todas as estratégias estão inicializadas no sistema de rotação
+        self._inicializar_estrategias_rotacao()
+    
+    def _inicializar_estrategias_rotacao(self):
+        """Garante que todas as estratégias estão inicializadas no sistema de rotação"""
+        estrategias = ['Zonas', 'ML', 'Midas']
+        for estrategia in estrategias:
+            if estrategia not in self.rotacao_inteligente.performance_historica:
+                self.rotacao_inteligente.performance_historica[estrategia] = {
+                    'acertos': 0, 
+                    'total': 0, 
+                    'performance_media': 0
+                }
 
     def set_estrategia(self, estrategia):
         self.estrategia_selecionada = estrategia
@@ -2200,17 +2237,29 @@ class SistemaRoletaCompleto:
         salvar_sessao()
 
     def get_status_rotacao(self):
-        """Retorna o status atual do sistema de rotação"""
-        status_inteligente = self.rotacao_inteligente.get_status_rotacao()
-        
-        return {
-            'estrategia_atual': self.estrategia_selecionada,
-            'sequencia_erros': self.sequencia_erros,
-            'ultima_estrategia_erro': self.ultima_estrategia_erro,
-            'performances': status_inteligente['performances'],
-            'performance_minima': status_inteligente['performance_minima'],
-            'proxima_avaliacao': status_inteligente['proxima_avaliacao_em']
-        }
+        """Retorna o status atual do sistema de rotação com tratamento robusto"""
+        try:
+            status_inteligente = self.rotacao_inteligente.get_status_rotacao()
+            
+            return {
+                'estrategia_atual': self.estrategia_selecionada,
+                'sequencia_erros': self.sequencia_erros,
+                'ultima_estrategia_erro': self.ultima_estrategia_erro,
+                'performances': status_inteligente['performances'],
+                'performance_minima': status_inteligente['performance_minima'],
+                'proxima_avaliacao': status_inteligente['proxima_avaliacao_em']
+            }
+        except Exception as e:
+            logging.error(f"Erro ao obter status de rotação: {e}")
+            # Retorna um status padrão em caso de erro
+            return {
+                'estrategia_atual': self.estrategia_selecionada,
+                'sequencia_erros': self.sequencia_erros,
+                'ultima_estrategia_erro': self.ultima_estrategia_erro,
+                'performances': {'Zonas': 0.0, 'ML': 0.0, 'Midas': 0.0},
+                'performance_minima': 0.35,
+                'proxima_avaliacao': 20
+            }
 
     def get_analise_temporal(self):
         """Retorna análise de performance temporal"""
@@ -2601,16 +2650,35 @@ else:
     st.write("Nenhum número registrado")
 
 # Status da Rotação Inteligente na Interface Principal
-status_rotacao = st.session_state.sistema.get_status_rotacao()
-col_status1, col_status2, col_status3 = st.columns(3)
-with col_status1:
-    st.metric("🎯 Estratégia Atual", status_rotacao['estrategia_atual'])
-with col_status2:
-    melhor_estrategia = max(status_rotacao['performances'], key=status_rotacao['performances'].get)
-    st.metric("🏆 Melhor Estratégia", f"{melhor_estrategia} ({status_rotacao['performances'][melhor_estrategia]:.1%})")
-with col_status3:
-    perf_atual = status_rotacao['performances'][status_rotacao['estrategia_atual']]
-    st.metric("📊 Performance Atual", f"{perf_atual:.1%}")
+try:
+    status_rotacao = st.session_state.sistema.get_status_rotacao()
+    
+    col_status1, col_status2, col_status3 = st.columns(3)
+    with col_status1:
+        st.metric("🎯 Estratégia Atual", status_rotacao['estrategia_atual'])
+    with col_status2:
+        if status_rotacao['performances']:
+            melhor_estrategia = max(status_rotacao['performances'], key=status_rotacao['performances'].get)
+            st.metric("🏆 Melhor Estratégia", f"{melhor_estrategia} ({status_rotacao['performances'][melhor_estrategia]:.1%})")
+        else:
+            st.metric("🏆 Melhor Estratégia", "N/A")
+    with col_status3:
+        if status_rotacao['estrategia_atual'] in status_rotacao['performances']:
+            perf_atual = status_rotacao['performances'][status_rotacao['estrategia_atual']]
+            st.metric("📊 Performance Atual", f"{perf_atual:.1%}")
+        else:
+            st.metric("📊 Performance Atual", "0.0%")
+            
+except Exception as e:
+    st.error(f"Erro ao carregar status de rotação: {e}")
+    # Mostra valores padrão em caso de erro
+    col_status1, col_status2, col_status3 = st.columns(3)
+    with col_status1:
+        st.metric("🎯 Estratégia Atual", "Zonas")
+    with col_status2:
+        st.metric("🏆 Melhor Estratégia", "N/A")
+    with col_status3:
+        st.metric("📊 Performance Atual", "0.0%")
 
 st.subheader("🎯 Previsão Ativa")
 sistema = st.session_state.sistema
@@ -2720,4 +2788,4 @@ if os.path.exists(HISTORICO_PATH):
     st.download_button("📥 Baixar histórico", data=conteudo, file_name="historico_roleta.json")
 
 # Salvar sessão automaticamente ao final do script
-salvar_sessao()   
+salvar_sessao()
