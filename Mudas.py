@@ -349,6 +349,7 @@ class MLRoletaOtimizada:
         self.seed = seed
 
         self.models = []
+        # CORREÇÃO: Inicializar scaler vazio
         self.scaler = StandardScaler()
         self.feature_names = []
         self.is_trained = False
@@ -675,13 +676,20 @@ class MLRoletaOtimizada:
                 data = joblib.load(ML_MODEL_PATH)
                 self.models = data.get('models', [])
                 self.scaler = joblib.load(SCALER_PATH)
-                if os.path.exists(META_PATH):
-                    self.meta = joblib.load(META_PATH)
-                self.is_trained = len(self.models) > 0
-                return True
+                
+                # CORREÇÃO: Verificar se o scaler foi carregado corretamente
+                if hasattr(self.scaler, 'n_features_in_') and self.scaler.n_features_in_ > 0:
+                    self.is_trained = len(self.models) > 0
+                    logging.info(f"✅ Modelo ML carregado: {len(self.models)} modelos, {self.scaler.n_features_in_} features")
+                    return True
+                else:
+                    logging.warning("❌ Scaler carregado mas não treinado corretamente")
+                    self.is_trained = False
+                    return False
             return False
         except Exception as e:
             logging.error(f"[carregar_modelo] Erro: {e}")
+            self.is_trained = False
             return False
 
     def _ensemble_predict_proba(self, X_scaled):
@@ -709,8 +717,17 @@ class MLRoletaOtimizada:
             return None, "Features insuficientes"
 
         Xs = np.array([feats])
-        Xs_scaled = self.scaler.transform(Xs)
+        
+        # CORREÇÃO: Verificar se o scaler foi treinado
+        if not hasattr(self.scaler, 'n_features_in_') or self.scaler.n_features_in_ == 0:
+            return None, "Scaler não treinado - necessário treinar modelo primeiro"
+        
+        # CORREÇÃO: Verificar compatibilidade de dimensões
+        if len(feats) != self.scaler.n_features_in_:
+            return None, f"Dimensões incompatíveis: features {len(feats)} vs scaler {self.scaler.n_features_in_}"
+        
         try:
+            Xs_scaled = self.scaler.transform(Xs)
             probs = self._ensemble_predict_proba(Xs_scaled)[0]
             top_idx = np.argsort(probs)[-top_k:][::-1]
             top = [(int(idx), float(probs[idx])) for idx in top_idx]
@@ -983,7 +1000,7 @@ class EstrategiaZonasOtimizada:
             anteriores_5 = list(self.historico)[-10:-5]
             
             freq_ultimos = sum(1 for n in ultimos_5 if n in self.numeros_zonas[zona])
-            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona])
+            freq_anteriores = sum(1 for n in anteriores_5 if n in self.numeros_zonas[zona]) if anteriores_5 else 0
             
             if freq_ultimos > freq_anteriores: 
                 fatores.append(3)
@@ -1554,6 +1571,11 @@ class EstrategiaML:
 
         previsao_ml, msg_ml = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
         
+        # CORREÇÃO: Tratar erro na previsão
+        if previsao_ml is None:
+            logging.warning(f"❌ Previsão ML falhou: {msg_ml}")
+            return None
+        
         if previsao_ml:
             top_25_numeros = [num for num, prob in previsao_ml[:25]]
             
@@ -1639,7 +1661,16 @@ class EstrategiaML:
             return "🤖 ML: Aguardando mais dados para análise"
         
         historico_numeros = self.extrair_numeros_historico()
+        
+        # CORREÇÃO: Verificar se há dados suficientes
+        if len(historico_numeros) < 10:
+            return "🤖 ML: Histórico insuficiente para análise"
+        
         previsao_ml, msg = self.ml.prever_proximo_numero(historico_numeros, top_k=25)
+        
+        # CORREÇÃO: Tratar erro na previsão
+        if previsao_ml is None:
+            return f"🤖 ML: {msg}"
         
         if previsao_ml:
             if self.ml.models:
@@ -1691,7 +1722,7 @@ class EstrategiaML:
             
             return analise
         else:
-            return "🤖 ML: Erro na previsão"
+            return f"🤖 ML: {msg}"
 
     def get_estatisticas_padroes(self):
         """Retorna estatísticas dos padrões detectados"""
@@ -2191,6 +2222,13 @@ with st.sidebar.expander("🧠 Treinamento ML", expanded=False):
         st.info(f"🎯 Ensemble: {len(st.session_state.sistema.estrategia_ml.ml.models)} modelos ativos")
     else:
         st.info("🤖 ML aguardando treinamento")
+        
+    # CORREÇÃO: Botão para forçar retreinamento
+    if st.button("🔄 Forçar Retreinamento ML", use_container_width=True):
+        st.session_state.sistema.estrategia_ml.ml.is_trained = False
+        st.session_state.sistema.estrategia_ml.ml.models = []
+        st.session_state.sistema.estrategia_ml.ml.scaler = StandardScaler()
+        st.info("🔄 Modelo ML resetado. Treine novamente.")
 
 # NOVO: Estatísticas de Padrões ML
 with st.sidebar.expander("🔍 Estatísticas de Padrões ML", expanded=False):
@@ -2261,7 +2299,11 @@ with st.sidebar.expander(f"🔍 Análise - {estrategia}", expanded=False):
     if estrategia == "Zonas":
         analise = st.session_state.sistema.estrategia_zonas.get_analise_detalhada()
     elif estrategia == "ML":
-        analise = st.session_state.sistema.estrategia_ml.get_analise_ml()
+        # CORREÇÃO: Adicionar tratamento de erro na análise ML
+        try:
+            analise = st.session_state.sistema.estrategia_ml.get_analise_ml()
+        except Exception as e:
+            analise = f"🤖 ML: Erro na análise - {str(e)}"
     else:
         analise = "🎯 Estratégia Midas ativa\nAnalisando padrões de terminais..."
     
