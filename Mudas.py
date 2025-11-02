@@ -1897,7 +1897,7 @@ class EstrategiaML:
         else:
             return False, f"Histórico insuficiente: {len(historico_numeros)}/{self.ml.min_training_samples} números"
 
-      def get_analise_ml(self):
+    def get_analise_ml(self):
         if not self.ml.is_trained:
             return "🤖 ML: Modelo não treinado"
         
