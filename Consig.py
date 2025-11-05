@@ -43,16 +43,27 @@ st.write(" ")
 
 # ----- Sidebar: inputs -----
 st.sidebar.header("Parâmetros do contrato atual")
+
+# Novos inputs requisitados pelo usuário
+total_parcelas_orig = st.sidebar.number_input("Total de parcelas do contrato original", min_value=1, value=60, step=1)
+parcelas_pagas = st.sidebar.number_input("Parcelas já pagas", min_value=0, value=42, step=1)
+# garante consistência
+if parcelas_pagas > total_parcelas_orig:
+    st.sidebar.error("Parcelas já pagas não pode ser maior que o total de parcelas do contrato original.")
+parcelas_restantes_builtin = max(0, int(total_parcelas_orig - parcelas_pagas))
+st.sidebar.write(f"Parcelas restantes (calculadas): {parcelas_restantes_builtin}")
+
 input_mode = st.sidebar.radio("Como informar o saldo atual?", ("Informar Saldo Atual", "Calcular do pagamento atual"))
 
 if input_mode == "Informar Saldo Atual":
     saldo_atual = st.sidebar.number_input("Saldo devedor atual (R$)", min_value=0.0, value=5000.0, step=100.0, format="%.2f")
-    # keep placeholders for others to compute if desired
     parcela_atual = st.sidebar.number_input("Parcela atual (opcional, R$)", min_value=0.0, value=350.0, step=10.0, format="%.2f")
-    parcelas_restantes = st.sidebar.number_input("Parcelas restantes (opcional)", min_value=0, value=18, step=1)
+    # se o usuário preferir, pode usar as parcelas calculadas acima
+    parcelas_restantes = st.sidebar.number_input("Parcelas restantes (opcional)", min_value=0, value=parcelas_restantes_builtin, step=1)
 else:
     parcela_atual = st.sidebar.number_input("Parcela atual (R$)", min_value=1.0, value=350.0, step=10.0, format="%.2f")
-    parcelas_restantes = st.sidebar.number_input("Parcelas restantes", min_value=1, value=18, step=1)
+    # usa parcelas restantes calculadas do contrato original por padrão
+    parcelas_restantes = st.sidebar.number_input("Parcelas restantes", min_value=1, value=parcelas_restantes_builtin if parcelas_restantes_builtin>0 else 18, step=1)
     saldo_atual = None
 
 st.sidebar.header("Condições do refinanciamento (novo contrato)")
@@ -80,14 +91,22 @@ with col1:
     else:
         st.write("Saldo será calculado a partir da parcela atual e parcelas restantes (presupõe-se amortização padrão).")
         st.write(f"**Parcela atual:** R$ {parcela_atual:,.2f}")
-        st.write(f"**Parcelas restantes:** {int(parcelas_restantes)}")
+        st.write(f"**Parcelas restantes (usadas):** {int(parcelas_restantes)}")
 
 with col2:
     st.subheader("Escolha do que deseja")
     if opcao == "Pegar troco (cashback)":
-        troco_desejado = st.number_input("Valor de troco desejado (R$)", min_value=0.0, value=1000.0, step=50.0, format="%.2f")
-        novo_prazo = st.number_input("Novo prazo (meses) — opcional", min_value=1, value=36, step=1)
-        manter_parcela = None
+        # NOVA LOGICA: modo de troco
+        modo_troco = st.radio("Modo de troco:", ("Calcular troco máximo mantendo parcela atual", "Informar troco manualmente"))
+        if modo_troco == "Informar troco manualmente":
+            troco_desejado = st.number_input("Valor de troco desejado (R$)", min_value=0.0, value=1000.0, step=50.0, format="%.2f")
+            novo_prazo = st.number_input("Novo prazo (meses) — opcional", min_value=1, value=36, step=1)
+            manter_parcela = None
+        else:
+            # cálculo do troco máximo
+            novo_prazo = st.number_input("Novo prazo (meses) para o novo contrato (usado no cálculo do troco máximo)", min_value=1, value=36, step=1)
+            manter_parcela = st.number_input("Parcela atual a ser mantida (R$) — normalmente sua parcela atual", min_value=1.0, value=parcela_atual if parcela_atual>0 else 350.0, step=10.0, format="%.2f")
+            troco_desejado = None
     elif opcao == "Diminuir parcela mantendo prazo":
         troco_desejado = st.number_input("Troco (se quiser, R$)", min_value=0.0, value=0.0, step=50.0, format="%.2f")
         novo_prazo = st.number_input("Novo prazo (meses)", min_value=1, value=parcelas_restantes if parcelas_restantes>0 else 36, step=1)
@@ -120,7 +139,6 @@ def n_from_pv_pmt(pv, pmt, i):
         return None  # não é suficiente para cobrir juros
     if i == 0:
         return pv / pmt
-    # n = -log(1 - pv*i/pmt) / log(1+i)
     try:
         n = -math.log(1 - pv * i / pmt) / math.log(1 + i)
         return n
@@ -136,27 +154,64 @@ if input_mode == "Calcular do pagamento atual":
 
 saldo_atual = float(saldo_atual)
 
-# new principal = saldo_atual + troco + tarifa
-troco = troco_desejado if 'troco_desejado' in locals() else 0.0
-novo_principal = saldo_atual + troco + tarifa
+# ----- Lógica especial para 'Pegar troco' com modo calcular troco máximo -----
+troco = 0.0
+novo_principal = None
+
+if opcao == "Pegar troco (cashback)" and 'modo_troco' in locals() and modo_troco == "Calcular troco máximo mantendo parcela atual":
+    # queremos calcular troco_max tal que: PV_novo = PV_max = parcela_mantida * (1 - (1+i)^-n) / i
+    # então troco_max = PV_max - saldo_atual - tarifa
+    PV_max = pv_of_annuity(manter_parcela, taxa_mensal, int(novo_prazo))
+    troco_max = PV_max - saldo_atual - tarifa
+    # troco não pode ser negativo: se negativo → não tem troco possível mantendo parcela
+    if troco_max < 0:
+        troco_max = 0.0
+        aviso_troco = "Nenhum troco disponível mantendo a parcela atual (ou parcela atual é muito baixa para este prazo/taxa)."
+    else:
+        aviso_troco = None
+    troco = troco_max
+    novo_principal = saldo_atual + troco + tarifa
+elif opcao == "Pegar troco (cashback)" and 'modo_troco' in locals() and modo_troco == "Informar troco manualmente":
+    troco = float(troco_desejado)
+    novo_principal = saldo_atual + troco + tarifa
+else:
+    # outros cenários: troco informado ou zero
+    troco = float(troco_desejado) if 'troco_desejado' in locals() and troco_desejado is not None else 0.0
+    novo_principal = saldo_atual + troco + tarifa
 
 # ----- Calculations by scenario -----
 st.markdown("## Resultado da Simulação")
 resumo = {}
 
 if opcao == "Pegar troco (cashback)":
-    # user gave novo_prazo
-    n = int(novo_prazo)
-    nova_parcela = pmt_from_pv(novo_principal, taxa_mensal, n)
-    resumo['Objetivo'] = 'Troco (cashback)'
-    resumo['Saldo atual'] = saldo_atual
-    resumo['Troco desejado'] = troco
-    resumo['Tarifa/IOF'] = tarifa
-    resumo['Novo principal (saldo+troco+tarifa)'] = novo_principal
-    resumo['Novo prazo (meses)'] = n
-    resumo['Nova parcela (R$)'] = nova_parcela
-    resumo['Taxa anual (%)'] = taxa_anuaria
-    resumo['Taxa mensal (%)'] = taxa_mensal*100
+    if 'modo_troco' in locals() and modo_troco == "Calcular troco máximo mantendo parcela atual":
+        n = int(novo_prazo)
+        nova_parcela = pmt_from_pv(novo_principal, taxa_mensal, n)
+        resumo['Objetivo'] = 'Troco (calculado mantendo parcela atual)'
+        resumo['Saldo atual'] = saldo_atual
+        resumo['Parcela mantida (R$)'] = manter_parcela
+        resumo['Troco calculado (R$)'] = troco
+        if aviso_troco:
+            resumo['Aviso troco'] = aviso_troco
+        resumo['Tarifa/IOF'] = tarifa
+        resumo['Novo principal (saldo+troco+tarifa)'] = novo_principal
+        resumo['Novo prazo (meses)'] = n
+        resumo['Nova parcela (R$)'] = nova_parcela
+        resumo['Taxa anual (%)'] = taxa_anuaria
+        resumo['Taxa mensal (%)'] = taxa_mensal*100
+    else:
+        # troco manual
+        n = int(novo_prazo)
+        nova_parcela = pmt_from_pv(novo_principal, taxa_mensal, n)
+        resumo['Objetivo'] = 'Troco (manual)'
+        resumo['Saldo atual'] = saldo_atual
+        resumo['Troco desejado'] = troco
+        resumo['Tarifa/IOF'] = tarifa
+        resumo['Novo principal (saldo+troco+tarifa)'] = novo_principal
+        resumo['Novo prazo (meses)'] = n
+        resumo['Nova parcela (R$)'] = nova_parcela
+        resumo['Taxa anual (%)'] = taxa_anuaria
+        resumo['Taxa mensal (%)'] = taxa_mensal*100
 
 elif opcao == "Diminuir parcela mantendo prazo":
     n = int(novo_prazo)
@@ -188,34 +243,22 @@ else:  # Diminuir prazo mantendo parcela
         prazo_mes = None
     else:
         prazo_mes = math.ceil(n_calc)
-        # recompute with prazo inteiro to show parcela real (ou manter parcela -> pode sobrar pequena parcela final)
         resumo['Novo prazo estimado (meses)'] = n_calc
         resumo['Novo prazo arredondado (meses)'] = prazo_mes
-        # se quisermos, calcular a parcela real para prazo arredondado (deve ser <= parcela mantida)
         pmt_real = pmt_from_pv(novo_principal, taxa_mensal, prazo_mes)
         resumo['Parcela efetiva para prazo arredondado (R$)'] = pmt_real
 
 # ----- Mostrar resultados -----
-df = pd.DataFrame.from_dict(resumo, orient='index', columns=['Valor'])
-# format numeric values
-def fmt(v):
-    if isinstance(v, float):
-        return f"R$ {v:,.2f}" if abs(v) >= 1 else f"{v:.6f}"
-    if isinstance(v, int):
-        return str(v)
-    return str(v)
-
 st.write("")
 left, right = st.columns([2,1])
 with left:
     st.subheader("Resumo rápido")
     for k,v in resumo.items():
         if isinstance(v, (int, float)):
-            # show monetary for keys containing certain words
             if any(word in k.lower() for word in ["saldo","troco","tarifa","parcela","principal"]):
                 st.write(f"**{k}:** R$ {float(v):,.2f}")
             elif "taxa" in k.lower():
-                st.write(f"**{k}:** {float(v):.4f}" + ("%" if "taxa" in k.lower() else ""))
+                st.write(f"**{k}:** {float(v):.4f}" + ("%"))
             else:
                 st.write(f"**{k}:** {v}")
         else:
@@ -224,6 +267,9 @@ with left:
 with right:
     st.subheader("Detalhes / Números")
     st.table(pd.DataFrame([
+        ["Total parcelas originais", f"{int(total_parcelas_orig)}"],
+        ["Parcelas já pagas", f"{int(parcelas_pagas)}"],
+        ["Parcelas restantes (calculadas)", f"{int(parcelas_restantes_builtin)}"],
         ["Saldo atual (R$)", f"{saldo_atual:,.2f}"],
         ["Troco (R$)", f"{troco:,.2f}"],
         ["Tarifa (R$)", f"{tarifa:,.2f}"],
@@ -234,10 +280,9 @@ with right:
 
 st.write("---")
 
-# ----- Amortization sample table (primeiras 12 meses) -----
+# ----- Amortization sample table (primeiras 24 meses) -----
 st.subheader("Projeção de amortização (primeiros 24 meses do novo contrato)")
 
-# decide n_display and pmt to use
 if opcao == "Diminuir prazo mantendo parcela" and resumo.get('Obs') is not None:
     st.error(resumo['Obs'])
 else:
@@ -252,7 +297,6 @@ else:
         n_display = int(novo_prazo) if novo_prazo is not None else 24
         pmt_use = pmt_from_pv(novo_principal, taxa_mensal, n_display)
 
-    # build amortization for up to 24 months or n_display
     rows = []
     bal = novo_principal
     months = min(n_display, 24)
@@ -281,7 +325,6 @@ st.write("---")
 st.subheader("Exportar resultados")
 
 csv_buffer = StringIO()
-# create results CSV
 out_df = pd.DataFrame([
     {"chave": k, "valor": (v if not isinstance(v, float) else round(v,4))} for k,v in resumo.items()
 ])
