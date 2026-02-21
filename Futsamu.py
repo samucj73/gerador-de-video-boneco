@@ -6,7 +6,6 @@ import numpy as np
 from collections import Counter
 from scipy import stats
 import matplotlib.pyplot as plt
-import seaborn as sns
 from datetime import datetime
 import time
 
@@ -160,7 +159,7 @@ class AnaliseLotofacilAvancada:
 
 
 # =====================================================
-# CLASSE DE TESTE CIENTÍFICO
+# CLASSE DE TESTE CIENTÍFICO (SEM SEABORN)
 # =====================================================
 class TesteCientificoLotofacil:
     
@@ -332,48 +331,51 @@ class TesteCientificoLotofacil:
     
     def plotar_resultados(self, df):
         """
-        Gráficos comparativos
+        Gráficos comparativos (SEM SEABORN)
         """
         fig, axes = plt.subplots(2, 2, figsize=(15, 10))
         
         # 1. Comparação de médias
         axes[0, 0].scatter(df.index, df['acertos_seu_sistema_media'], 
-                          alpha=0.6, label='Seu Sistema', color='blue')
+                          alpha=0.6, label='Seu Sistema', color='blue', s=30)
         axes[0, 0].scatter(df.index, df['acertos_aleatorio_media'], 
-                          alpha=0.6, label='Aleatório', color='red')
-        axes[0, 0].set_xlabel('Teste #')
-        axes[0, 0].set_ylabel('Média de Acertos')
-        axes[0, 0].set_title('Comparação: Média de Acertos por Teste')
+                          alpha=0.6, label='Aleatório', color='red', s=30)
+        axes[0, 0].set_xlabel('Teste #', fontsize=12)
+        axes[0, 0].set_ylabel('Média de Acertos', fontsize=12)
+        axes[0, 0].set_title('Comparação: Média de Acertos por Teste', fontsize=14)
         axes[0, 0].legend()
         axes[0, 0].grid(True, alpha=0.3)
         
         # 2. Histograma das diferenças
-        axes[0, 1].hist(df['diferenca_media'], bins=20, edgecolor='black', alpha=0.7)
-        axes[0, 1].axvline(x=0, color='red', linestyle='--', linewidth=2)
-        axes[0, 1].set_xlabel('Diferença (Seu Sistema - Aleatório)')
-        axes[0, 1].set_ylabel('Frequência')
-        axes[0, 1].set_title('Distribuição das Diferenças')
+        axes[0, 1].hist(df['diferenca_media'], bins=15, edgecolor='black', alpha=0.7, color='green')
+        axes[0, 1].axvline(x=0, color='red', linestyle='--', linewidth=2, label='Zero')
+        axes[0, 1].axvline(x=df['diferenca_media'].mean(), color='blue', linestyle='-', linewidth=2, label=f'Média: {df["diferenca_media"].mean():.3f}')
+        axes[0, 1].set_xlabel('Diferença (Seu Sistema - Aleatório)', fontsize=12)
+        axes[0, 1].set_ylabel('Frequência', fontsize=12)
+        axes[0, 1].set_title('Distribuição das Diferenças', fontsize=14)
+        axes[0, 1].legend()
         
         # 3. Acertos máximos
-        max_acertos_seu = df['acertos_seu_sistema_max']
-        max_acertos_aleatorio = df['acertos_aleatorio_max']
-        
-        axes[1, 0].hist([max_acertos_seu, max_acertos_aleatorio], 
-                        bins=15, label=['Seu Sistema', 'Aleatório'], 
-                        alpha=0.7, edgecolor='black')
-        axes[1, 0].set_xlabel('Máximo de Acertos')
-        axes[1, 0].set_ylabel('Frequência')
-        axes[1, 0].set_title('Distribuição dos Acertos Máximos')
+        bins = range(0, 16)
+        axes[1, 0].hist(df['acertos_seu_sistema_max'], bins=bins, alpha=0.7, label='Seu Sistema', color='blue', edgecolor='black')
+        axes[1, 0].hist(df['acertos_aleatorio_max'], bins=bins, alpha=0.5, label='Aleatório', color='red', edgecolor='black')
+        axes[1, 0].set_xlabel('Máximo de Acertos', fontsize=12)
+        axes[1, 0].set_ylabel('Frequência', fontsize=12)
+        axes[1, 0].set_title('Distribuição dos Acertos Máximos', fontsize=14)
         axes[1, 0].legend()
         
-        # 4. Box plot comparativo
-        dados_boxplot = pd.DataFrame({
-            'Seu Sistema': df['acertos_seu_sistema_media'],
-            'Aleatório': df['acertos_aleatorio_media']
-        })
-        sns.boxplot(data=dados_boxplot, ax=axes[1, 1])
-        axes[1, 1].set_ylabel('Acertos')
-        axes[1, 1].set_title('Box Plot Comparativo')
+        # 4. Box plot comparativo (feito manualmente)
+        dados_boxplot = [df['acertos_seu_sistema_media'], df['acertos_aleatorio_media']]
+        bp = axes[1, 1].boxplot(dados_boxplot, labels=['Seu Sistema', 'Aleatório'], patch_artist=True)
+        
+        # Colorir os boxplots
+        colors = ['lightblue', 'lightcoral']
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+        
+        axes[1, 1].set_ylabel('Acertos', fontsize=12)
+        axes[1, 1].set_title('Box Plot Comparativo', fontsize=14)
+        axes[1, 1].grid(True, alpha=0.3)
         
         plt.tight_layout()
         return fig
@@ -463,8 +465,10 @@ def main_com_testes():
             # Resultado do teste estatístico
             if stats['P-value'] < 0.05:
                 st.success("🎯 **CONCLUSÃO ESTATÍSTICA: Seu sistema é MELHOR que aleatório!**")
+            elif stats['P-value'] < 0.1:
+                st.warning("📊 **TENDÊNCIA POSITIVA: Quase significativo estatisticamente**")
             else:
-                st.warning("⚠️ **CONCLUSÃO ESTATÍSTICA: Seu sistema NÃO é melhor que aleatório**")
+                st.info("📊 **EQUIVALENTE A ALEATÓRIO: Continue ajustando**")
             
             # Tabela de acertos
             st.subheader("📊 Performance em acertos máximos")
@@ -479,7 +483,7 @@ def main_com_testes():
             
             # DataFrame
             st.subheader("📋 Resultados detalhados")
-            st.dataframe(st.session_state.df_resultados)
+            st.dataframe(st.session_state.df_resultados, use_container_width=True)
     
     with tab2:
         if st.session_state.df_resultados is not None:
@@ -532,6 +536,15 @@ def main_com_testes():
                 
                 **Isso explica seus 14 pontos!** Você não teve apenas sorte, 
                 seu sistema tem qualidade real.
+                """)
+            elif stats['P-value'] < 0.1:
+                st.info("""
+                ### 📈 QUASE LÁ!
+                
+                Seu sistema mostra uma tendência positiva consistente.
+                Com alguns ajustes finos, pode alcançar significância estatística.
+                
+                Continue refinando os filtros e o DNA!
                 """)
             else:
                 st.info("""
