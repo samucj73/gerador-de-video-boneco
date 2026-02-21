@@ -11,6 +11,155 @@ from datetime import datetime
 import time
 
 # =====================================================
+# CLASSE PRINCIPAL - SUA CLASSE ORIGINAL
+# =====================================================
+class AnaliseLotofacilAvancada:
+    def __init__(self, concursos):
+        self.concursos = concursos
+        self.total_concursos = len(concursos)
+        self.numeros = list(range(1, 26))
+
+        self.frequencias = self._frequencias()
+        self.defasagens = self._defasagens()
+        self.padroes = self._padroes()
+        self.numeros_chave = self._numeros_chave()
+
+        self.dna = self._dna_inicial()
+
+    # =================================================
+    # DNA
+    # =================================================
+    def _dna_inicial(self):
+        return {
+            "freq": 1.0,
+            "defas": 1.0,
+            "soma": 1.0,
+            "pares": 1.0,
+            "seq": 1.0,
+            "chave": 1.0
+        }
+
+    # =================================================
+    # ESTATÍSTICAS
+    # =================================================
+    def _frequencias(self):
+        c = Counter()
+        for con in self.concursos:
+            c.update(con)
+        return {n: c[n] / self.total_concursos for n in self.numeros}
+
+    def _defasagens(self):
+        d = {}
+        for n in self.numeros:
+            for i, c in enumerate(self.concursos):
+                if n in c:
+                    d[n] = i
+                    break
+            else:
+                d[n] = self.total_concursos
+        return d
+
+    def _padroes(self):
+        return {
+            "somas": [sum(c) for c in self.concursos],
+            "pares": [sum(1 for n in c if n % 2 == 0) for c in self.concursos]
+        }
+
+    def _numeros_chave(self):
+        c = Counter()
+        for con in self.concursos[:20]:
+            c.update(con)
+        return [n for n, q in c.items() if q >= 10]
+
+    # =================================================
+    # SCORE
+    # =================================================
+    def score_numero(self, n):
+        return (
+            self.frequencias[n] * self.dna["freq"] +
+            (1 - self.defasagens[n] / self.total_concursos) * self.dna["defas"] +
+            (self.dna["chave"] if n in self.numeros_chave else 0)
+        )
+
+    # =================================================
+    # FECHAMENTO
+    # =================================================
+    def gerar_fechamento(self, tamanho):
+        scores = {n: self.score_numero(n) for n in self.numeros}
+        base = sorted(scores, key=scores.get, reverse=True)[:tamanho]
+        return sorted(base)
+
+    def gerar_jogos(self, fechamento, qtd):
+        jogos = set()
+        while len(jogos) < qtd:
+            j = sorted(random.sample(fechamento, 15))
+            soma = sum(j)
+            pares = sum(1 for n in j if n % 2 == 0)
+            if 180 <= soma <= 220 and 6 <= pares <= 9:
+                jogos.add(tuple(j))
+        return [list(j) for j in jogos]
+
+    # =================================================
+    # CONFERÊNCIA
+    # =================================================
+    def conferir(self, jogos, resultado):
+        dados = []
+        for i, j in enumerate(jogos, 1):
+            dados.append({
+                "Jogo": i,
+                "Dezenas": ", ".join(f"{n:02d}" for n in j),
+                "Acertos": len(set(j) & set(resultado)),
+                "Soma": sum(j),
+                "Pares": sum(1 for n in j if n % 2 == 0)
+            })
+        return pd.DataFrame(dados)
+
+    # =================================================
+    # APRENDIZADO (11–14)
+    # =================================================
+    def reforcar_dna_por_acertos(self, jogos, resultado):
+        for jogo in jogos:
+            acertos = len(set(jogo) & set(resultado))
+            if acertos < 11:
+                continue
+
+            reforco = {11: 0.02, 12: 0.04, 13: 0.06, 14: 0.08}.get(acertos, 0)
+
+            soma = sum(jogo)
+            pares = sum(1 for n in jogo if n % 2 == 0)
+
+            if soma >= np.mean(self.padroes["somas"]):
+                self.dna["soma"] += reforco
+
+            if pares >= np.mean(self.padroes["pares"]):
+                self.dna["pares"] += reforco
+
+            # sequência
+            max_seq, atual = 1, 1
+            for i in range(1, len(jogo)):
+                if jogo[i] == jogo[i-1] + 1:
+                    atual += 1
+                    max_seq = max(max_seq, atual)
+                else:
+                    atual = 1
+
+            if max_seq >= 3:
+                self.dna["seq"] += reforco
+
+            for n in jogo:
+                if self.frequencias[n] >= 0.5:
+                    self.dna["freq"] += reforco / 15
+                if self.defasagens[n] <= 10:
+                    self.dna["defas"] += reforco / 15
+
+            if any(n in self.numeros_chave for n in jogo):
+                self.dna["chave"] += reforco
+
+        for k in self.dna:
+            self.dna[k] = max(0.5, min(2.0, self.dna[k]))
+
+
+# =====================================================
 # CLASSE DE TESTE CIENTÍFICO
 # =====================================================
 class TesteCientificoLotofacil:
@@ -229,6 +378,7 @@ class TesteCientificoLotofacil:
         plt.tight_layout()
         return fig
 
+
 # =====================================================
 # INTERFACE STREAMLIT PARA TESTES
 # =====================================================
@@ -392,157 +542,9 @@ def main_com_testes():
                 pode alcançar significância estatística.
                 """)
 
+
+# =====================================================
+# EXECUÇÃO PRINCIPAL
+# =====================================================
 if __name__ == "__main__":
-    # Copie sua classe AnaliseLotofacilAvancada para aqui
-    # (mantenha exatamente como você tem)
-# =====================================================
-# CLASSE PRINCIPAL
-# =====================================================
-    class AnaliseLotofacilAvancada:
-
-    def __init__(self, concursos):
-        self.concursos = concursos
-        self.total_concursos = len(concursos)
-        self.numeros = list(range(1, 26))
-
-        self.frequencias = self._frequencias()
-        self.defasagens = self._defasagens()
-        self.padroes = self._padroes()
-        self.numeros_chave = self._numeros_chave()
-
-        self.dna = self._dna_inicial()
-
-    # =================================================
-    # DNA
-    # =================================================
-    def _dna_inicial(self):
-        return {
-            "freq": 1.0,
-            "defas": 1.0,
-            "soma": 1.0,
-            "pares": 1.0,
-            "seq": 1.0,
-            "chave": 1.0
-        }
-
-    # =================================================
-    # ESTATÍSTICAS
-    # =================================================
-    def _frequencias(self):
-        c = Counter()
-        for con in self.concursos:
-            c.update(con)
-        return {n: c[n] / self.total_concursos for n in self.numeros}
-
-    def _defasagens(self):
-        d = {}
-        for n in self.numeros:
-            for i, c in enumerate(self.concursos):
-                if n in c:
-                    d[n] = i
-                    break
-            else:
-                d[n] = self.total_concursos
-        return d
-
-    def _padroes(self):
-        return {
-            "somas": [sum(c) for c in self.concursos],
-            "pares": [sum(1 for n in c if n % 2 == 0) for c in self.concursos]
-        }
-
-    def _numeros_chave(self):
-        c = Counter()
-        for con in self.concursos[:20]:
-            c.update(con)
-        return [n for n, q in c.items() if q >= 10]
-
-    # =================================================
-    # SCORE
-    # =================================================
-    def score_numero(self, n):
-        return (
-            self.frequencias[n] * self.dna["freq"] +
-            (1 - self.defasagens[n] / self.total_concursos) * self.dna["defas"] +
-            (self.dna["chave"] if n in self.numeros_chave else 0)
-        )
-
-    # =================================================
-    # FECHAMENTO
-    # =================================================
-    def gerar_fechamento(self, tamanho):
-        scores = {n: self.score_numero(n) for n in self.numeros}
-        base = sorted(scores, key=scores.get, reverse=True)[:tamanho]
-        return sorted(base)
-
-    def gerar_jogos(self, fechamento, qtd):
-        jogos = set()
-        while len(jogos) < qtd:
-            j = sorted(random.sample(fechamento, 15))
-            soma = sum(j)
-            pares = sum(1 for n in j if n % 2 == 0)
-            if 180 <= soma <= 220 and 6 <= pares <= 9:
-                jogos.add(tuple(j))
-        return [list(j) for j in jogos]
-
-    # =================================================
-    # CONFERÊNCIA
-    # =================================================
-    def conferir(self, jogos, resultado):
-        dados = []
-        for i, j in enumerate(jogos, 1):
-            dados.append({
-                "Jogo": i,
-                "Dezenas": ", ".join(f"{n:02d}" for n in j),
-                "Acertos": len(set(j) & set(resultado)),
-                "Soma": sum(j),
-                "Pares": sum(1 for n in j if n % 2 == 0)
-            })
-        return pd.DataFrame(dados)
-
-    # =================================================
-    # APRENDIZADO (11–14)
-    # =================================================
-    def reforcar_dna_por_acertos(self, jogos, resultado):
-        for jogo in jogos:
-            acertos = len(set(jogo) & set(resultado))
-            if acertos < 11:
-                continue
-
-            reforco = {11: 0.02, 12: 0.04, 13: 0.06, 14: 0.08}.get(acertos, 0)
-
-            soma = sum(jogo)
-            pares = sum(1 for n in jogo if n % 2 == 0)
-
-            if soma >= np.mean(self.padroes["somas"]):
-                self.dna["soma"] += reforco
-
-            if pares >= np.mean(self.padroes["pares"]):
-                self.dna["pares"] += reforco
-
-            # sequência
-            max_seq, atual = 1, 1
-            for i in range(1, len(jogo)):
-                if jogo[i] == jogo[i-1] + 1:
-                    atual += 1
-                    max_seq = max(max_seq, atual)
-                else:
-                    atual = 1
-
-            if max_seq >= 3:
-                self.dna["seq"] += reforco
-
-            for n in jogo:
-                if self.frequencias[n] >= 0.5:
-                    self.dna["freq"] += reforco / 15
-                if self.defasagens[n] <= 10:
-                    self.dna["defas"] += reforco / 15
-
-            if any(n in self.numeros_chave for n in jogo):
-                self.dna["chave"] += reforco
-
-        for k in self.dna:
-            self.dna[k] = max(0.5, min(2.0, self.dna[k]))
-
-    # Execute o teste
     main_com_testes()
