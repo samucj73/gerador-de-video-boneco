@@ -395,10 +395,10 @@ def main_com_testes():
 if __name__ == "__main__":
     # Copie sua classe AnaliseLotofacilAvancada para aqui
     # (mantenha exatamente como você tem)
-    # =====================================================
+# =====================================================
 # CLASSE PRINCIPAL
 # =====================================================
-class AnaliseLotofacilAvancada:
+    class AnaliseLotofacilAvancada:
 
     def __init__(self, concursos):
         self.concursos = concursos
